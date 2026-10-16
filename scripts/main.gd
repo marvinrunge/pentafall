@@ -2,6 +2,7 @@ extends Node3D
 class_name MainController
 
 const IntroTour := preload("res://scripts/intro_tour.gd")
+const WildlifeManager := preload("res://scripts/wildlife_manager.gd")
 
 @export var player_scene: PackedScene = preload("res://scenes/misc/player.tscn")
 @export var myr_scene: PackedScene = preload("res://scenes/misc/myr.tscn")
@@ -579,6 +580,13 @@ func _start_match() -> void:
 	add_child(wave_manager)
 	wave_manager.start_waves(self)
 
+	# The wild beasts in the biomes, living alongside the waves rather than in them. Needs the
+	# navmesh for their homes, which is why it starts here and not in _ready.
+	var wildlife: Node = WildlifeManager.new()
+	wildlife.name = "WildlifeManager"
+	add_child(wildlife)
+	wildlife.setup(self)
+
 ## Undoes leakage, up to whatever is actually missing. Server-only for the same reason
 ## damage is: five peers each healing their own copy would disagree instantly.
 func repair_crystal(amount: float) -> float:
@@ -825,6 +833,10 @@ func _spawn_enemy(data: Variant) -> Node:
 	# copy is rebuilt small and rooted too.
 	if bool(info.get("sapling", false)):
 		enemy.set_meta("sapling", true)
+	# A wild beast's rolled size (WildlifeManager): its scale and its numbers, so it travels
+	# with the spawn like the colour does.
+	if info.has("beast_size"):
+		enemy.set_meta("beast_size", float(info["beast_size"]))
 	# setup() has to wait for _ready, and the client reaches this the same way, so the
 	# colour/class pair travels in the spawn argument rather than as a pre-applied
 	# resource that could not replicate.

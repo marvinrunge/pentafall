@@ -921,6 +921,26 @@ func get_tier_cost(tier_index: int) -> int:
 ## Whispersilk Cloak: seconds enemies overlook the player after each kill of theirs.
 @export var equipment_whispersilk_cloak_duration: float = 2.0
 
+# --- Beast equipment ---------------------------------------------------------------------------
+# Found on the wild beasts instead of the bosses (docs/BEASTS_PLAN.md), one piece per biome. The
+# chance a kill drops one is this times the beast's size, so a 5x giant drops about as
+# reliably as a boss; like a boss's, only pieces the team does not have yet are in the draw.
+@export var equipment_beast_drop_chance: float = 0.12
+## Vorrac Battlehorns (green): seconds a melee hit stuns a beast, an elite or a miniboss - and
+## how long before the same one can be stunned by it again, so it is a stagger, not a lock.
+@export var equipment_vorrac_battlehorns_stun: float = 0.5
+@export var equipment_vorrac_battlehorns_cooldown: float = 4.0
+## Bonesplitter (red): extra damage, as a share, of a melee hit on an enemy still at full health.
+@export var equipment_bonesplitter_bonus: float = 1.0
+## Explorer's Scope (blue): the wearer's minimap shows the beasts in their biome's colour, sized
+## by how big they are. A flag: anything above 0 is on.
+@export var equipment_explorers_scope_reveal: float = 1.0
+## Leonin Scimitar (white): extra damage, as a share, of a melee hit on an enemy that is
+## attacking a myr or another player.
+@export var equipment_leonin_scimitar_bonus: float = 0.5
+## Nim Deathmantle (black): seconds a beast the wearer killed fights on as their ghoul.
+@export var equipment_nim_deathmantle_duration: float = 25.0
+
 
 # ============================================================
 # SKILL RANKS
@@ -1356,6 +1376,124 @@ func rank_level_requirement(rank: int) -> int:
 @export var enemy_death_land_dust_speed: float = 4.0
 
 # ============================================================
+# BEASTS
+# ============================================================
+# Wild beasts living in the biomes, independent of the waves (docs/BEASTS_PLAN.md). They are
+# enemies of class "Beast" (scripts/beast_database.gd): they never walk to the crystal, never
+# count towards a wave, and fall back to their home - where they were put down - when
+# nothing is in reach. Their own stats are per species in BeastDatabase.SPECIES.
+
+## How close a player, myr or decoy has to come before a beast goes for it, metres.
+@export var beast_aggro_radius: float = 11.0
+## Within this of where it is walking - home, or a spot it wanders to - a beast has arrived, metres.
+@export var beast_home_arrive_distance: float = 2.0
+
+# --- Size ------------------------------------------------------------------------------------
+#
+# Every beast is rolled a size when it spawns, 1x up to beast_size_max, and the later the wave
+# the bigger it may come: the largest size possible climbs from beast_size_cap_start at wave 1
+# to beast_size_max at beast_size_cap_full_wave, and within that cap small stays more likely
+# than big (beast_size_skew). See BeastDatabase.roll_size.
+#
+# Size is strength. Health grows faster than damage, so a giant is mostly a long fight rather
+# than a one-shot; it reaches as far as it is big, and notices, wanders and chases about the
+# square root of that further. It also animates slower, the way a boss does.
+
+@export var beast_size_max: float = 5.0
+@export var beast_size_cap_start: float = 1.5
+@export var beast_size_cap_full_wave: int = 25
+## Exponent on the roll's random draw: 1 is even across the range, higher favours small.
+@export var beast_size_skew: float = 2.0
+## Health and damage multiply by size to these powers: at 5x, about 8x health and 3x damage.
+@export var beast_size_health_exponent: float = 1.3
+@export var beast_size_damage_exponent: float = 0.7
+## Movement speed multiplies by size to this power - a giant covers more ground per stride.
+@export var beast_size_speed_exponent: float = 0.35
+## Animation playback slows by size to this power, clamped to beast_size_anim_min.
+@export var beast_size_anim_exponent: float = 0.4
+@export var beast_size_anim_min: float = 0.5
+## From this size on a beast is an alpha, and its health bar says so.
+@export var beast_alpha_size: float = 3.0
+
+# --- Spawning (WildlifeManager) ---------------------------------------------------------------
+#
+# Each biome keeps up to beast_max_per_biome beasts, waves and Upkeep alike. A beast's home is a
+# navmesh point inside its biome's wedge, well off the lane the waves walk, away from the hub,
+# from water, from the other beasts' homes, and out of every player's sight when it appears.
+
+@export var beast_max_per_biome: int = 2
+## Seconds into the match before the first beasts appear, and between two in the same biome.
+@export var beast_first_spawn_delay: float = 20.0
+@export var beast_spawn_stagger: float = 8.0
+## Seconds after a beast dies before its biome replaces it (random in between).
+@export var beast_respawn_min: float = 60.0
+@export var beast_respawn_max: float = 120.0
+## How often the biomes are checked for a beast to add, seconds.
+@export var beast_spawn_check_interval: float = 2.0
+## A home is at least this far from any lane's enemy path, metres.
+@export var beast_lane_clearance: float = 22.0
+## ...this far from the crystal - the hub belongs to the defence...
+@export var beast_min_crystal_distance: float = 75.0
+## ...this far from every player, so nothing pops into being on screen...
+@export var beast_spawn_player_distance: float = 45.0
+## ...and this far from every other beast's home, so territories do not overlap.
+@export var beast_home_spacing: float = 30.0
+## Degrees kept clear of the seams between two biomes' wedges.
+@export var beast_wedge_margin_degrees: float = 6.0
+## Random points tried per biome per check before it waits for the next one.
+@export var beast_spawn_attempts: int = 12
+
+# --- Territory -------------------------------------------------------------------------------
+#
+# A beast wanders about its home, fights what comes close or hits it, and gives up on a fight
+# that drags it too far away: it runs home, ignoring everything, and heals on the way. Nothing
+# can lure one into a lane or to the crystal.
+
+## How far from home a beast wanders between rests, metres.
+@export var beast_roam_radius: float = 8.0
+## Its pace while wandering, m/s - a walk, where a fight is a run.
+@export var beast_roam_speed: float = 0.7
+## How long it rests at each spot before wandering on, seconds (random in between).
+@export var beast_roam_wait_min: float = 4.0
+@export var beast_roam_wait_max: float = 10.0
+## The leash: further than this from home, metres, and it breaks off and runs home.
+@export var beast_leash_radius: float = 25.0
+## Healed per second while it runs home, as a share of its maximum health. It arrives full
+## whatever this is; this is how much a fight can still get out of it on the way.
+@export var beast_return_heal_per_second: float = 0.25
+## A player who hurts a beast is its target for this long, seconds, even from beyond its
+## aggro radius - shooting one from afar does not go unanswered.
+@export var beast_provoke_duration: float = 8.0
+
+# --- Specials -------------------------------------------------------------------------------
+#
+# Each species has one, on its `special` clip (BeastDatabase.SPECIES): the ravagers pounce, the
+# Spineback spins with its tail. Both telegraph where they hit, like a boss special, and both
+# can be dodged.
+
+## Seconds after a beast first has a target before its special can come, and between two. The
+## first is short on purpose: the pounce is an opener, used while the target is still a few
+## strides off - two seconds into a fight a beast has long since closed to biting range.
+@export var beast_special_first_delay: float = 0.5
+@export var beast_special_cooldown: float = 9.0
+## The pounce: only at a target between these distances, metres - closer than that it bites.
+@export var beast_pounce_min_range: float = 4.5
+@export var beast_pounce_max_range: float = 10.0
+## Playback speed of the pounce clip. Its landing is 0.44 of the way in, so at 0.8 the
+## telegraph fills in about 0.9 s - the time there is to step out of it.
+@export var beast_pounce_clip_speed: float = 0.8
+@export var beast_pounce_radius: float = 2.2
+@export var beast_pounce_damage_mult: float = 1.6
+## Seconds the pounce slows whoever it lands on.
+@export var beast_pounce_slow: float = 1.0
+## The tail spin: used on a target within this, metres.
+@export var beast_spin_range: float = 3.5
+## The ring the tail sweeps, metres from the beast.
+@export var beast_spin_radius: float = 3.4
+@export var beast_spin_clip_speed: float = 1.0
+@export var beast_spin_damage_mult: float = 1.4
+
+# ============================================================
 # BOSSES
 # ============================================================
 # Bosses animate slower the bigger they are: a boss whose model_scale equals
@@ -1568,6 +1706,10 @@ func rank_level_requirement(rank: int) -> int:
 @export var xp_per_elite: float = 40.0
 @export var xp_per_boss: float = 250.0
 @export var xp_per_camp: float = 120.0
+## A wild beast, at 1x - an elite's worth. Its XP and mana grow with its size to
+## beast_reward_size_exponent, so a 5x giant pays about a boss's XP.
+@export var xp_per_beast: float = 40.0
+@export var beast_reward_size_exponent: float = 1.0
 ## Total XP to reach level N is base*(N-1) + growth*(N-1)^2 - superlinear, so early
 ## levels land every wave or two and late ones take three or four. Target is roughly
 ## 15-18 levels across a full run.
@@ -1589,6 +1731,9 @@ func rank_level_requirement(rank: int) -> int:
 @export var mana_per_basic: int = 0
 @export var mana_per_elite: int = 4
 @export var mana_per_boss: int = 25
+## A wild beast at 1x, in its biome's colour; grows with size like its XP. Which biome the team
+## hunts in decides which colour it earns.
+@export var mana_per_beast: int = 6
 @export var mana_per_camp: int = 12
 
 # ============================================================

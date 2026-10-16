@@ -34,8 +34,33 @@ const MAGE_VISUAL_SCENES := {
 	"Green": preload("res://scenes/mage/elf_mage.tscn"),
 }
 
+const BeastDatabase := preload("res://scripts/beast_database.gd")
+
 # Shared across every EnemyBase instance so the corpse cap applies project-wide.
 static var _corpses: Array[EnemyBase] = []
+
+# --- Wild beasts (BeastDatabase; see the BEASTS section below) ---
+## Where a beast was put down: the middle of its territory and the end of its leash.
+var _home_position: Vector3 = Vector3.INF
+## Where a beast walks when it is not fighting: home, or a spot near it it is wandering to. A
+## node of its own (top_level, so it stays put while the beast moves) standing in for
+## target_crystal, so everything that falls back to the crystal when nothing is in reach falls
+## back to this instead. Null for anything that is not a beast.
+var _beast_goal: Node3D = null
+## Broke off a fight at the end of its leash: running home, deaf to everything, healing.
+var _beast_returning: bool = false
+## Seconds left resting where it is before it wanders on.
+var _beast_wander_wait: float = 0.0
+## Whoever last hurt it, and how much longer it holds a grudge - see _beast_on_hit.
+var _beast_provoker: Node3D = null
+var _beast_provoke_timer: float = 0.0
+var _beast_special_cooldown: float = 0.0
+## The special in flight, empty when there is none: kind, target point, timings, progress.
+var _beast_special: Dictionary = {}
+## How far the model reaches in front of the body's origin at 1x, metres - where its jaws are.
+var _beast_front_reach: float = 1.0
+## Rolled at spawn (BeastDatabase.roll_size), 1x and up. See _apply_beast_size.
+var _beast_size: float = 1.0
 
 # The melee/ranged libraries call the damage reaction "knockback"; the Mixamo boss
 # libraries call it "hit". Resolved once per enemy so either naming works.
@@ -214,6 +239,10 @@ static var _anim_camera: Camera3D = null
 static var _anim_camera_frame: int = -1
 ## A sapling that withered on its own was not killed, and pays nothing.
 var _skip_kill_rewards: bool = false
+## Who landed the killing blow, for what reacts to WHO killed it (Nim Deathmantle).
+var _killer: Node3D = null
+## Vorrac Battlehorns: when this enemy may next be staggered by them, in engine msec.
+var _battlehorns_ready_msec: int = 0
 
 # --- Miniboss special (Mage only, telegraphed and dodgeable) ---
 ## Deliberately separate state from the boss special block above rather than reusing it: a
@@ -368,7 +397,18 @@ func _ready() -> void:
 		var crystal_nodes = get_tree().get_nodes_in_group("crystal")
 		if crystal_nodes.size() > 0:
 			target_crystal = crystal_nodes[0]
-			
+	# A beast has no business at the crystal: home is what it walks back to.
+	if is_beast():
+		_home_position = global_position
+		_beast_goal = Node3D.new()
+		_beast_goal.name = "BeastGoal"
+		_beast_goal.top_level = true
+		add_child(_beast_goal)
+		_beast_goal.global_position = global_position
+		target_crystal = _beast_goal
+		_beast_wander_wait = randf_range(GameSettings.beast_roam_wait_min, GameSettings.beast_roam_wait_max)
+		_beast_special_cooldown = GameSettings.beast_special_first_delay
+
 	current_target = target_crystal
 	update_path(true)
 	
@@ -378,6 +418,9 @@ func _ready() -> void:
 
 func setup(data: EnemyData) -> void:
 	enemy_data = data
+	# Before anything reads the numbers: health, damage and reach all follow the size.
+	if data.enemy_class == "Beast":
+		_apply_beast_size(float(get_meta("beast_size", 1.0)))
 	# EnemyDatabase hands out a fresh EnemyData per enemy, so scaling it here is safe and
 	# keeps max health, the health bar and the flinch threshold all reading one number.
 	enemy_data.health *= GameSettings.get_enemy_health_factor(PlayerRegistry.count())
@@ -392,7 +435,10 @@ func setup(data: EnemyData) -> void:
 	enemy_data.health *= GameSettings.get_wave_health_factor(wave)
 	health = enemy_data.health
 	
-	# Adjust Aggro Area based on range
+	# Adjust Aggro Area based on range. The sphere is a sub-resource of enemy.tscn, shared by
+	# every enemy instanced from it, so a beast takes a copy before giving it its own radius.
+	if data.enemy_class == "Beast" and aggro_col and aggro_col.shape != null:
+		aggro_col.shape = aggro_col.shape.duplicate()
 	if aggro_col and aggro_col.shape is SphereShape3D:
 		var shape: SphereShape3D = aggro_col.shape as SphereShape3D
 		shape.radius = _get_detection_range()
@@ -406,6 +452,8 @@ func setup(data: EnemyData) -> void:
 	# as the boss's offspring at a glance.
 	if data.enemy_class == "Boss" or has_meta("sapling"):
 		visual_scene = BossDatabase.get_visual_scene(data.color_identity)
+	elif data.enemy_class == "Beast":
+		visual_scene = BeastDatabase.visual_scene(data.color_identity)
 	if visual_scene == null:
 		if (data.enemy_class == "Melee" or data.enemy_class == "Boss") and MELEE_VISUAL_SCENES.has(data.color_identity):
 			visual_scene = MELEE_VISUAL_SCENES[data.color_identity]
@@ -417,9 +465,14 @@ func setup(data: EnemyData) -> void:
 	if visual_scene:
 		var visual_instance: Node3D = visual_scene.instantiate()
 		# Scale correction: imported models are tiny (~0.016m). We scale them up 100x to match a 1-unit base.
-		visual_instance.scale = Vector3(100, 100, 100)
+		# A beast's GLB is already in metres.
+		visual_instance.scale = Vector3.ONE if data.enemy_class == "Beast" else Vector3(100, 100, 100)
 		add_child(visual_instance)
+		if data.enemy_class == "Beast":
+			_prepare_beast_visual(visual_instance)
 		_ground_visual(visual_instance)
+		if data.enemy_class == "Beast":
+			_fit_beast_collision(visual_instance)
 		_visual_root = visual_instance
 		_visual_rest = visual_instance.transform
 		# find_child rather than get_node: it holds for both the melee scenes (player
@@ -457,6 +510,8 @@ func setup(data: EnemyData) -> void:
 	if has_meta("sapling"):
 		# Says what it is before anyone has to work it out: the thing to kill before it heals.
 		health_bar.set_modifier_tag("SAPLING", Color(0.45, 0.95, 0.35))
+	elif data.enemy_class == "Beast" and _beast_size >= GameSettings.beast_alpha_size:
+		health_bar.set_modifier_tag("ALPHA", Color(1.0, 0.75, 0.3))
 
 	if data.enemy_class == "Boss":
 		# Announced out loud, in its own voice. A boss that walks in with the same
@@ -699,6 +754,56 @@ func _ground_visual(visual_instance: Node3D) -> void:
 		visual_instance.position.y -= min_y - global_position.y
 
 
+## A beast's model as it comes out of the GLB, made ready to stand in for a character scene:
+## its idle and gaits marked as loops. A glTF clip imports as a one-shot, and the beasts'
+## libraries are not built through CharacterBuilder, which marks them there.
+##
+## The rig has to be exported standing at the .blend's origin: the exporter samples the rig
+## node into every clip, so an offset there cannot be cleared here - the clips put it back.
+func _prepare_beast_visual(visual_instance: Node3D) -> void:
+	# Its biome's skin: a model borrowed from another biome, or one that did not come out in
+	# its own biome's colour, is drawn recoloured (BeastDatabase.VARIANTS).
+	for node: Node in visual_instance.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh == null:
+			continue
+		for surface: int in mesh_instance.mesh.get_surface_count():
+			var source: Material = mesh_instance.get_active_material(surface)
+			var tinted: Material = BeastDatabase.tinted_material(enemy_data.color_identity, source)
+			if tinted != source:
+				mesh_instance.set_surface_override_material(surface, tinted)
+	var player: AnimationPlayer = visual_instance.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if player == null:
+		return
+	for clip_name: String in ["idle", "walk", "run"]:
+		if player.has_animation(clip_name):
+			player.get_animation(clip_name).loop_mode = Animation.LOOP_LINEAR
+
+
+## Fits the body's collision to a beast's model. The box in enemy.tscn is a goblin's - 0.8 m
+## square - and a 2.8 m animal standing in it could be walked through from behind and not hit
+## at the head. A box over most of the model's length, its height and its width instead,
+## shifted towards the head (+Z) because the back third of the length is a thin tail. Its
+## own shape: the one in the scene is shared by every enemy.
+func _fit_beast_collision(visual_instance: Node3D) -> void:
+	var shape_node: CollisionShape3D = get_node_or_null("CollisionShape3D") as CollisionShape3D
+	var meshes: Array[Node] = visual_instance.find_children("*", "MeshInstance3D", true, false)
+	if shape_node == null or meshes.is_empty():
+		return
+	var mesh: MeshInstance3D = meshes[0] as MeshInstance3D
+	var to_body: Transform3D = global_transform.affine_inverse() * mesh.global_transform
+	var local_aabb: AABB = mesh.get_aabb()
+	var aabb := AABB(to_body * local_aabb.position, Vector3.ZERO)
+	for corner_idx: int in range(8):
+		aabb = aabb.expand(to_body * (local_aabb.position + local_aabb.size * Vector3(
+			float(corner_idx & 1), float((corner_idx >> 1) & 1), float((corner_idx >> 2) & 1))))
+	var box := BoxShape3D.new()
+	box.size = Vector3(aabb.size.x * 0.7, aabb.size.y * 0.75, aabb.size.z * 0.65)
+	shape_node.shape = box
+	shape_node.position = Vector3(0.0, box.size.y * 0.5, aabb.get_center().z + aabb.size.z * 0.12)
+	_beast_front_reach = maxf(aabb.end.z, 0.5)
+
+
 ## Physics level of detail. Measured on the map with 300 enemies alive: a tick of their AI
 ## cost 16-22 ms, two thirds of it move_and_slide at ~30 us an enemy - more than the 16.7 ms
 ## a 60 Hz tick has - so the engine ran 8 ticks a frame to catch up, each too slow again,
@@ -814,7 +919,7 @@ func _anim_stride() -> int:
 ## Whether this enemy may run at the far level of detail this tick. Hysteresis on the
 ## distance, so one walking along the edge of the radius does not flip every tick.
 func _wants_far() -> bool:
-	if is_dying or is_boss() or is_miniboss or not _confirmed_on_path or _suction_timer > 0.0 \
+	if is_dying or is_boss() or is_miniboss or not _confirmed_on_path or _suction_timer > 0.0 or not _beast_special.is_empty() \
 			or knockback_velocity.length_squared() > 0.1 or _miniboss_special_windup >= 0.0:
 		return false
 	var radius: float = GameSettings.enemy_physics_lod_distance + (GameSettings.enemy_physics_lod_hysteresis if _far else 0.0)
@@ -1131,6 +1236,11 @@ func _physics_tick(delta: float) -> void:
 			return
 	_sync_contagion_fx()
 
+	# A beast's territory and its special - see the BEASTS section. True while the special has
+	# the beast, which then does nothing else this tick.
+	if is_beast() and _beast_tick(delta):
+		return
+
 	# Boss special attack. Runs before the normal movement/attack block because a
 	# committed special overrides both - the boss is rooted for its whole duration.
 	for i: int in range(_special_cooldowns.size()):
@@ -1217,8 +1327,24 @@ func _physics_tick(delta: float) -> void:
 		slot_gap.y = 0.0
 		formation_pull = slot_gap.length() / maxf(delta, 0.0001)
 
+	# A beast with nothing in reach walks to its goal - home, or a spot near it - and there it
+	# rests until it wanders on. Its goal is no crystal, and in range of it is not a reason to
+	# swing.
+	# Arrived also counts when the agent says the route is done: it calls itself finished a
+	# little short of a goal (measured at about 2.2 m), and a beast that never arrived would
+	# never rest, never wander on, and never heal from a broken-off fight.
+	var heading_home: bool = is_beast() and current_target == target_crystal
+	if heading_home and (dist_to_target <= GameSettings.beast_home_arrive_distance * _beast_reach() \
+			or (not _awaiting_path and nav_agent.is_navigation_finished())):
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_slide()
+		_beast_rest(delta)
+		_update_visual_animation()
+		return
+
 	# Movement
-	var is_in_attack_range: bool = dist_to_target <= enemy_data.attack_range
+	var is_in_attack_range: bool = dist_to_target <= enemy_data.attack_range and not heading_home
 	if not is_in_attack_range and root_timer <= 0 and (holding_formation or _awaiting_path or not nav_agent.is_navigation_finished()):
 		# A member in formation steers straight at its LIVE slot and plans no route at all -
 		# see update_path. One that has just left its formation and is still waiting its turn
@@ -1237,6 +1363,9 @@ func _physics_tick(delta: float) -> void:
 		if holding_formation:
 			move_speed = minf(move_speed, squad.member_speed_limit())
 			move_speed = minf(move_speed, formation_pull)
+		# A beast wandering its territory walks; one running home from a fight does not.
+		if heading_home and not _beast_returning:
+			move_speed = minf(move_speed, GameSettings.beast_roam_speed * pow(_beast_size, GameSettings.beast_size_speed_exponent))
 		var new_velocity: Vector3 = (next_path_position - global_position).normalized() * move_speed
 		velocity.x = new_velocity.x
 		velocity.z = new_velocity.z
@@ -1403,6 +1532,10 @@ func _resolve_locomotion(visual_instance: Node3D) -> void:
 	_locomotion.clear()
 	if visual_anim_player == null:
 		return
+	# A beast's clips carry no measurement; its stride is known from how they were authored.
+	if is_beast():
+		_locomotion = BeastDatabase.locomotion(enemy_data.color_identity)
+		return
 	var rendered_scale: float = visual_instance.scale.y
 	for clip_name: String in LOCOMOTION_CLIPS:
 		if not visual_anim_player.has_animation(clip_name):
@@ -1525,6 +1658,11 @@ func _resolve_reaction_clip() -> String:
 # boundary, which was the main source of visible flicker.
 func _rest_visual_animation() -> void:
 	if is_dying:
+		return
+	# A beast has a real idle - breathing, looking about - and stands about for long stretches
+	# at its home, where a frozen walk frame would read as a statue.
+	if is_beast() and visual_anim_player.has_animation("idle"):
+		_play_visual_animation("idle")
 		return
 	if visual_anim_player.current_animation != "walk":
 		visual_anim_player.play("walk", -1, _anim_speed_scale)
@@ -2623,6 +2761,8 @@ func _cancel_special() -> void:
 	if had_fx and Net.is_active() and Net.is_server():
 		_net_boss_cancel.rpc()
 	_is_special_active = false
+	# A beast's pounce or tail spin, which draws its telegraphs through the same lists.
+	_beast_special = {}
 	_cast_strikes.clear()
 	_cast_move = {}
 	_channel_active = false
@@ -2740,6 +2880,272 @@ func _cancel_miniboss_special() -> void:
 		_miniboss_special_indicator.cancel()
 	_miniboss_special_indicator = null
 	_miniboss_special_windup = -1.0
+
+# ============================================================
+# BEASTS
+#
+# A wild beast (BeastDatabase, docs/BEASTS_PLAN.md) lives in its biome, not in a wave. With
+# nothing about it wanders near home; it fights whatever comes into reach or hurts it; and a
+# fight that drags it beyond its leash ends with it running home, deaf to everything and
+# healing. Its special - a pounce or a tail spin - is telegraphed like a boss's and shown
+# through the same _emit_boss_fx, so every screen sees the clip and the mark on the ground.
+# Server only, like the rest of the AI.
+# ============================================================
+
+const BEAST_TELEGRAPH_TINT := Color(1.0, 0.4, 0.1)
+
+
+## A beast of `size` (1x a normal one): stronger, slower to animate, and bigger - the body's
+## scale is model_scale, set from here like a boss's. Called from setup() before anything reads
+## the numbers. Health outgrows damage (GameSettings' Size block), so a giant is a long fight
+## more than a one-shot; the wave factor setup() applies next stacks on top of this.
+func _apply_beast_size(size: float) -> void:
+	_beast_size = maxf(size, 1.0)
+	enemy_data.health *= pow(_beast_size, GameSettings.beast_size_health_exponent)
+	enemy_data.attack_damage *= pow(_beast_size, GameSettings.beast_size_damage_exponent)
+	enemy_data.speed *= pow(_beast_size, GameSettings.beast_size_speed_exponent)
+	enemy_data.attack_range *= _beast_size
+	enemy_data.model_scale = _beast_size
+	_anim_speed_scale = clampf(pow(_beast_size, -GameSettings.beast_size_anim_exponent), GameSettings.beast_size_anim_min, 1.0)
+	# A bite animated slower comes slower too, as a boss's swing does - otherwise perform_attack
+	# would squeeze the slow clip back into the old cadence and the size would not show.
+	enemy_data.attack_speed /= _anim_speed_scale
+
+
+## How far a beast's body reaches, as a multiple of a 1x beast's: its size. Bite, pounce and
+## tail spin, and where it counts as arrived.
+func _beast_reach() -> float:
+	return _beast_size
+
+
+## How far it notices, wanders and chases, as a multiple of a 1x beast's: the square root of
+## its size - a giant's territory is bigger, but not five times bigger.
+func _beast_sense() -> float:
+	return sqrt(_beast_size)
+
+
+## Once a tick, before the ordinary movement. True while the special owns the beast.
+func _beast_tick(delta: float) -> bool:
+	if _beast_provoke_timer > 0.0:
+		_beast_provoke_timer -= delta
+		if _beast_provoke_timer <= 0.0:
+			_beast_provoker = null
+	if not _beast_special.is_empty():
+		_process_beast_special(delta)
+		return true
+	if _beast_returning:
+		heal(enemy_data.health * GameSettings.beast_return_heal_per_second * delta, false)
+		return false
+	if _flat_distance(global_position, _home_position) > GameSettings.beast_leash_radius * _beast_sense():
+		_beast_break_off()
+		return false
+	# The first special comes a moment into a fight, not the instant something walks by.
+	var fighting: bool = current_target != target_crystal and is_instance_valid(current_target)
+	if fighting and _beast_special_cooldown > 0.0:
+		_beast_special_cooldown -= delta
+	if fighting and _beast_special_ready():
+		_begin_beast_special()
+		return true
+	return false
+
+
+## At the end of its leash: the fight is over, whoever is in it. Home at a run, ignoring
+## everything until it gets there (see evaluate_target), healing on the way (_beast_tick) and
+## arriving full (_beast_rest).
+func _beast_break_off() -> void:
+	_beast_returning = true
+	_beast_provoker = null
+	_beast_provoke_timer = 0.0
+	taunt_timer = 0.0
+	taunt_source = null
+	_beast_goal.global_position = _home_position
+	current_target = target_crystal
+	update_path(true)
+
+
+## Standing where it was walking to. Home from a broken-off fight, it is whole again; otherwise
+## it rests a while and then wanders to another spot near home - never further than
+## beast_roam_radius from it, so its territory stays where it was put.
+func _beast_rest(delta: float) -> void:
+	if _beast_returning:
+		_beast_returning = false
+		heal(maxf(enemy_data.health - health, 0.0), false)
+	_beast_wander_wait -= delta
+	if _beast_wander_wait > 0.0:
+		return
+	_beast_wander_wait = randf_range(GameSettings.beast_roam_wait_min, GameSettings.beast_roam_wait_max)
+	var angle: float = randf() * TAU
+	var spot: Vector3 = _home_position + Vector3(cos(angle), 0.0, sin(angle)) * sqrt(randf()) * GameSettings.beast_roam_radius * _beast_sense()
+	var map: RID = get_world_3d().navigation_map
+	if NavigationServer3D.map_get_iteration_id(map) != 0:
+		spot = NavigationServer3D.map_get_closest_point(map, spot)
+	_beast_goal.global_position = spot
+	update_path(true)
+
+
+## The beast's say over what evaluate_target found nearest. Whoever hurt it last is its target
+## while the grudge lasts, however far off they are; and a fight that has just ended sends it
+## home rather than on to wherever it was wandering before.
+func _beast_pick_target(nearest: Node3D) -> Node3D:
+	var chosen: Node3D = nearest
+	if _beast_provoke_timer > 0.0 and is_instance_valid(_beast_provoker) \
+			and not ("is_downed" in _beast_provoker and _beast_provoker.is_downed):
+		chosen = _beast_provoker
+	if chosen == target_crystal and current_target != target_crystal and current_target != null:
+		_beast_goal.global_position = _home_position
+	return chosen
+
+
+## Hurt by a player: that player is now the target, even from beyond the aggro radius - a beast
+## shot from afar answers. Not while it is running home; the leash is what ends a fight.
+func _beast_on_hit(source: Node3D) -> void:
+	if _beast_returning or not is_instance_valid(source) or not source.is_in_group("player"):
+		return
+	_beast_provoker = source
+	_beast_provoke_timer = GameSettings.beast_provoke_duration
+	if current_target != source:
+		evaluate_target()
+
+
+func _beast_special_ready() -> bool:
+	if _beast_special_cooldown > 0.0 or not is_instance_valid(current_target) or current_target == target_crystal:
+		return false
+	if freeze_timer > 0.0 or stun_timer > 0.0 or root_timer > 0.0 or blind_timer > 0.0 \
+			or pacified_timer > 0.0 or flee_timer > 0.0 or damage_suppress_timer > 0.0:
+		return false
+	if _hit_react_timer > 0.0 or _impact_timer >= 0.0:
+		return false
+	if visual_anim_player == null or not visual_anim_player.has_animation("special"):
+		return false
+	var dist: float = _flat_distance(global_position, current_target.global_position)
+	match BeastDatabase.special_kind(enemy_data.color_identity):
+		"pounce":
+			# Always beyond biting range, which a giant's reach pushes out a long way.
+			var near: float = maxf(GameSettings.beast_pounce_min_range * _beast_sense(), enemy_data.attack_range + 1.5)
+			var far: float = maxf(GameSettings.beast_pounce_max_range * _beast_sense(), near + 3.0)
+			return dist >= near and dist <= far
+		"tail_spin":
+			return dist <= GameSettings.beast_spin_range * _beast_reach()
+	return false
+
+
+## Commits to the special: faces the target, marks where it will hit and starts the clip on
+## every screen. The pounce marks the spot the target stands on NOW - stepping off it is the
+## dodge - and the body is carried there during the clip's flight; the tail spin marks a ring
+## around the beast itself, which stays where it is.
+func _begin_beast_special() -> void:
+	var color: String = enemy_data.color_identity
+	var kind: String = BeastDatabase.special_kind(color)
+	var timing: Dictionary = BeastDatabase.special(color)
+	var speed: float = GameSettings.beast_pounce_clip_speed if kind == "pounce" else GameSettings.beast_spin_clip_speed
+	speed *= _anim_speed_scale
+	var length: float = visual_anim_player.get_animation("special").length / maxf(speed, 0.05)
+	_beast_special_cooldown = GameSettings.beast_special_cooldown
+	_impact_timer = -1.0
+	var to_target: Vector3 = current_target.global_position - global_position
+	to_target.y = 0.0
+	var yaw: float = atan2(to_target.x, to_target.z) if to_target.length_squared() > 0.0001 else rotation.y
+	rotation.y = yaw
+	var forward := Vector3(sin(yaw), 0.0, cos(yaw))
+	var state: Dictionary = {"kind": kind, "elapsed": 0.0, "length": length, "start": global_position, "hit": false}
+	var radius: float
+	if kind == "pounce":
+		var land_at: Vector3 = current_target.global_position
+		# The body lands short of the mark: by the landing the clip has carried the model `reach`
+		# further forward, and its jaws are further forward again.
+		var body_end: Vector3 = land_at - forward * (float(timing["reach"]) + _beast_front_reach * 0.8) * _beast_reach()
+		if (body_end - global_position).dot(forward) < 0.0:
+			body_end = global_position
+		state["at"] = land_at
+		state["end"] = body_end
+		state["takeoff"] = float(timing["takeoff"]) * length
+		state["impact"] = float(timing["land"]) * length
+		radius = GameSettings.beast_pounce_radius * _beast_reach()
+	else:
+		state["at"] = global_position
+		state["impact"] = float(timing["impact"]) * length
+		radius = GameSettings.beast_spin_radius * _beast_reach()
+	state["radius"] = radius
+	_beast_special = state
+	_emit_boss_fx({
+		"clip": "special",
+		"speed": speed,
+		"hold": length,
+		"telegraphs": [{
+			"shape": AttackIndicator.Shape.CIRCLE, "radius": radius, "at": state["at"], "yaw": yaw,
+			"windup": state["impact"], "tint": BEAST_TELEGRAPH_TINT,
+		}],
+	})
+
+
+## The special, tick by tick: the pounce's flight, the hit when the mark has filled, and the end
+## of the clip. A freeze or a stun breaks it off - a beast is no boss, and stopping one mid-leap
+## is what control is for.
+func _process_beast_special(delta: float) -> void:
+	if freeze_timer > 0.0 or stun_timer > 0.0:
+		_cancel_special()
+		return
+	var state: Dictionary = _beast_special
+	var before: float = float(state["elapsed"])
+	var elapsed: float = before + delta
+	state["elapsed"] = elapsed
+	velocity.x = 0.0
+	velocity.z = 0.0
+	if String(state["kind"]) == "pounce" and elapsed > float(state["takeoff"]) and before < float(state["impact"]):
+		# In the air: from where it stood to where it lands, eased like the clip's own travel.
+		var u: float = clampf((elapsed - float(state["takeoff"])) / maxf(float(state["impact"]) - float(state["takeoff"]), 0.01), 0.0, 1.0)
+		var want: Vector3 = (state["start"] as Vector3).lerp(state["end"] as Vector3, u * u * (3.0 - 2.0 * u))
+		velocity.x = (want.x - global_position.x) / maxf(delta, 0.0001)
+		velocity.z = (want.z - global_position.z) / maxf(delta, 0.0001)
+	if is_on_floor():
+		velocity.y = 0.0
+	else:
+		velocity.y -= gravity * delta
+	move_and_slide()
+	if not bool(state["hit"]) and elapsed >= float(state["impact"]):
+		state["hit"] = true
+		_beast_special_hit(state)
+		if is_dying:
+			return
+	if elapsed >= float(state["length"]):
+		_beast_special = {}
+
+
+## Lands the special on everyone inside its mark - the same circle that was drawn. Players and
+## myrs, as for a boss strike: the things that can move out of the way.
+func _beast_special_hit(state: Dictionary) -> void:
+	var pounce: bool = String(state["kind"]) == "pounce"
+	var center: Vector3 = state["at"]
+	var radius: float = float(state["radius"])
+	var mult: float = GameSettings.beast_pounce_damage_mult if pounce else GameSettings.beast_spin_damage_mult
+	NetFx.sound(&"heavy_landing", center)
+	var damage: float = enemy_data.attack_damage * mult * GameSettings.get_player_scaling_factor(get_tree())
+	if damage_suppress_timer > 0.0:
+		_report_fog_prevented(damage)
+		return
+	var hit_player: bool = false
+	var candidates: Array = []
+	candidates.append_array(get_tree().get_nodes_in_group("player"))
+	candidates.append_array(get_tree().get_nodes_in_group("myrs"))
+	for candidate in candidates:
+		if not candidate is Node3D or not is_instance_valid(candidate) or not candidate.has_method("take_damage"):
+			continue
+		if candidate.is_in_group("player") and "is_downed" in candidate and candidate.is_downed:
+			continue
+		if candidate.has_method("is_targetable") and not candidate.is_targetable():
+			continue
+		if _flat_distance((candidate as Node3D).global_position, center) > radius:
+			continue
+		candidate.take_damage(damage, self, true)
+		if candidate.is_in_group("player"):
+			hit_player = true
+			if pounce and candidate.has_method("apply_slow"):
+				candidate.apply_slow(GameSettings.beast_pounce_slow)
+		if is_dying:
+			return
+	if hit_player:
+		_request_camera_shake(false)
+
 
 func perform_attack() -> void:
 	if not is_instance_valid(current_target):
@@ -3112,6 +3518,8 @@ func _boss_modifier_tint() -> Color:
 func _get_detection_range() -> float:
 	if enemy_data and (enemy_data.enemy_class == "Mage" or enemy_data.enemy_class == "Ranged"):
 		return GameSettings.enemy_ranged_detection_range
+	if is_beast():
+		return GameSettings.beast_aggro_radius * _beast_sense()
 	return GameSettings.enemy_melee_detection_range
 
 ## Who this enemy is trying to reach. Priority, highest first:
@@ -3122,6 +3530,13 @@ func _get_detection_range() -> float:
 ## Decoys are in `decoys` rather than `player`, so they are chosen the same way a myr
 ## is but nothing else in the game mistakes one for a real player.
 func evaluate_target() -> void:
+	# A beast running home at the end of its leash listens to nothing, a taunt included.
+	if is_beast() and _beast_returning:
+		if current_target != target_crystal:
+			current_target = target_crystal
+			update_path(true)
+		return
+
 	if taunt_timer > 0.0 and is_instance_valid(taunt_source):
 		if current_target != taunt_source:
 			current_target = taunt_source
@@ -3154,6 +3569,9 @@ func evaluate_target() -> void:
 		if candidate_distance_squared <= detection_range_squared and candidate_distance_squared < best_distance_squared:
 			best_target = candidate
 			best_distance_squared = candidate_distance_squared
+
+	if is_beast():
+		best_target = _beast_pick_target(best_target)
 
 	if current_target != best_target:
 		current_target = best_target
@@ -3207,6 +3625,10 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, e
 		_exile_on_death = true
 	if curse_timer > 0:
 		amount *= curse_mult
+	# What the striker wears on the weapon arm and only the server can judge: whether this enemy
+	# is still untouched, whom it is attacking, whether it can be staggered.
+	if is_melee and is_instance_valid(source) and source.has_method("equipment_value"):
+		amount = _wearer_melee(amount, source)
 	if is_boss():
 		amount = _boss_incoming_damage(amount, source)
 		if amount > 0.0:
@@ -3235,6 +3657,7 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, e
 			NetFx.damage_number(spawn_pos + Vector3(0.0, 0.4, 0.0), 0.0, Color(0.75, 0.3, 0.95), "Executed")
 			health = 0.0
 	if health <= 0.0:
+		_killer = source
 		_record_fatal_hit(amount, source)
 		# The only point that knows both that this hit was fatal and who threw it. die() takes
 		# no source, and SignalBus.enemy_died carries none either - it is a team-wide "one
@@ -3243,6 +3666,8 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, e
 			source.on_enemy_killed_by_me()
 		die()
 		return
+	if is_beast():
+		_beast_on_hit(source)
 	_react_to_hit(damage_dealt)
 
 
@@ -3287,7 +3712,10 @@ func die() -> void:
 		return
 	var death_debug_before: Dictionary = _death_animation_debug_state()
 	if enemy_data:
-		SignalBus.enemy_died.emit()
+		# enemy_died is the wave's countdown (WaveManager._on_enemy_died). A beast was never
+		# part of a wave, and counting it would end one with its enemies still standing.
+		if not is_beast():
+			SignalBus.enemy_died.emit()
 		SignalBus.enemy_died_at.emit(global_position)
 		# The team is paid twice for one kill: XP towards a level everybody shares, and
 		# mana in this enemy's own colour. Banked here rather than dropped, because the
@@ -3296,6 +3724,10 @@ func die() -> void:
 			RunState.on_enemy_killed(enemy_data, elite_modifier != "", global_position)
 			if died_controlled:
 				_raise_as_dimir_ghoul()
+			# Nim Deathmantle: a beast its wearer kills gets up again on their side.
+			elif is_beast() and is_instance_valid(_killer) and _killer.has_method("equipment_value") \
+					and float(_killer.equipment_value("nim_deathmantle")) > 0.0:
+				_request_ghoul(_killer, float(_killer.equipment_value("nim_deathmantle")), false)
 
 	# Dying mid-windup drops the telegraph without dealing its damage - and the same
 	# goes for an ordinary swing whose impact frame has not arrived yet.
@@ -3557,7 +3989,9 @@ func _record_fatal_hit(amount: float, source: Node3D) -> void:
 ## forwards on some rigs and backwards on others, and a body flying back while toppling
 ## towards its killer reads as wrong at once.
 func _start_death_launch() -> void:
-	if is_boss() or enemy_data == null or _fatal_hit_dir == Vector3.ZERO:
+	# A beast is not thrown either: it is a quarter-tonne animal, its rig has no ragdoll, and
+	# its death clip is a collapse onto its belly that a throw would only spoil.
+	if is_boss() or is_beast() or enemy_data == null or _fatal_hit_dir == Vector3.ZERO:
 		return
 	var t: float = clampf(inverse_lerp(GameSettings.enemy_death_launch_severity_min,
 		GameSettings.enemy_death_launch_severity_full, _fatal_hit_severity), 0.0, 1.0)
@@ -4130,6 +4564,30 @@ func _sync_contagion_fx() -> void:
 
 ## The Icy Manipulator's freeze, from a melee hit. Bosses are slowed instead of frozen - the
 ## same line Frost Breath draws, because a frozen boss is not a fight.
+## A melee hit from `wearer`, through the beast pieces they may have on (EquipmentDatabase.
+## BEAST_ITEMS). Server side, since two of them ask what only the server knows: whom this enemy
+## is attacking, and whether it may be staggered again yet. Returns the hit's damage.
+func _wearer_melee(amount: float, wearer: Node3D) -> float:
+	# Bonesplitter: the first cut into an untouched enemy.
+	var bonesplitter: float = float(wearer.equipment_value("bonesplitter"))
+	if bonesplitter > 0.0 and enemy_data != null and health >= enemy_data.health * 0.999:
+		amount *= 1.0 + bonesplitter
+	# Leonin Scimitar: an enemy busy with a myr, or with somebody else, is open.
+	var scimitar: float = float(wearer.equipment_value("leonin_scimitar"))
+	if scimitar > 0.0 and is_instance_valid(current_target) and current_target != wearer \
+			and (current_target.is_in_group("myrs") or current_target.is_in_group("player")):
+		amount *= 1.0 + scimitar
+	# Vorrac Battlehorns: the big ones reel - beasts, elites, minibosses; never a boss. Never the
+	# same one again within the cooldown, so a flurry of hits is one stagger and not a lock, and
+	# never shortening a longer stun already on it.
+	var horns: float = float(wearer.equipment_value("vorrac_battlehorns"))
+	if horns > 0.0 and (is_beast() or elite_modifier != "" or is_miniboss) \
+			and Time.get_ticks_msec() >= _battlehorns_ready_msec:
+		_battlehorns_ready_msec = Time.get_ticks_msec() + int(GameSettings.equipment_vorrac_battlehorns_cooldown * 1000.0)
+		apply_stun(maxf(stun_timer, horns))
+	return amount
+
+
 func apply_equipment_freeze(duration: float) -> void:
 	if is_dying:
 		return
@@ -4176,15 +4634,21 @@ func _raise_as_dimir_ghoul() -> void:
 			standing += 1
 	if standing >= GameSettings.guild_dimir_max_ghouls:
 		return
+	_request_ghoul(raiser, GameSettings.spell_black_zombify_duration, true)
+
+
+## Raises this body as `raiser`'s ghoul, Zombify's kind, for `duration` seconds. `dimir` counts
+## it against the Dimir node's cap.
+func _request_ghoul(raiser: Node3D, duration: float, dimir: bool) -> void:
 	var main: Node = get_tree().current_scene
 	if main == null or not main.has_method("request_effect"):
 		return
 	main.request_effect({
 		"kind": "undead",
-		"dimir": true,
+		"dimir": dimir,
 		"position": global_position,
 		"hp": GameSettings.spell_black_zombify_hp,
-		"duration": GameSettings.spell_black_zombify_duration,
+		"duration": duration,
 		"hit_damage": GameSettings.spell_black_zombify_hit_damage,
 		"damage": GameSettings.spell_black_zombify_burst_damage,
 		"caster": raiser.get_multiplayer_authority() if Net.is_active() else 1,
@@ -4200,7 +4664,9 @@ func exile() -> void:
 	if is_dying:
 		return
 	if enemy_data:
-		SignalBus.enemy_died.emit()
+		# Not the wave's to count - see die().
+		if not is_beast():
+			SignalBus.enemy_died.emit()
 		SignalBus.enemy_died_at.emit(global_position)
 		# Exiled, but still paid for - and the payout is still shown where the body would
 		# have fallen, or an exiled elite would be the one kill that banks in silence.
@@ -4215,6 +4681,11 @@ func exile() -> void:
 ## those clauses is what stops the skill trivialising the boss fights.
 func is_boss() -> bool:
 	return enemy_data != null and enemy_data.enemy_class == "Boss"
+
+
+## A wild beast (BeastDatabase): lives in a biome, not in a wave.
+func is_beast() -> bool:
+	return enemy_data != null and enemy_data.enemy_class == "Beast"
 
 
 ## Bosses shrug off the effects that would otherwise remove them from their own fight.

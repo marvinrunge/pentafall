@@ -155,6 +155,22 @@ func try_drop_equipment(boss_color: String, at: Vector3 = Vector3.INF) -> String
 	return dropped
 
 
+## A wild beast died: maybe it carried its biome's piece (EquipmentDatabase.BEAST_ITEMS).
+## The bigger it was, the likelier - equipment_beast_drop_chance per 1x of size. Server only.
+func try_drop_beast_equipment(beast_color: String, size: float, at: Vector3 = Vector3.INF) -> String:
+	if not Net.is_server():
+		return ""
+	var candidates: Array[String] = []
+	for item_id: String in EquipmentDatabase.pool_for_beast(beast_color.to_lower()):
+		if not equipment_unlocked.has(item_id):
+			candidates.append(item_id)
+	if candidates.is_empty() or randf() >= minf(GameSettings.equipment_beast_drop_chance * size, 1.0):
+		return ""
+	var dropped: String = candidates[randi() % candidates.size()]
+	unlock_equipment(dropped, at)
+	return dropped
+
+
 ## Adds a piece to the team's stash and tells everyone. Also the debug and test entry
 ## point, which is why it is not folded into try_drop_equipment.
 func unlock_equipment(item_id: String, at: Vector3 = Vector3.INF) -> void:
@@ -206,9 +222,16 @@ func on_enemy_killed(data: EnemyData, is_elite: bool, at: Vector3 = Vector3.INF)
 	var xp: float = GameSettings.xp_per_basic
 	var mana: int = GameSettings.mana_per_basic
 	var is_boss: bool = data.enemy_class == "Boss"
+	# A wild beast pays like an elite at 1x and more the bigger it was; its size is its model
+	# scale (EnemyBase._apply_beast_size).
+	var is_beast: bool = data.enemy_class == "Beast"
 	if is_boss:
 		xp = GameSettings.xp_per_boss
 		mana = GameSettings.mana_per_boss
+	elif is_beast:
+		var reward: float = pow(maxf(data.model_scale, 1.0), GameSettings.beast_reward_size_exponent)
+		xp = GameSettings.xp_per_beast * reward
+		mana = int(round(float(GameSettings.mana_per_beast) * reward))
 	elif is_elite:
 		xp = GameSettings.xp_per_elite
 		mana = GameSettings.mana_per_elite
@@ -216,6 +239,8 @@ func on_enemy_killed(data: EnemyData, is_elite: bool, at: Vector3 = Vector3.INF)
 	# Before the mana, so a boss tuned to pay no mana would still drop its equipment.
 	if is_boss:
 		try_drop_equipment(data.color_identity, at)
+	elif is_beast:
+		try_drop_beast_equipment(data.color_identity, maxf(data.model_scale, 1.0), at)
 	if mana <= 0:
 		return
 	if is_boss:

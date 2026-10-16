@@ -27,6 +27,7 @@ reason to care who landed the blow.
 | Basic enemy | 10 |
 | Elite | 40 |
 | Boss | 250 |
+| Wild beast | 40 at 1x, times its size (a 5x giant: 200) |
 | Guild camp cleared | 120 |
 
 **Each level grants every player one skill point.** Levels are simultaneous; what each
@@ -52,6 +53,7 @@ personal builds no longer depend on it.
 | Basic enemy | its own | 1 |
 | Elite | its own | 4 |
 | Boss | its own | 25 |
+| Wild beast | its biome's | 6 at 1x, times its size |
 | Guild camp | **both** adjacent colours | 12 each |
 | Myr well trip | its assigned lane's | 1 |
 

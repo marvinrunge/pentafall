@@ -13,6 +13,16 @@ class_name Minimap
 
 var _redraw_timer: float = 0.0
 
+## A beast's mark under Explorer's Scope, per biome - bright enough to read on the map, which
+## is why Black is a violet rather than black.
+const SCOPE_COLORS: Dictionary = {
+	"White": Color(1.0, 0.97, 0.82),
+	"Blue": Color(0.35, 0.65, 1.0),
+	"Black": Color(0.72, 0.42, 0.95),
+	"Red": Color(1.0, 0.5, 0.2),
+	"Green": Color(0.45, 0.95, 0.4),
+}
+
 func _process(delta: float) -> void:
 	_redraw_timer -= delta
 	if _redraw_timer <= 0:
@@ -32,10 +42,19 @@ func _draw() -> void:
 		var pos = _world_to_map(myr.global_position, center, scale_factor)
 		draw_circle(pos, 2.5, myr_color)
 		
-	# Draw Enemies
+	# Draw Enemies. With Explorer's Scope on, the wild beasts stand out: in their biome's colour
+	# and as big as they are, so a hunt can be picked from the map.
+	var scope: bool = false
+	var local: Node = PlayerRegistry.get_local()
+	if local != null and local.has_method("equipment_value"):
+		scope = float(local.equipment_value("explorers_scope")) > 0.0
 	var enemies = get_tree().get_nodes_in_group("enemies")
 	for enemy in enemies:
 		var pos = _world_to_map(enemy.global_position, center, scale_factor)
+		if scope and enemy is EnemyBase and (enemy as EnemyBase).is_beast():
+			var beast := enemy as EnemyBase
+			draw_circle(pos, 3.0 + 1.3 * beast._beast_size, SCOPE_COLORS.get(beast.enemy_data.color_identity, enemy_color))
+			continue
 		draw_circle(pos, 3.0, enemy_color)
 		
 	# Draw Players

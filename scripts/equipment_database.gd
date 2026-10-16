@@ -81,22 +81,65 @@ const ITEMS: Dictionary = {
 	},
 }
 
-## The order the menu lists them in: grouped by colour, WUBRG, the way the lanes run.
+## The wild beasts' pieces (docs/BEASTS_PLAN.md): one per biome, found on the beast that lives
+## there instead of on a boss - `beast_colors` where a boss piece has `colors`. Each is about the
+## hunt: big targets, an enemy's first moment or the moment it turns on someone, a beast's death.
+const BEAST_ITEMS: Dictionary = {
+	"leonin_scimitar": {
+		"name": "Leonin Scimitar",
+		"desc": "Your melee hits on an enemy attacking a myr or an ally deal more damage.",
+		"beast_colors": ["white"],
+		"value": "equipment_leonin_scimitar_bonus",
+		"icon": "",
+	},
+	"explorers_scope": {
+		"name": "Explorer's Scope",
+		"desc": "Your minimap shows the beasts in their biome's colour, sized by how big they are.",
+		"beast_colors": ["blue"],
+		"value": "equipment_explorers_scope_reveal",
+		"icon": "",
+	},
+	"nim_deathmantle": {
+		"name": "Nim Deathmantle",
+		"desc": "A beast you kill rises and fights for you a while as your ghoul.",
+		"beast_colors": ["black"],
+		"value": "equipment_nim_deathmantle_duration",
+		"icon": "",
+	},
+	"bonesplitter": {
+		"name": "Bonesplitter",
+		"desc": "Your melee hits on an enemy still at full health deal double damage.",
+		"beast_colors": ["red"],
+		"value": "equipment_bonesplitter_bonus",
+		"icon": "",
+	},
+	"vorrac_battlehorns": {
+		"name": "Vorrac Battlehorns",
+		"desc": "Your melee hits stagger beasts, elites and minibosses.",
+		"beast_colors": ["green"],
+		"value": "equipment_vorrac_battlehorns_stun",
+		"icon": "",
+	},
+}
+
+## The order the menu lists them in: grouped by colour, WUBRG, the way the lanes run - the
+## boss pieces first, then the beasts'.
 const ORDER: Array[String] = [
 	"cobbled_wings", "fireshrieker", "amulet_of_vigor",
 	"icy_manipulator", "whispersilk_cloak",
 	"executioners_capsule",
 	"swiftfoot_boots",
 	"loxodon_warhammer",
+	"leonin_scimitar", "explorers_scope", "nim_deathmantle", "bonesplitter", "vorrac_battlehorns",
 ]
 
 
 static func has_item(item_id: String) -> bool:
-	return ITEMS.has(item_id)
+	return ITEMS.has(item_id) or BEAST_ITEMS.has(item_id)
 
 
 static func get_item(item_id: String) -> Dictionary:
-	return ITEMS.get(item_id, {})
+	return ITEMS.get(item_id, BEAST_ITEMS.get(item_id, {}))
 
 
 static func display_name(item_id: String) -> String:
@@ -109,6 +152,11 @@ static func description(item_id: String) -> String:
 
 static func colors(item_id: String) -> Array:
 	return get_item(item_id).get("colors", [])
+
+
+## The biomes whose beast can drop it; empty for a boss piece.
+static func beast_colors(item_id: String) -> Array:
+	return get_item(item_id).get("beast_colors", [])
 
 
 ## The one number an item's effect reads, from GameSettings. 0 for an unknown item.
@@ -128,10 +176,19 @@ static func pool_for(color: String) -> Array[String]:
 	return pool
 
 
+## The pieces the beast of a `color` biome can drop. Lower-case, like pool_for.
+static func pool_for_beast(color: String) -> Array[String]:
+	var pool: Array[String] = []
+	for item_id: String in ORDER:
+		if beast_colors(item_id).has(color):
+			pool.append(item_id)
+	return pool
+
+
 ## The item's icon, or the first dropping colour's mana symbol when it has none of its own.
 static func icon(item_id: String) -> Texture2D:
 	var file: String = String(get_item(item_id).get("icon", ""))
-	var fallback: Array = colors(item_id)
+	var fallback: Array = colors(item_id) + beast_colors(item_id)
 	var fallback_color: String = String(fallback[0]) if not fallback.is_empty() else ""
 	if file != "":
 		var path: String = SpellDatabase.ICON_ROOT + file
@@ -145,6 +202,10 @@ static func source_text(item_id: String) -> String:
 	var names: PackedStringArray = PackedStringArray()
 	for color: Variant in colors(item_id):
 		names.append(String(color).capitalize())
-	if names.is_empty():
-		return ""
-	return "Dropped by the %s boss" % " or ".join(names)
+	if not names.is_empty():
+		return "Dropped by the %s boss" % " or ".join(names)
+	for color: Variant in beast_colors(item_id):
+		names.append(String(color).capitalize())
+	if not names.is_empty():
+		return "Found on the beasts of the %s biome" % " or ".join(names)
+	return ""

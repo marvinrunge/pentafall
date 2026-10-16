@@ -77,6 +77,8 @@ func request_enemy(info: Dictionary) -> Node3D:
 	for flag: String in ["miniboss", "sapling"]:
 		if bool(info.get(flag, false)):
 			enemy.set_meta(flag, true)
+	if info.has("beast_size"):
+		enemy.set_meta("beast_size", float(info["beast_size"]))
 	enemy.set_meta("enemy_color", String(info["color"]))
 	enemy.set_meta("enemy_type", String(info["type"]))
 	get_node("Enemies").add_child(enemy)

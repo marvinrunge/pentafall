@@ -2,7 +2,7 @@
 
 Everything is authored in ARMATURE space (forward = -Y, up = +Z) and converted to each
 bone's local rest frame before keying, so the clips don't depend on bone rolls.
-Clips: idle, walk, run (loops) and attack, hit, death (one-shots).
+Clips: idle, walk, run (loops) and attack, special, hit, death (one-shots).
 """
 import bpy
 import math
@@ -120,9 +120,14 @@ def step_foot(phase, stance, stride, lift):
 
 # ---------------------------------------------------------------- clips
 
-def make_clips(arm, P):
-    """P: per-beast parameters (heights, strides, amplitudes)."""
+def make_clips(arm, P, mesh=None):
+    """P: per-beast parameters (heights, strides, amplitudes). mesh: the skinned beast; the
+    death clip uses its rest vertices to lay chin and tail ON the ground rather than in it."""
     H = P['H']
+    # bites (attack, leap): how far past the rest pose the jaw gapes and snaps shut, degrees.
+    # Meshy beasts come modelled with the mouth partly open, so shut is past rest.
+    bite_open = P.get('bite_open', P['jaw_open'] * 1.25)
+    bite_close = P.get('bite_close', 0.0)
     tails = tail_names(arm)
     nt = len(tails)
 
@@ -194,7 +199,9 @@ def make_clips(arm, P):
         K.set('neck', rot=rot_w(pitch=30 * wind - 24 * lunge, yaw=22 * sd * wind - 8 * sd * lunge))
         K.set('head', rot=rot_w(pitch=22 * wind - 14 * lunge, yaw=12 * sd * wind - 10 * sd * lunge,
                                 roll=-14 * sd * wind + 18 * sd * lunge))
-        K.set('jaw', rot=rot_w(pitch=-P['jaw_open'] * 1.25 * jaw_open))
+        # gape wide, then snap fully shut on impact and hold the bite before relaxing
+        clench = seg(t, 0.46, 0.51) * (1 - seg(t, 0.66, 0.86))
+        K.set('jaw', rot=rot_w(pitch=-bite_open * jaw_open + bite_close * clench))
         # lead paw rises on the windup and slams on the lunge
         K.set('IK_front.L', loc=(0, -0.05 * H * lunge + 0.04 * H * wind, 0.12 * H * wind))
         K.set('front_foot.L', rot=rot_w(pitch=-P['toe_flex'] * wind))
@@ -224,8 +231,9 @@ def make_clips(arm, P):
         sh = math.sin(TAU * 3 * (t - 0.5) / 0.15) * shake
         K.set('neck', rot=rot_w(pitch=-10 * crouch - 8 * fly - 14 * land, yaw=14 * sh))
         K.set('head', rot=rot_w(pitch=10 * crouch + 6 * fly - 6 * land, roll=16 * sh))
-        jaw_open = seg(t, 0.24, 0.4) * (1 - seg(t, 0.46, 0.5)) + 0.25 * shake
-        K.set('jaw', rot=rot_w(pitch=-P['jaw_open'] * 1.3 * jaw_open))
+        jaw_open = seg(t, 0.24, 0.4) * (1 - seg(t, 0.46, 0.5))
+        clench = seg(t, 0.45, 0.5) * (1 - seg(t, 0.64, 0.76))  # jaws locked through the shake
+        K.set('jaw', rot=rot_w(pitch=-bite_open * jaw_open + bite_close * clench))
         # in the air the front legs reach for the prey and the hind legs trail
         for side in ('L', 'R'):
             K.set('IK_front.' + side, loc=(0, -0.3 * H * fly, 0.14 * H * fly + 0.05 * H * hop))
@@ -377,27 +385,107 @@ def make_clips(arm, P):
         for i, n in enumerate(tails):
             K.set(n, rot=tail_rot(8 * k * (i + 1) / nt, -10 * k * (i + 1) / nt))
 
-    # ---------------- death: legs buckle, roll onto the side, settle (holds last frame)
+    # ---------------- death: the legs give way and the beast slams down flat on its belly,
+    # legs splayed out to the sides, chin on the ground, tail laid flat (holds last frame)
+    bones = arm.data.bones
+    belly = P['death_belly'] * H  # rest height of the belly underside: the body sinks this far
+    jaw_dead = 0.35  # fraction of jaw_open the dead beast's mouth hangs open
+
+    # feet slide out until each leg lies nearly straight, front legs forward, hind legs back
+    splay = {}
+    for (end, side) in LEGS:
+        sx = 1 if side == 'L' else -1
+        up = bones['%s_upper.%s' % (end, side)]
+        lo = bones['%s_lower.%s' % (end, side)]
+        ik = bones['IK_%s.%s' % (end, side)].head_local
+        joint = up.head_local - Vector((0, 0, belly))
+        reach = (up.length + lo.length) * P.get('death_leg_reach', 0.9)
+        h = max(joint.z - ik.z, 0.0)
+        r = math.sqrt(max(reach * reach - h * h, 0.0))
+        a = math.radians(P.get('death_front_splay', 40) if end == 'front' else P.get('death_hind_splay', 55))
+        out = Vector((sx * math.sin(a), -math.cos(a) if end == 'front' else math.cos(a), 0.0))
+        splay[(end, side)] = Vector((joint.x, joint.y, ik.z)) + out * r - ik
+
+    # rest vertices per bone they mostly follow (mesh local == armature space); without a
+    # mesh the bone lines stand in for the surface
+    by_bone = {}
+    if mesh is not None:
+        gi = {g.index: g.name for g in mesh.vertex_groups}
+        for v in mesh.data.vertices:
+            if v.groups and v.index % 2 == 0:
+                by_bone.setdefault(gi[max(v.groups, key=lambda g: g.weight).group], []).append(v.co.copy())
+
+    def pts(n):
+        return by_bone.get(n) or [bones[n].head_local.copy(), bones[n].tail_local.copy()]
+
+    def pitched(p, deg, about):
+        return about + rot_w(pitch=deg) @ (p - about)
+
+    # neck pitch that sets the (slightly open) jaw on the ground once the body is down
+    jaw_open_dead = -P['jaw_open'] * jaw_dead
+    jh = bones['jaw'].head_local
+    head_pts = pts('head') + [pitched(p, jaw_open_dead, jh) for p in pts('jaw')]
+    pivot = bones['neck'].head_local
+
+    def head_low(a):
+        return min(pitched(p, a, pivot).z for p in head_pts) - belly
+    # lowest the head can go without sinking in (or the highest it must rise)
+    ok = [a for a in range(-75, 31) if head_low(a) >= 0.02 * H]  # room for the head's roll
+    neck_down = min(ok) if ok else max(range(-75, 31), key=head_low)
+
+    # tail: each bone pitched, root to tip, as low as its flesh can lie without sinking in,
+    # so the chain runs down to the ground and then flat along it. Keyed as local deltas,
+    # since a child inherits its parent's turn.
+    tail_flat = []
+    chain = []  # (delta, about) of the bones already placed, root first
+
+    def placed(p):
+        for up, about in reversed(chain):
+            p = pitched(p, -up, about)  # tail_rot(up) is a pitch of -up
+        return p.z - belly
+    prev = 0.0
+    for n in tails:
+        b = bones[n]
+        dvec = b.tail_local - b.head_local
+        elev = math.degrees(math.atan2(dvec.z, dvec.y))  # tail bones point backward (+Y)
+        ps = pts(n)
+        best = None
+        for want in range(-60, 21, 2):
+            delta = (want - elev) - prev
+            low = min(placed(pitched(p, -delta, b.head_local)) for p in ps)
+            if low >= 0.0:
+                best = (want, delta)
+                break
+        if best is None:
+            best = (20, (20 - elev) - prev)
+        tail_flat.append(best[1])
+        chain.append((best[1], b.head_local.copy()))
+        prev = best[0] - elev
+
     def death(K, t):
-        buckle = seg(t, 0.0, 0.3)
-        roll = seg(t, 0.25, 0.65)
+        throe = seg(t, 0.0, 0.12) * (1 - seg(t, 0.12, 0.3))   # a last rear-up of the head
+        hind = seg(t, 0.1, 0.38)                               # hind legs go first ...
+        front = seg(t, 0.18, 0.44)                             # ... then the front
+        sink = 0.5 * (hind + front)
+        bounce = math.sin(math.pi * (t - 0.44) / 0.14) if 0.44 < t < 0.58 else 0.0
+        head = seg(t, 0.3, 0.58)
+        head_bounce = math.sin(math.pi * (t - 0.58) / 0.12) if 0.58 < t < 0.7 else 0.0
+        tail = sink  # a hanging tail would dig into the ground if the body went down first
         settle = seg(t, 0.55, 0.9)
-        drop = P['death_drop'] * H
-        # body sinks while the feet stay put, then the whole rig rolls about the forward axis
-        K.set('hips', loc=(0, 0.03 * H * buckle, -drop * buckle), rot=rot_w(pitch=-6 * buckle))
-        K.set('root', loc=(0.0, 0.0, P['death_side_lift'] * H * roll), rot=rot_w(roll=P['death_roll'] * roll))
+        K.set('hips', loc=(0, 0.02 * H * throe, -belly * sink + 0.025 * H * bounce),
+              rot=rot_w(pitch=6 * (hind - front) + 3 * throe, roll=2.5 * settle))
+        K.set('spine1', rot=rot_w(pitch=-2 * sink, yaw=3 * settle))
+        K.set('chest', rot=rot_w(pitch=-3 * throe, yaw=-2 * settle))
         for (end, side) in LEGS:
-            sx = 1 if side == 'L' else -1
-            # legs relax: feet drift under/outward a little as the body goes over
-            K.set('IK_%s.%s' % (end, side), loc=(sx * 0.04 * H * roll, (0.05 if end == 'front' else -0.05) * H * settle, 0.0))
-        K.set('spine1', rot=rot_w(pitch=-3 * buckle, yaw=6 * settle))
-        K.set('chest', rot=rot_w(pitch=-4 * buckle))
-        K.set('neck', rot=rot_w(pitch=-18 * buckle + 6 * settle, roll=-10 * settle))
-        K.set('head', rot=rot_w(pitch=-10 * buckle + 6 * settle, roll=-12 * settle))
-        K.set('jaw', rot=rot_w(pitch=-P['jaw_open'] * (0.7 * seg(t, 0.0, 0.2) * (1 - settle) + 0.35 * settle)))
+            f = front if end == 'front' else hind
+            lift = P.get('death_leg_lift', {}).get('%s.%s' % (end, side), 0.0)
+            K.set('IK_%s.%s' % (end, side), loc=tuple(splay[(end, side)] * f + Vector((0, 0, lift * f + 0.03 * H * math.sin(math.pi * f)))))
+        K.set('neck', rot=rot_w(pitch=12 * throe + neck_down * head + 3 * head_bounce, yaw=5 * settle))
+        K.set('head', rot=rot_w(pitch=6 * throe, roll=P.get('death_head_roll', 8) * settle, yaw=6 * settle))
+        K.set('jaw', rot=rot_w(pitch=-P['jaw_open'] * (0.7 * seg(t, 0.0, 0.2) * (1 - head) + jaw_dead * head)))
         for i, n in enumerate(tails):
             w = (i + 1) / nt
-            K.set(n, rot=tail_rot(-14 * w * settle, 18 * w * math.sin(math.pi * roll)))
+            K.set(n, rot=tail_rot(tail_flat[i] * tail + 8 * w * throe, 10 * w * settle))
 
     fps = P.get('fps', 30)
     out = {}
@@ -438,6 +526,34 @@ def ground_pass(mesh_obj, arm, action, clamp_from=None):
         pb.location = pb.location + Mi @ Vector((0, 0, dz))
         pb.keyframe_insert('location', frame=f)
     return {f: round(v, 3) for f, v in fixes.items()}
+
+
+def fit_death_legs(mesh_obj, arm, P):
+    """Measure how far each leg sinks into the ground on the baked death clip's last frame and
+    add the lift its IK target needs to P['death_leg_lift'] (rebake afterwards)."""
+    sc = bpy.context.scene
+    act = bpy.data.actions[arm.name + '|death']
+    arm.animation_data.action = act
+    sc.frame_set(int(act.frame_range[1]))
+    dg = bpy.context.evaluated_depsgraph_get()
+    e = mesh_obj.evaluated_get(dg)
+    m = e.to_mesh()
+    gi = {g.index: g.name for g in mesh_obj.vertex_groups}
+    low = {}
+    for v in mesh_obj.data.vertices:
+        if not v.groups:
+            continue
+        name = gi[max(v.groups, key=lambda g: g.weight).group]
+        for end, side in LEGS:
+            if name.startswith(end + '_') and name.endswith('.' + side):
+                key = '%s.%s' % (end, side)
+                low[key] = min(low.get(key, 1e9), m.vertices[v.index].co.z)
+    e.to_mesh_clear()
+    lift = dict(P.get('death_leg_lift', {}))
+    for key, z in low.items():
+        lift[key] = lift.get(key, 0.0) + max(0.0, -z)
+    P['death_leg_lift'] = lift
+    return {k: round(v, 3) for k, v in lift.items()}
 
 
 CLIPS = ['idle', 'walk', 'run', 'attack', 'special', 'hit', 'death']

@@ -1,7 +1,12 @@
 extends Node
 class_name EnemyDatabase
 
+const BeastDatabase := preload("res://scripts/beast_database.gd")
+
 static func get_enemy_data(color_id: String, type_id: String) -> EnemyData:
+	# A wild beast's numbers are its species', not a wave enemy's plus a colour modifier.
+	if type_id == "Beast":
+		return BeastDatabase.enemy_data(color_id)
 	var data = EnemyData.new()
 	data.color_identity = color_id
 	data.enemy_class = type_id

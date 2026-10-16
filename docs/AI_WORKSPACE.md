@@ -81,7 +81,8 @@ After generation:
 - `scripts/run_state.gd`: the run's three currencies - shared XP/levels, the team mana pool, enchantment stacks - plus the equipment the team has found
 - `scripts/user_settings.gd`: the player's remembered preferences (name, volumes, HUD readouts) and the audio buses; `scripts/graphics_settings.gd` is the graphics half, both saved through `scripts/settings_file.gd` into `user://settings.cfg`
 - `scripts/settings_menu.gd`: the one options panel, shown by both the main menu and the in-game Escape menu
-- `scripts/equipment_database.gd` / `scripts/equipment_menu.gd`: the boss-dropped equipment (the former keyword passives) and its **I** menu
+- `scripts/equipment_database.gd` / `scripts/equipment_menu.gd`: the boss-dropped equipment (the former keyword passives), the wild beasts' five pieces, and its **I** menu
+- `docs/BEASTS_PLAN.md`: the wild beasts in the biomes - who lives where, behaviour, sizes, rewards, and what each stage built. `scripts/beast_database.gd` (species, variants and tints, size roll), `scripts/wildlife_manager.gd` (keeps every biome stocked), the BEASTS section of `scripts/enemy_base.gd`, `assets/shaders/beast_tint.gdshader`; the models and their Blender rig/clip scripts in `assets/enemies/beasts/`; tests `tools/tests/beast_stage.tscn` and `beast_spawns.tscn`, screenshot `beast_lineup_shot.tscn`
 - `docs/GUILD_PLAN.md`: staged plan for two- and three-colour guild nodes and guild camps
 - `scripts/player_registry.gd`: who is playing, and which one is local to this machine
 - `scripts/upkeep_panel.gd`: the build phase between waves - shop, enchantment votes, ready checks
