@@ -171,6 +171,41 @@
       "skill": "Black boss: Zombie Lord",
       "duration_seconds": 4.5,
       "prompt": "An undead lord rising onto a battlefield: wet tearing flesh and dry bone grinding, grave dirt falling away, a rattling inhuman moan swelling under a chorus of distant whispers, dreadful and rotten, no music"
+    },
+    "beast_growl": {
+      "skill": "Wild beast: idle growl while it rests or wanders (all beasts; pitched by size)",
+      "duration_seconds": 2.5,
+      "prompt": "A large reptilian predator idling: a low rumbling throat growl with a slow wet hiss of breath through teeth, relaxed but menacing, heavy animal chest resonance, dry close recording, no music"
+    },
+    "beast_roar": {
+      "skill": "Wild beast: it notices someone and turns on them",
+      "duration_seconds": 2.0,
+      "prompt": "A large reptilian predator spotting prey: a sharp guttural roar bursting from a deep chest, rattling breath and a snarling hiss at the end, aggressive and territorial, dry close recording, no music"
+    },
+    "beast_bite": {
+      "skill": "Wild beast: its bite",
+      "duration_seconds": 0.6,
+      "prompt": "Heavy reptilian jaws snapping shut: a quick sharp snarl and a hard wet clack of big teeth meeting, short and violent, dry close recording, no music"
+    },
+    "beast_pounce": {
+      "skill": "Wild beast: the ravagers' pounce, launch to landing",
+      "duration_seconds": 1.2,
+      "prompt": "A heavy predator leaping onto its prey: a hissing snarl as it launches, a short rush of air, then a massive body slamming into dirt with claws scraping the ground, dry close recording, no music"
+    },
+    "beast_tail_spin": {
+      "skill": "Wild beast: the Spineback's tail spin",
+      "duration_seconds": 1.2,
+      "prompt": "A huge armoured spiked tail swung in a full circle: a deep heavy whoosh cutting through the air, bony spikes rattling against each other, a low grunt of effort, dry close recording, no music"
+    },
+    "beast_hurt": {
+      "skill": "Wild beast: a solid hit lands on it",
+      "duration_seconds": 0.7,
+      "prompt": "A large reptilian beast struck hard: a short pained snarl breaking into a hissing yelp, angry rather than afraid, dry close recording, no music"
+    },
+    "beast_death": {
+      "skill": "Wild beast: it dies, collapsing flat on its belly",
+      "duration_seconds": 2.0,
+      "prompt": "A huge reptilian beast dying: a long rattling groan fading into a final breath, then a heavy body collapsing onto dirt with a dull thud, dry close recording, no music"
     }
   }
 }

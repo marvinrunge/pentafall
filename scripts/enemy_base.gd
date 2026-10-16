@@ -61,6 +61,9 @@ var _beast_special: Dictionary = {}
 var _beast_front_reach: float = 1.0
 ## Rolled at spawn (BeastDatabase.roll_size), 1x and up. See _apply_beast_size.
 var _beast_size: float = 1.0
+## Seconds to its next idle growl, and when it may next roar at a new target (engine msec).
+var _beast_growl_timer: float = randf_range(4.0, 12.0)
+var _beast_roar_ready_msec: int = 0
 
 # The melee/ranged libraries call the damage reaction "knockback"; the Mixamo boss
 # libraries call it "hit". Resolved once per enemy so either naming works.
@@ -2941,6 +2944,8 @@ func _beast_tick(delta: float) -> bool:
 		return false
 	# The first special comes a moment into a fight, not the instant something walks by.
 	var fighting: bool = current_target != target_crystal and is_instance_valid(current_target)
+	if not fighting:
+		_beast_idle_voice(delta)
 	if fighting and _beast_special_cooldown > 0.0:
 		_beast_special_cooldown -= delta
 	if fighting and _beast_special_ready():
@@ -2993,7 +2998,31 @@ func _beast_pick_target(nearest: Node3D) -> Node3D:
 		chosen = _beast_provoker
 	if chosen == target_crystal and current_target != target_crystal and current_target != null:
 		_beast_goal.global_position = _home_position
+	# Turning from its own business onto someone: it says so, once in a while.
+	if chosen != target_crystal and (current_target == target_crystal or current_target == null) \
+			and Time.get_ticks_msec() >= _beast_roar_ready_msec:
+		_beast_roar_ready_msec = Time.get_ticks_msec() + int(GameSettings.beast_roar_cooldown * 1000.0)
+		_beast_sound(&"beast_roar")
 	return chosen
+
+
+## A beast's voice: on every screen (NetFx), from its head height, lower the bigger it is.
+func _beast_sound(event: StringName) -> void:
+	var pitch: float = maxf(pow(_beast_size, -GameSettings.beast_voice_pitch_exponent), GameSettings.beast_voice_pitch_min)
+	NetFx.sound(event, global_position + Vector3.UP * _beast_size, pitch)
+
+
+## The idle growl, now and then, while it rests or wanders - when a player is near enough to hear.
+func _beast_idle_voice(delta: float) -> void:
+	_beast_growl_timer -= delta
+	if _beast_growl_timer > 0.0:
+		return
+	_beast_growl_timer = randf_range(GameSettings.beast_growl_interval_min, GameSettings.beast_growl_interval_max)
+	var hear: float = GameSettings.beast_growl_hear_distance * _beast_sense()
+	for at: Vector3 in _players_this_tick():
+		if global_position.distance_squared_to(at) <= hear * hear:
+			_beast_sound(&"beast_growl")
+			return
 
 
 ## Hurt by a player: that player is now the target, even from beyond the aggro radius - a beast
@@ -3066,6 +3095,10 @@ func _begin_beast_special() -> void:
 		state["impact"] = float(timing["impact"]) * length
 		radius = GameSettings.beast_spin_radius * _beast_reach()
 	state["radius"] = radius
+	# Its sound: the pounce's runs from launch to landing; the tail's whoosh is timed to peak
+	# with the sweep, about half a second before the hit.
+	state["voice_at"] = 0.0 if kind == "pounce" else maxf(float(state["impact"]) - 0.5, 0.0)
+	state["voiced"] = false
 	_beast_special = state
 	_emit_boss_fx({
 		"clip": "special",
@@ -3089,6 +3122,9 @@ func _process_beast_special(delta: float) -> void:
 	var before: float = float(state["elapsed"])
 	var elapsed: float = before + delta
 	state["elapsed"] = elapsed
+	if not bool(state["voiced"]) and elapsed >= float(state["voice_at"]):
+		state["voiced"] = true
+		_beast_sound(&"beast_pounce" if String(state["kind"]) == "pounce" else &"beast_tail_spin")
 	velocity.x = 0.0
 	velocity.z = 0.0
 	if String(state["kind"]) == "pounce" and elapsed > float(state["takeoff"]) and before < float(state["impact"]):
@@ -3118,7 +3154,8 @@ func _beast_special_hit(state: Dictionary) -> void:
 	var center: Vector3 = state["at"]
 	var radius: float = float(state["radius"])
 	var mult: float = GameSettings.beast_pounce_damage_mult if pounce else GameSettings.beast_spin_damage_mult
-	NetFx.sound(&"heavy_landing", center)
+	# No sound of its own here: the special's sound (_process_beast_special) carries the landing
+	# and the sweep.
 	var damage: float = enemy_data.attack_damage * mult * GameSettings.get_player_scaling_factor(get_tree())
 	if damage_suppress_timer > 0.0:
 		_report_fog_prevented(damage)
@@ -3176,8 +3213,9 @@ func perform_attack() -> void:
 		impact_ratio = float(attack_anim.get_meta("hit_ratio", 0.5))
 
 	# A shooter's noise is its release, which happens partway into the clip; everyone
-	# else is swinging something, and that is heard now whether or not it connects.
-	if not _is_shooter():
+	# else is swinging something, and that is heard now whether or not it connects. A beast
+	# swings nothing: its noise is the snap of its jaws, at the impact (_resolve_attack_impact).
+	if not _is_shooter() and not is_beast():
 		SoundBank.play_at(&"blunt_swing", global_position)
 
 	# Nothing lands yet. The swing is stretched to fill exactly one attack cooldown,
@@ -3206,6 +3244,10 @@ func _resolve_attack_impact() -> void:
 		fire_projectile()
 		return
 
+	# The jaws snap shut whether or not anything is between them.
+	if is_beast():
+		_beast_sound(&"beast_bite")
+
 	var reach: float = enemy_data.attack_range * GameSettings.enemy_attack_impact_range_grace
 	if not is_instance_valid(current_target) or global_position.distance_to(current_target.global_position) > reach:
 		# Missed. The swing through the air was already heard when it started, and
@@ -3230,7 +3272,8 @@ func _resolve_attack_impact() -> void:
 		return
 
 	if current_target.has_method("take_damage"):
-		SoundBank.play_at(&"blunt_hit", current_target.global_position)
+		if not is_beast():
+			SoundBank.play_at(&"blunt_hit", current_target.global_position)
 		current_target.take_damage(actual_damage, self, true)
 		if enemy_data.enemy_class == "Boss" and current_target.is_in_group("player"):
 			_request_camera_shake(false)
@@ -3684,6 +3727,9 @@ func _react_to_hit(damage_dealt: float) -> void:
 		return
 	_hit_react_timer = GameSettings.enemy_hit_react_duration
 	_hit_react_cooldown = GameSettings.enemy_hit_react_cooldown
+	# A beast gives voice to it; the flinch's own cooldown keeps that from being every hit.
+	if is_beast():
+		_beast_sound(&"beast_hurt")
 	if GameSettings.enemy_hit_react_interrupts_attack:
 		# The swing is dropped along with the pose that was building it. Damage is
 		# scheduled separately from the animation now, so without this the enemy
@@ -3716,6 +3762,8 @@ func die() -> void:
 		# part of a wave, and counting it would end one with its enemies still standing.
 		if not is_beast():
 			SignalBus.enemy_died.emit()
+		else:
+			_beast_sound(&"beast_death")
 		SignalBus.enemy_died_at.emit(global_position)
 		# The team is paid twice for one kill: XP towards a level everybody shares, and
 		# mana in this enemy's own colour. Banked here rather than dropped, because the

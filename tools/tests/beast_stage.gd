@@ -63,6 +63,7 @@ func _run() -> void:
 	await _test_giant("Red", 4.0, 9.0)
 	await _test_rewards()
 	await _test_equipment()
+	_test_voice()
 	_check("no beast ever hit the crystal", _crystal_hits == 0, "%d crystal hits" % _crystal_hits)
 	_check("no beast death counted towards a wave", _wave_deaths == 0, "%d enemy_died" % _wave_deaths)
 	if _failures.is_empty():
@@ -392,6 +393,17 @@ func _test_equipment() -> void:
 		"beast pool %s" % [pool])
 	_check("beast pieces say where they are found", EquipmentDatabase.source_text("bonesplitter").contains("Red biome"),
 		EquipmentDatabase.source_text("bonesplitter"))
+
+
+## Every beast sound EnemyBase plays is wired to a recording that is on disk.
+func _test_voice() -> void:
+	print("== voice")
+	for event: StringName in [&"beast_growl", &"beast_roar", &"beast_bite", &"beast_pounce", &"beast_tail_spin", &"beast_hurt", &"beast_death"]:
+		var files: Array = SoundBank.EVENT_FILES.get(event, [])
+		var present: bool = not files.is_empty()
+		for file: String in files:
+			present = present and FileAccess.file_exists(SoundBank.SFX_ROOT + file)
+		_check("%s has its recording" % event, present, "%s" % [files])
 
 
 ## A beast with nobody about, for poking at directly.

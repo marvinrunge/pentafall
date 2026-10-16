@@ -99,8 +99,9 @@ func spell(spell_id: String, at: Vector3, size: float, peer: int, dir: Vector3 =
 	_dispatch(payload)
 
 
-func sound(event: StringName, at: Vector3) -> void:
-	_dispatch({"kind": Kind.SOUND, "event": String(event), "at": at})
+## `pitch` multiplies the playback rate on every screen - a giant beast's voice, lower.
+func sound(event: StringName, at: Vector3, pitch: float = 1.0) -> void:
+	_dispatch({"kind": Kind.SOUND, "event": String(event), "at": at, "pitch": pitch})
 
 
 ## `at` is where it happened and `peer` is who caused it. The owner of `peer` feels the
@@ -177,7 +178,7 @@ func _play_local(payload: Dictionary) -> void:
 			if owner_node != null:
 				owner_node.add_child(SpellFx.cast_glow(payload["tint"], payload["size"]))
 		Kind.SOUND:
-			SoundBank.play_at(StringName(payload["event"]), payload["at"])
+			SoundBank.play_at(StringName(payload["event"]), payload["at"], 0.0, float(payload.get("pitch", 1.0)))
 		Kind.SHAKE:
 			_play_shake(payload)
 		Kind.SPELL:

@@ -153,6 +153,22 @@ const EVENT_FILES := {
 	&"boss_spawn_white": ["generated/boss_spawn_white/boss_spawn_white_1.mp3"],
 	## Black boss: Zombie Lord
 	&"boss_spawn_black": ["generated/boss_spawn_black/boss_spawn_black_1.mp3"],
+	## The wild beasts (docs/BEASTS_PLAN.md): one voice for all of them, pitched down by size
+	## where it plays (EnemyBase._beast_sound), so a giant sounds like one.
+	## Wild beast: idle growl
+	&"beast_growl": ["generated/beast_growl/beast_growl_2.mp3"],
+	## Wild beast: notices someone
+	&"beast_roar": ["generated/beast_roar/beast_roar_1.mp3"],
+	## Wild beast: bite
+	&"beast_bite": ["generated/beast_bite/beast_bite_3.mp3"],
+	## Wild beast: pounce
+	&"beast_pounce": ["generated/beast_pounce/beast_pounce_1.mp3"],
+	## Wild beast: tail spin
+	&"beast_tail_spin": ["generated/beast_tail_spin/beast_tail_spin_1.mp3"],
+	## Wild beast: hurt
+	&"beast_hurt": ["generated/beast_hurt/beast_hurt_3.mp3"],
+	## Wild beast: death
+	&"beast_death": ["generated/beast_death/beast_death_1.mp3"],
 	# END GENERATED PICKS
 }
 
@@ -472,7 +488,8 @@ func _apply_music_settings() -> void:
 ##
 ## `extra_db` is for a caller that knows something the event does not - an orb belonging
 ## to somebody else's avatar is background to this player, not a sound of their own doing.
-func play_at(event: StringName, position: Vector3, extra_db: float = 0.0) -> void:
+## `pitch` likewise: a giant beast's voice is the same recording played lower.
+func play_at(event: StringName, position: Vector3, extra_db: float = 0.0, pitch: float = 1.0) -> void:
 	var stream: AudioStream = _pick(event)
 	if stream == null:
 		return
@@ -491,7 +508,7 @@ func play_at(event: StringName, position: Vector3, extra_db: float = 0.0) -> voi
 	player.stream = stream
 	player.global_position = position
 	player.volume_db = GameSettings.sfx_volume_db + float(EVENT_GAIN_DB.get(event, 0.0)) + extra_db
-	player.pitch_scale = _jittered_pitch()
+	player.pitch_scale = _jittered_pitch() * maxf(pitch, 0.05)
 	player.play()
 
 

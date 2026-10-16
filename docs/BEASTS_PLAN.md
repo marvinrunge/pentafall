@@ -214,6 +214,17 @@ on the test stage, the rest builds on it.
   6 checks while room is sought.
 - Stage 4 should scale rewards with size.
 
+## Sounds (2026-10-16)
+
+Seven ElevenLabs events in `tools/sfx_prompts.json` (`beast_growl`, `beast_roar`, `beast_bite`,
+`beast_pounce`, `beast_tail_spin`, `beast_hurt`, `beast_death`), three takes each under
+`assets/soundeffects/generated/`, one picked per event in SoundBank (`tools/apply_sfx_picks.py`,
+picked at random so far). One set for all beasts: `EnemyBase._beast_sound` plays them on every
+screen through `NetFx.sound`, pitched down by size (GameSettings' Voice block). Growl now and
+then while calm with a player in earshot; roar on turning onto a target (with a cooldown); bite
+at the jaws' impact, hit or miss; pounce from launch, tail whoosh half a second before the
+sweep hits; hurt with the flinch; death as it falls.
+
 ## Open questions
 
 - Balance in play: sizes, health and damage exponents, rewards, drop chance, leash and aggro

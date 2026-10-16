@@ -1415,6 +1415,23 @@ func rank_level_requirement(rank: int) -> int:
 ## From this size on a beast is an alpha, and its health bar says so.
 @export var beast_alpha_size: float = 3.0
 
+# --- Voice -------------------------------------------------------------------------------------
+#
+# One set of beast sounds (SoundBank's beast_* events), played on every screen through
+# NetFx.sound and pitched down by size: size to beast_voice_pitch_exponent, never below
+# beast_voice_pitch_min - a 5x giant at about 0.62.
+
+@export var beast_voice_pitch_exponent: float = 0.3
+@export var beast_voice_pitch_min: float = 0.55
+## Seconds between idle growls while a beast rests or wanders (random in between) - only
+## voiced with a player within beast_growl_hear_distance metres, so nobody pays the network
+## for a growl nobody can hear.
+@export var beast_growl_interval_min: float = 8.0
+@export var beast_growl_interval_max: float = 18.0
+@export var beast_growl_hear_distance: float = 45.0
+## Seconds before a beast roars at a new target again.
+@export var beast_roar_cooldown: float = 8.0
+
 # --- Spawning (WildlifeManager) ---------------------------------------------------------------
 #
 # Each biome keeps up to beast_max_per_biome beasts, waves and Upkeep alike. A beast's home is a
