@@ -3355,7 +3355,9 @@ func perform_mage_spell() -> void:
 			# Damagedealer (Fireball at player)
 			var players = get_tree().get_nodes_in_group("player")
 			if players.size() > 0 and global_position.distance_to(players[0].global_position) < GameSettings.enemy_red_mage_range:
-				if players[0].has_method("take_damage"):
+				if DoTZone.is_fogged(get_tree(), players[0].global_position):
+					_report_fog_prevented(0.0)
+				elif players[0].has_method("take_damage"):
 					var scaled_damage = enemy_data.attack_damage * GameSettings.get_player_scaling_factor(get_tree())
 					players[0].take_damage(scaled_damage, self)
 		"Blue":

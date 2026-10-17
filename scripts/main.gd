@@ -976,6 +976,88 @@ static func _build_bolt_telegraph(radius: float, delay: float) -> Node3D:
 	return anchor
 
 
+## The base screen's actions. The screen runs on whichever machine opened it, but mana and
+## myrs are the server's - RunState.spend refuses on a client - so a client's click is
+## forwarded here instead of failing silently. Myrs are addressed by node name, which the
+## MyrNetSpawner keeps identical on every peer.
+func request_build_myr() -> void:
+	if Net.is_server():
+		if RunState.spend({"Colorless": GameSettings.myr_mana_cost}):
+			spawn_myr()
+	else:
+		_rpc_build_myr.rpc_id(1)
+
+
+func request_myr_level(myr: Node3D) -> void:
+	if Net.is_server():
+		_apply_myr_level(myr)
+	else:
+		_rpc_myr_level.rpc_id(1, String(myr.name))
+
+
+func request_myr_lane(myr: Node3D, lane: int) -> void:
+	if Net.is_server():
+		_apply_myr_lane(myr, lane)
+	else:
+		_rpc_myr_lane.rpc_id(1, String(myr.name), lane)
+
+
+func request_myr_name(myr: Node3D, display_name: String) -> void:
+	myr.display_name = display_name
+	if not Net.is_server():
+		_rpc_myr_name.rpc_id(1, String(myr.name), display_name)
+
+
+func _apply_myr_level(myr: Node3D) -> void:
+	if myr == null or myr.level >= GameSettings.myr_max_level:
+		return
+	if RunState.spend({"Colorless": GameSettings.myr_level_cost * (myr.level + 1)}):
+		myr.set_level(myr.level + 1)
+
+
+func _apply_myr_lane(myr: Node3D, lane: int) -> void:
+	if myr == null or lane < 0 or lane >= mana_sources.size():
+		return
+	# The well caps how many Myrs can work it at once; sending a sixth is what wedged
+	# them against the model, so the assignment is refused before it starts.
+	if myr.lane_index != lane and well_slot_count(lane) >= RunState.myr_well_slots():
+		return
+	# A fresh Myr has lane_index == -1, so pass the requested lane explicitly.
+	if not claim_well_slot(myr, lane):
+		return
+	if myr.has_method("assign_lane"):
+		myr.assign_lane(lane, mana_sources[lane])
+
+
+func _myr_by_name(myr_name: String) -> Node3D:
+	return get_node_or_null("Myrs/" + myr_name) as Node3D
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_build_myr() -> void:
+	if Net.is_server():
+		request_build_myr()
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_myr_level(myr_name: String) -> void:
+	if Net.is_server():
+		_apply_myr_level(_myr_by_name(myr_name))
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_myr_lane(myr_name: String, lane: int) -> void:
+	if Net.is_server():
+		_apply_myr_lane(_myr_by_name(myr_name), lane)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_myr_name(myr_name: String, display_name: String) -> void:
+	var myr: Node3D = _myr_by_name(myr_name)
+	if Net.is_server() and myr != null:
+		myr.display_name = display_name.left(18)
+
+
 ## Myrs alive right now. The group is the roster - there is no separate list to keep in
 ## step with it.
 func myr_count() -> int:
@@ -1022,6 +1104,13 @@ func release_well_slot(myr: Node3D) -> void:
 ## How many Myrs are currently harvesting `lane_index`'s well - what the base UI shows
 ## next to the lane buttons so "the well is full" is visible before the click.
 func well_slot_count(lane_index: int) -> int:
+	# The slot registry is the server's. A client counts the replicated lanes instead.
+	if not Net.is_server():
+		var count: int = 0
+		for myr: Node in get_tree().get_nodes_in_group("myrs"):
+			if int(myr.get("lane_index")) == lane_index:
+				count += 1
+		return count
 	var holders: Array = _well_slot_holders.get(lane_index, [])
 	holders = holders.filter(func(h: Node3D) -> bool: return is_instance_valid(h))
 	_well_slot_holders[lane_index] = holders

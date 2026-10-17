@@ -91,6 +91,7 @@ func _ready() -> void:
 	# A myr spawned already levelled (loaded from a save, or replicated to a client that
 	# joined mid-run) never passes through set_level, so the size is applied here too.
 	_apply_level_scale()
+	_build_synchronizer()
 	
 	# Read metadata targets set by map generator
 	if has_meta("target_mana_source"):
@@ -334,6 +335,93 @@ func _myr_death_blast() -> void:
 	NetFx.ring(global_position, tint, radius)
 
 
+# --- network -------------------------------------------------------------------------
+#
+# Every peer used to run its own copy of the state machine, which only ever worked for the
+# server: the lane is assigned from the base screen, and that only runs where the click
+# happened, so a client's copy sat IDLE at the crystal forever - and an IDLE myr has no
+# model, so clients saw no myrs at all. The server's myr is the real one now and a client
+# draws it from what the synchroniser says, the same split EnemyBase uses.
+
+## Where this myr is and which way it faces, written on a client by the synchroniser.
+var net_position: Vector3:
+	get:
+		return position
+	set(value):
+		if not _net_target_position.is_finite():
+			position = value
+		_net_target_position = value
+var net_yaw: float:
+	get:
+		return rotation.y
+	set(value):
+		_net_target_yaw = value
+## `current_state` as an int - an enum-typed property replicates as one anyway, and this
+## keeps the setter from fighting the server's own writes.
+var net_state: int:
+	get:
+		return int(current_state)
+	set(value):
+		current_state = value as State
+## `_carrying` is private and has a side effect; the glow is applied on the client in
+## _update_puppet when this changes.
+var net_carrying: bool:
+	get:
+		return _carrying
+	set(value):
+		_net_carrying = value
+
+var _net_target_position: Vector3 = Vector3.INF
+var _net_target_yaw: float = 0.0
+var _net_carrying: bool = false
+var _puppet_died: bool = false
+
+
+func _is_puppet() -> bool:
+	return Net.is_active() and not Net.is_server()
+
+
+func _build_synchronizer() -> void:
+	if not Net.is_active():
+		return
+	var config := SceneReplicationConfig.new()
+	for property: String in [":net_position", ":net_yaw"]:
+		config.add_property(NodePath(property))
+		config.property_set_replication_mode(NodePath(property), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
+	for property: String in [":lane_index", ":net_state", ":net_carrying", ":level",
+			":health", ":max_health", ":is_dying", ":display_name"]:
+		config.add_property(NodePath(property))
+		config.property_set_replication_mode(NodePath(property), SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
+	var sync := MultiplayerSynchronizer.new()
+	sync.name = "Sync"
+	sync.replication_config = config
+	sync.set_multiplayer_authority(1)
+	sync.replication_interval = GameSettings.enemy_net_interval
+	add_child(sync)
+
+
+## A client's whole job for a myr: follow the server's copy and look like it.
+func _update_puppet(delta: float) -> void:
+	if _net_target_position.is_finite():
+		position = position.lerp(_net_target_position, clampf(12.0 * delta, 0.0, 1.0))
+	rotation.y = lerp_angle(rotation.y, _net_target_yaw, clampf(10.0 * delta, 0.0, 1.0))
+	if lane_index >= 0:
+		_apply_color_visual(_lane_color())
+	_apply_level_scale()
+	if _net_carrying != _carrying:
+		_set_carrying(_net_carrying)
+	if is_dying:
+		if not _puppet_died:
+			_puppet_died = true
+			remove_from_group("myrs")
+			collision_layer = 0
+			collision_mask = 0
+			if visual_anim_player and visual_anim_player.has_animation("death"):
+				visual_anim_player.play("death")
+		return
+	_update_visual_animation()
+
+
 func _refresh_fervor_state() -> void:
 	fervor_active = false
 	for player in get_tree().get_nodes_in_group("player"):
@@ -435,6 +523,9 @@ func update_navigation_target() -> void:
 				nav_agent.target_position = target_crystal.global_position
 
 func _physics_process(delta: float) -> void:
+	if _is_puppet():
+		_update_puppet(delta)
+		return
 	if is_dying:
 		return
 

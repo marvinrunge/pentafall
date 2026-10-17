@@ -396,7 +396,15 @@ func _process(delta: float) -> void:
 			_fps_update_timer = 0.25
 			_update_fps_label()
 
-	if _player == null or not is_instance_valid(_player):
+	# get_local() falls back to ANY player while the local one has not registered yet, and
+	# on a client the host's avatar arrives first - so the HUD can come up holding a
+	# stranger and would keep showing their (empty) hotbar forever. Swap as soon as the
+	# real local player exists.
+	var local: Node3D = PlayerRegistry.local_player
+	if is_instance_valid(local) and _player != local:
+		_player = local
+		_update_hotbar_display(_active_spell_idx)
+	elif _player == null or not is_instance_valid(_player):
 		_player = PlayerRegistry.get_local()
 		
 	if _player != null and "spell_cooldown_timers" in _player:

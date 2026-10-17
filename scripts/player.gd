@@ -1284,6 +1284,8 @@ func cast_active_spell() -> void:
 	if cd > 0.0 and not can_blood_cast(spell_id):
 		return
 
+	if not is_downed and _stagger_timer <= 0.0:
+		_yield_melee_to_cast()
 	if not _can_start_cast():
 		return
 
@@ -1291,7 +1293,14 @@ func cast_active_spell() -> void:
 		_casting_rank = maxi(get_spell_rank(spell_id), 1)
 		# Held from the start, or the channel never learns that the button coming up should end
 		# it - which is how a Fire Cone ran its full five seconds whatever the player did.
-		_run_spell_effect(spell_id, 1.0, is_local and _cast_held())
+		var held: bool = is_local and _cast_held()
+		if Net.is_active() and not Net.is_server():
+			# The channel is the SERVER's: it ticks it and replicates `_channel_id` back. Started
+			# here instead, it lived for one sync - the host's copy said "no channel" and the
+			# vitals synchroniser wrote that over it, so a client's Fire Cone died at once.
+			_request_spell.rpc_id(1, spell_id, 1.0, held, 0.0, aim_origin(), aim_direction(), Vector3.ZERO)
+			return
+		_run_spell_effect(spell_id, 1.0, held)
 	elif is_chargeable(spell_id):
 		is_charging = true
 		charge_timer = 0.0
@@ -1302,6 +1311,27 @@ func cast_active_spell() -> void:
 		SignalBus.spell_charge_changed.emit(0.0, charge_max_time, true)
 	else:
 		_begin_cast(spell_id, 1.0)
+
+
+## Spells come before the weapon. A cast pressed mid-swing used to wait the swing out, and
+## with the attack button held the next swing of the chain had already started by then -
+## so in a fight a spell often never went off at all. Now the swing in flight is cut off
+## (its unlanded hits with it), a held heavy is dropped and a buffered follow-up is
+## forgotten, and the cast starts on this frame. Only melee yields: another cast, a
+## stagger or being down still has to finish first.
+func _yield_melee_to_cast() -> void:
+	_clear_pending_swing()
+	_cancel_heavy_charge()
+	if _action_timer <= 0.0 or not _action_is_melee:
+		return
+	_action_timer = 0.0
+	_action_duration = 0.0
+	_action_roots_player = false
+	_action_is_melee = false
+	_action_is_heavy = false
+	_pending_hits.clear()
+	_combo_stage = 0
+	_combo_reset_timer = 0.0
 
 
 ## A cast is a committed action like a swing, so it queues behind one rather than
@@ -1663,9 +1693,12 @@ func _run_spell_effect(spell_id: String, charge_pct: float, held: bool = false) 
 	# Rhystic Study: every cast banks shield, up to a cap. (When it breaks, it freezes what
 	# broke it - see _rhystic_shatter.)
 	if has_aura("aura_rhystic_study"):
+		var study_rank: int = get_aura_rank("aura_rhystic_study")
 		rhystic_shield = minf(
-			rhystic_shield + GameSettings.aura_rhystic_study_shield_amount * get_aura_rank_mult("aura_rhystic_study"),
-			GameSettings.aura_rhystic_study_shield_max * get_aura_rank_mult("aura_rhystic_study")
+			rhystic_shield + GameSettings.rank_fraction(
+				GameSettings.aura_rhystic_study_shield_amount, GameSettings.aura_rhystic_study_shield_amount_max, study_rank),
+			GameSettings.rank_fraction(
+				GameSettings.aura_rhystic_study_shield_max, GameSettings.aura_rhystic_study_shield_max_max, study_rank)
 		)
 		emit_shield_changed()
 		
@@ -2410,6 +2443,24 @@ func _net_respawned() -> void:
 	_return_to_seat()
 
 
+## Moves this player to `target` - on whichever machine owns the position. The server
+## resolves spells, but a client's transform is published by that client, so a move made
+## only on the host is undone by the next packet from the owner.
+func teleport_to(target: Vector3) -> void:
+	global_position = target
+	velocity = Vector3.ZERO
+	if Net.is_active() and Net.is_server() and not is_local:
+		_net_teleport.rpc_id(get_multiplayer_authority(), target)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_teleport(target: Vector3) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	global_position = target
+	velocity = Vector3.ZERO
+
+
 ## Up, and back where they started.
 ##
 ## The MOVE only happens on the machine that owns this player. Position is published by
@@ -3140,6 +3191,14 @@ func _watch_remote_channel() -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
+func _net_channel_cooldown(spell_id: String, cooldown: float) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	spell_cooldown_timers[spell_id] = cooldown
+	_channel_release_sent = false
+
+
+@rpc("any_peer", "call_remote", "reliable")
 func _net_end_channel() -> void:
 	if not Net.is_server():
 		return
@@ -3158,6 +3217,10 @@ func _end_channel() -> void:
 	var spent: float = maxf(GameSettings.spell_red_fire_cone_max_duration - _channel_timer, 0.0)
 	if spent > 0.05:
 		spell_cooldown_timers[_channel_id] = spent / _spell_cooldown_recovery_rate()
+		# A client's channel ran here, so its owner has no idea how long it burned - and
+		# the owner's own timers are what its hotbar shows and what its next cast checks.
+		if Net.is_active() and Net.is_server() and not is_local:
+			_net_channel_cooldown.rpc_id(get_multiplayer_authority(), _channel_id, spell_cooldown_timers[_channel_id])
 	_channel_id = ""
 	_channel_timer = 0.0
 	_channel_held = false
@@ -3611,6 +3674,11 @@ func _try_kick() -> void:
 func _can_start_attack() -> bool:
 	if is_downed or _stagger_timer > 0.0:
 		return false
+	# A spell being charged or channelled outranks the weapon (see _yield_melee_to_cast):
+	# a click while a Fireball was building used to start a swing, and the swing's commit
+	# dropped the charge.
+	if is_charging or _channel_id != "":
+		return false
 	if _action_timer <= 0.0:
 		return true
 	if _action_is_heavy:
@@ -4020,6 +4088,9 @@ func _physics_process(delta: float) -> void:
 		else:
 			_watch_remote_channel()
 	else:
+		# The server ends a client's channel, so _end_channel never runs on this side and
+		# would leave the "release already sent" latch closed for the next one.
+		_channel_release_sent = false
 		# Melee fires on release: a tap advances the light chain by one stage, a hold
 		# commits to the heavy spin. See _update_actions().
 		_update_block()

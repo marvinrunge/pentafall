@@ -70,9 +70,9 @@ and every rank after closes the same share of the remaining gap to the ceiling.
 
 | Tier | Spell | Cost | Cooldown | Charge | Damage | Range / Radius | Details |
 |---:|---|---:|---:|:---:|---:|---:|---|
-| 1 | Titanic Brawl | 1 | 8s | No | Landing damage | Leap | Leaps forward and slams the ground on landing. |
+| 1 | Titanic Brawl | 1 | 8s | No | Landing damage | Leap, reach | Leaps to the crosshair (10 m reach, 18 m at rank 5) and slams the ground on landing. |
 | 2 | Giant Growth | 1 | 22s | No | Maximum HP | Self | Grows the player temporarily and increases maximum health. |
-| 3 | Fog | 1 | 18s | No | Damage suppression / slow | Ground zone | Creates fog where enemies deal no damage and wade rather than walk. Prevented damage is shown over each attacker. |
+| 3 | Fog | 1 | 18s | No | Ranged suppression / slow | Zone around caster | Raises fog around the caster. Projectiles and spells aimed at anything inside it are lost, archers and mages standing in it cannot fire, and every enemy wades rather than walks. Melee still hits. |
 | 4 | Roar | 1 | 16s | No | Taunt | Area | Forces nearby enemies to target the player. |
 | 5 | Ironbark | 1 | 20s | No | Damage reduction | Self | Reduces damage and prevents knockback, stun, and freeze. |
 

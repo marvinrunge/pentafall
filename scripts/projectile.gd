@@ -263,6 +263,12 @@ func _on_body_entered(body: Node3D) -> void:
 	# for the shooter's benefit; the authoritative one was fired by the server when the
 	# cast was requested (see Player.execute_spell).
 	if not Net.is_server():
+		# The same bodies the server's copy passes through, this one passes through too.
+		# Without it a client's own Fireball - drawn from the hands, inside a body that is
+		# a little ahead of where the host's copy of it stands - burst in the caster's face
+		# on the client while the host's bolt flew on to the crosshair.
+		if body.is_in_group("enemies" if is_enemy else "player"):
+			return
 		# The LOOK of the detonation still belongs here. A client's fireball reaching an
 		# enemy and winking out without a fireball is the same nothing the whole exercise
 		# is meant to remove - the damage is the server's, the explosion is everybody's.
@@ -276,6 +282,11 @@ func _on_body_entered(body: Node3D) -> void:
 		# Enemy projectile hits player, myrs, crystal
 		if body.is_in_group("enemies"):
 			return # Ignore other enemies
+		# Green's Fog: an arrow or a bolt finds nothing inside the cloud.
+		if DoTZone.is_fogged(get_tree(), body.global_position):
+			NetFx.damage_number(body.global_position + Vector3(0, 1.9, 0), 0.0, Color(0.72, 0.92, 0.82), "Fogged")
+			deactivate()
+			return
 		
 		if body.has_method("take_damage"):
 			body.take_damage(damage, _get_caster(), false)

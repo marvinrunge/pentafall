@@ -28,6 +28,8 @@ const MUSIC_ROOT := "res://assets/music/"
 ## event -> the interchangeable recordings of it. More than one entry means the
 ## event picks between them, so a run of hits does not machine-gun one waveform.
 const EVENT_FILES := {
+	&"ui_button_hover": ["ui/stone_button_hover.wav"],
+	&"ui_button_click": ["ui/stone_button_click.wav"],
 	# Every attack is two sounds, not one: the SWING always plays, on the frame the
 	# move starts, and the HIT follows only if the weapon found something - on the
 	# frame it actually connects. A miss is simply the swing with nothing after it,
@@ -287,6 +289,38 @@ func _ready() -> void:
 	_build_pools()
 	_build_gameplay_playlist()
 	_setup_title_music()
+	get_tree().node_added.connect(_on_node_added)
+	_bind_existing_buttons(get_tree().root)
+
+
+func _on_node_added(node: Node) -> void:
+	_bind_button_audio(node)
+
+
+func _bind_existing_buttons(node: Node) -> void:
+	_bind_button_audio(node)
+	for child: Node in node.get_children():
+		_bind_existing_buttons(child)
+
+
+func _bind_button_audio(node: Node) -> void:
+	if not node is BaseButton:
+		return
+	var button: BaseButton = node as BaseButton
+	if not button.mouse_entered.is_connected(_on_ui_button_hovered):
+		button.mouse_entered.connect(_on_ui_button_hovered)
+	if not button.focus_entered.is_connected(_on_ui_button_hovered):
+		button.focus_entered.connect(_on_ui_button_hovered)
+	if not button.pressed.is_connected(_on_ui_button_pressed):
+		button.pressed.connect(_on_ui_button_pressed)
+
+
+func _on_ui_button_hovered() -> void:
+	play(&"ui_button_hover")
+
+
+func _on_ui_button_pressed() -> void:
+	play(&"ui_button_click")
 
 
 func _load_streams() -> void:

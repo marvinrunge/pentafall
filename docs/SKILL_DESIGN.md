@@ -197,7 +197,7 @@ dead.**
 | Zombify: undead that fight | **Ghouls that burst** -> **fight again** | They traded blows with no attack animation, walking on the spot, so they became bursts. The burst then moved behind Mayhem Devil, which left Zombify alone as ghouls that ran in and vanished. The enemy rigs have a real `attack` clip by now, so the ghouls fight with it again; the burst is Mayhem Devil's ending on top. |
 | Doom Blade: wider with rank | **Longer with rank** | A wider line is a cone; reach is the skill shot getting better. |
 | Grave Pact: heal + stacking damage | **Soul Orb** | Its heal was the black affinity's lifesteal and its damage was red's number. Now it is a Manifestation that visibly fights, like the other orbs. |
-| Phyrexian Arena: +25% damage, +15% speed, HP drain | **Phyrexian mana** | Both halves were other nodes' numbers. Now: cast a spell still on cooldown by paying life, 1.2% of maximum health per second left (0.7% at rank 5). Never enough to kill. |
+| Phyrexian Arena: +25% damage, +15% speed, HP drain | **Phyrexian mana** | Both halves were other nodes' numbers. Now: cast a spell still on cooldown by paying life, 3.5% of maximum health per second left (1.8% at rank 5). Never enough to kill. |
 
 > **Kill could never execute a boss before this.** Its boss clause reads the target's health
 > ratio through `HealthReader`, and `EnemyBase` had no maximum health to divide by - so the
@@ -289,7 +289,7 @@ half. Both are on the board and both are buyable.
 | Colour | Attunement | What it does |
 |---|---|---|
 | White | **Glorious Anthem** | Teammates, myrs and summons within 14m deal ×1.2 damage and take ×0.8 - **not** the white player |
-| Blue | **Rhystic Study** | Every cast grants 20 shield up to 60; when it breaks, enemies within 4m freeze (bosses slow) |
+| Blue | **Rhystic Study** | Every cast grants 7 shield up to 22 (18 up to 55 at rank 5); when it breaks, enemies within 4m freeze (bosses slow) |
 | Black | **Phyrexian Arena** | Cast a spell still on cooldown by paying life - 1.2% max HP per second left (0.7% at rank 5), never lethal |
 | Red | **Fervor** | ×1.15 swing and cast speed |
 | Green | **Kodama's Reach** | ×1.3 area on every spell (was Sylvan Library; not "Overgrowth", which is green's team enchantment) |

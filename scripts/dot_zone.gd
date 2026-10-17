@@ -49,7 +49,22 @@ func setup(p_type: String, p_radius: float, p_dps: float, p_duration: float, p_c
 	duration = p_duration
 	caster = p_caster
 
+## Whether `pos` is inside a Fog (green_3). Ranged damage aimed at anything there is lost
+## in the cloud - see Projectile._on_body_entered and EnemyBase.perform_mage_spell.
+static func is_fogged(tree: SceneTree, pos: Vector3) -> bool:
+	for zone: Node in tree.get_nodes_in_group("fog_zones"):
+		if not is_instance_valid(zone) or zone.is_queued_for_deletion():
+			continue
+		var offset: Vector3 = pos - (zone as Node3D).global_position
+		offset.y = 0.0
+		if offset.length() <= (zone as DoTZone).radius:
+			return true
+	return false
+
+
 func _ready() -> void:
+	if zone_type == "fog":
+		add_to_group("fog_zones")
 	# Collision setup
 	collision_layer = 0
 	if zone_type == "holy_trail":
@@ -259,7 +274,12 @@ func _apply_ticks() -> void:
 			# fog restores the enemy within one tick instead of it carrying a duration
 			# away with it.
 			if b.is_in_group("enemies") and b.has_method("suppress_damage"):
-				b.suppress_damage(tick_interval * 2.0)
+				# Only the ones that shoot. A blade still reaches whoever stands in the fog -
+				# it is cover from arrows and spells, not a wall.
+				var data: Resource = b.get("enemy_data")
+				var enemy_class: String = String(data.get("enemy_class")) if data != null else ""
+				if enemy_class == "Ranged" or enemy_class == "Mage":
+					b.suppress_damage(tick_interval * 2.0)
 				# Wading, not walking. Fog's real effect is invisible - enemies swinging and
 				# connecting with nothing - so the cloud also has to LOOK like it is doing
 				# something from across the field. Same refresh window as the suppression, so

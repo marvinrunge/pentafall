@@ -23,6 +23,7 @@ class_name UpkeepPanel
 ## reservation; clients send requests and render what they are told. Anything else lets
 ## two peers pass contradictory votes with the same mana.
 
+const ReadyStyle := preload("res://scripts/ready_style.gd")
 const COLORS: Array[String] = ["White", "Blue", "Black", "Red", "Green"]
 const COLOR_HEX: Dictionary = {
 	"White": Color(0.95, 0.91, 0.72),
@@ -40,6 +41,8 @@ var _shop_rows: VBoxContainer
 var _vote_rows: VBoxContainer
 var _log_label: RichTextLabel
 var _ready_button: Button
+## One chip per connected player in the footer - who the team is still waiting for.
+var _ready_rows: HFlowContainer
 
 var _time_left: float = 0.0
 var _active: bool = false
@@ -399,12 +402,19 @@ func _build_ui() -> void:
 	backdrop.color = Color(0.015, 0.018, 0.025, 0.9)
 	_root.add_child(backdrop)
 
+	# Centred by a container rather than placed at a fixed offset. The panel used to be
+	# positioned once at its authored size; a PanelContainer grows to fit its content but
+	# never shrinks back, and every rebuild briefly holds the old rows and the new ones at
+	# once - so after a vote resolved (three rebuilds in a row: the tally, the mana, the
+	# enchantment) the panel had grown down and to the right, off the screen.
+	var centre := CenterContainer.new()
+	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(centre)
 	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = Vector2(-520.0, -290.0)
-	panel.size = Vector2(1040.0, 580.0)
+	panel.custom_minimum_size = Vector2(1040.0, 580.0)
 	panel.add_theme_stylebox_override("panel", _panel_style(Color(0.04, 0.045, 0.055, 0.98), Color(0.9, 0.67, 0.2)))
-	_root.add_child(panel)
+	centre.add_child(panel)
 
 	var margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
@@ -477,6 +487,10 @@ func _build_ui() -> void:
 
 	# --- footer: ready check --------------------------------------------------
 	rows.add_child(HSeparator.new())
+	_ready_rows = HFlowContainer.new()
+	_ready_rows.add_theme_constant_override("h_separation", 8)
+	_ready_rows.add_theme_constant_override("v_separation", 6)
+	rows.add_child(_ready_rows)
 	_ready_button = Button.new()
 	_ready_button.custom_minimum_size = Vector2(0.0, 42.0)
 	_ready_button.pressed.connect(_on_ready_pressed)
@@ -518,15 +532,62 @@ func _refresh() -> void:
 	_level_label.text = "Level %d   XP %d/%d   Points %d" % [
 		RunState.team_level, int(progress.x), int(progress.y), points]
 
+	# Every button below is rebuilt, and a rebuilt button is a new node - so whatever had
+	# focus (the Yes just pressed, on a pad the only way to point at anything) is gone.
+	# Remembered by what it IS and handed back to its replacement.
+	var focus_key: String = ""
+	var focused: Control = get_viewport().gui_get_focus_owner() if is_inside_tree() else null
+	if focused != null and _root.is_ancestor_of(focused):
+		focus_key = String(focused.get_meta("focus_key", ""))
+
 	_rebuild_shop()
 	_rebuild_votes()
+	_rebuild_ready_rows()
 	_log_label.text = "\n".join(_log_lines) if not _log_lines.is_empty() else "[color=#666]nothing bought yet[/color]"
-	_ready_button.text = "READY - waiting for the rest" if _local_ready else "READY (start the next wave)"
+	_ready_button.text = "READY - waiting for the rest" if _local_ready else "NOT READY - press to start the next wave"
+	ReadyStyle.style_button(_ready_button, _local_ready)
+
+	if focus_key != "":
+		var target: Control = _find_focus_key(_root, focus_key)
+		if target == null or (target is BaseButton and (target as BaseButton).disabled):
+			target = _ready_button
+		target.grab_focus()
+
+
+func _find_focus_key(node: Node, key: String) -> Control:
+	for child: Node in node.get_children():
+		if child is Control and String(child.get_meta("focus_key", "")) == key:
+			return child as Control
+		var found: Control = _find_focus_key(child, key)
+		if found != null:
+			return found
+	return null
+
+
+## Removed from the tree NOW, not only queued: a queued child still counts towards the
+## container's size until the end of the frame. See _build_ui.
+static func _clear(container: Node) -> void:
+	for child: Node in container.get_children():
+		container.remove_child(child)
+		child.queue_free()
+
+
+func _rebuild_ready_rows() -> void:
+	_clear(_ready_rows)
+	_ready_rows.visible = Net.is_active()
+	if not Net.is_active():
+		return
+	for id in Net.ordered_ids():
+		var peer_id: int = int(id)
+		var ready: bool = _local_ready if peer_id == Net.local_id() else bool(_ready_peers.get(peer_id, false))
+		var tag: String = " (you)" if peer_id == Net.local_id() else ""
+		var chip: PanelContainer = ReadyStyle.row(Net.display_name(peer_id) + tag, ready)
+		chip.custom_minimum_size = Vector2(190.0, 0.0)
+		_ready_rows.add_child(chip)
 
 
 func _rebuild_shop() -> void:
-	for child in _shop_rows.get_children():
-		child.queue_free()
+	_clear(_shop_rows)
 
 	_shop_rows.add_child(_purchase_row(
 		"Build a myr", "Harvests a lane and sweeps drops. Compounds, so worth most early.",
@@ -575,6 +636,7 @@ func _purchase_row(title: String, subtitle: String, cost: Dictionary, on_press: 
 	row.add_child(text)
 
 	var button := Button.new()
+	button.set_meta("focus_key", "shop:" + title.get_slice("(", 0).strip_edges())
 	button.custom_minimum_size = Vector2(210.0, 40.0)
 	var missing: Dictionary = RunState.shortfall(_with_reservations(cost))
 	if missing.is_empty():
@@ -598,8 +660,7 @@ func _cost_text(cost: Dictionary) -> String:
 
 
 func _rebuild_votes() -> void:
-	for child in _vote_rows.get_children():
-		child.queue_free()
+	_clear(_vote_rows)
 
 	if _proposals.is_empty():
 		var idle := Label.new()
@@ -622,14 +683,17 @@ func _rebuild_votes() -> void:
 		row.add_child(label)
 		var yes := Button.new()
 		yes.text = "Yes"
+		yes.set_meta("focus_key", "vote:%s:yes" % color)
 		yes.pressed.connect(_vote.bind(color, true))
 		row.add_child(yes)
 		var no := Button.new()
 		no.text = "No"
+		no.set_meta("focus_key", "vote:%s:no" % color)
 		no.pressed.connect(_vote.bind(color, false))
 		row.add_child(no)
 		var withdraw := Button.new()
 		withdraw.text = "x"
+		withdraw.set_meta("focus_key", "vote:%s:withdraw" % color)
 		withdraw.pressed.connect(_withdraw.bind(color))
 		row.add_child(withdraw)
 		_vote_rows.add_child(row)

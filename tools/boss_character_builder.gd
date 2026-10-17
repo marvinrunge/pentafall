@@ -75,7 +75,10 @@ const ANIM_SETS := {
 		"attack": ANIM_ROOT + "zombie/attack.fbx",
 		"special": ANIM_ROOT + "zombie/special_headbutt.fbx",
 		"hit": ANIM_ROOT + "zombie/hit.fbx",
-		"death": ANIM_ROOT + "zombie/death.fbx",
+		# The shared collapse, like the treant. zombie/death.fbx is not a death at all: an
+		# 11.6 s clip whose hips end exactly where they started, so the boss stood swaying
+		# when it died instead of falling.
+		"death": ANIM_ROOT + "common/death_collapse.fbx",
 	},
 }
 

@@ -540,10 +540,15 @@ func _run_enemy_checks() -> void:
 	# --- and kill it ---------------------------------------------------------
 	_host_kill_enemy.rpc_id(1)
 	await _wait(ROUND_TRIP)
+	var anim: AnimationPlayer = enemy.visual_anim_player if is_instance_valid(enemy) else null
 	_client_enemy_dead.rpc_id(1, {
 		"valid": is_instance_valid(enemy),
 		"dying": enemy.is_dying if is_instance_valid(enemy) else false,
-		"anim": enemy.visual_anim_player.current_animation if is_instance_valid(enemy) and enemy.visual_anim_player != null else "",
+		# assigned_animation rather than current_animation: a ragdoll pauses the clip it
+		# takes over from, and a paused player has no current animation.
+		"anim": anim.assigned_animation if anim != null else "",
+		"playing": anim.is_playing() if anim != null else false,
+		"ragdoll": is_instance_valid(enemy) and is_instance_valid(enemy._ragdoll),
 	})
 	await _wait(0.5)
 
@@ -637,8 +642,14 @@ func _client_enemy_dead(view: Dictionary) -> void:
 	if not Net.is_server():
 		return
 	_check("the death reached the client", bool(view.get("dying", false)))
+	# Two honest ways to die on screen. The clip always starts; once the hitstop is over a
+	# ragdoll (EnemyRagdoll, each player's own graphics setting) may pause it and take the
+	# skeleton - and the kill here is a launch, so on default settings it does.
 	_check("it plays the death clip there rather than vanishing",
 		String(view.get("anim", "")) == "death", "'%s'" % view.get("anim"))
+	_check("and the clip is still playing, or a ragdoll has the body",
+		bool(view.get("playing", false)) or bool(view.get("ragdoll", false)),
+		"playing=%s ragdoll=%s" % [view.get("playing"), view.get("ragdoll")])
 
 
 ## Drop out, come back, and see whether the tree came back too.

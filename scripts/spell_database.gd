@@ -252,7 +252,7 @@ const SPELLS: Dictionary = {
 	# who is in the air.
 	"green_1": {
 		"name": "Titanic Brawl",
-		"desc": "Leap forward and slam the ground, hurting everything around the landing.",
+		"desc": "Leap to where you aim and slam the ground, hurting everything around the landing. Rank adds reach.",
 		"cooldown": 8.0, "chargeable": false,
 		# 2.6s is the whole clip - leap, slam and the stand-up afterwards - at the pace
 		# it was authored at. The leap is a real commitment, though: nothing else may
@@ -277,7 +277,7 @@ const SPELLS: Dictionary = {
 	},
 	"green_3": {
 		"name": "Fog",
-		"desc": "A bank of fog where enemies deal no damage at all and wade rather than walk. Ground to hold, not to kill on.",
+		"desc": "A bank of fog around you. Arrows and spells cannot find anything inside it, archers and mages in it cannot fire, and enemies wade rather than walk. Blades still reach you.",
 		"cooldown": 18.0, "chargeable": false,
 		"cast_clip": "cast_green", "cast_duration": 0.6, "roots": false,
 	},

@@ -82,7 +82,7 @@ func refresh_ui() -> void:
 		# Stored as it is typed rather than on submit: the list is rebuilt by any other
 		# action in this panel, and a name only committed on Enter would be lost by
 		# clicking a lane button next to it.
-		name_field.text_changed.connect(func(text: String) -> void: myr.display_name = text)
+		name_field.text_changed.connect(func(text: String) -> void: main_controller.request_myr_name(myr, text))
 		hbox.add_child(name_field)
 
 		var level_btn := Button.new()
@@ -125,33 +125,30 @@ func refresh_ui() -> void:
 		myr_list_container.add_child(hbox)
 		
 
-## Buys one level for `myr`. The mana is spent first and the level only applied if that
-## succeeded, so a purchase that could not be paid for changes nothing.
-func _level_up(myr: Node3D, cost: int) -> void:
+## Buys one level for `myr`. Spent and applied on the server, which is where the mana and
+## the myr both live; a client's request is forwarded (MainController.request_myr_level).
+func _level_up(myr: Node3D, _cost: int) -> void:
 	if myr.level >= GameSettings.myr_max_level:
 		return
-	if not RunState.spend({"Colorless": cost}):
-		return
-	myr.set_level(myr.level + 1)
-	refresh_ui()
+	main_controller.request_myr_level(myr)
+	_refresh_soon()
 
 
 func _on_build_pressed() -> void:
-	if RunState.spend({"Colorless": GameSettings.myr_mana_cost}):
-		main_controller.spawn_myr()
-		refresh_ui()
+	main_controller.request_build_myr()
+	_refresh_soon()
 
 func _assign(myr: Node3D, lane: int) -> void:
 	if main_controller:
-		# The well caps how many Myrs can work it at once; sending a sixth is what wedged
-		# them against the model, so the assignment is refused before it starts.
-		if myr.lane_index != lane and main_controller.well_slot_count(lane) >= RunState.myr_well_slots():
-			return
-		# A fresh Myr has lane_index == -1, so pass the requested lane explicitly. The
-		# previous call tried to claim lane -1 and rejected every first assignment.
-		if not main_controller.claim_well_slot(myr, lane):
-			return
-		var source = main_controller.mana_sources[lane]
-		if myr.has_method("assign_lane"):
-			myr.assign_lane(lane, source)
-		refresh_ui()
+		main_controller.request_myr_lane(myr, lane)
+		_refresh_soon()
+
+
+## Now, and again once a client's request has made the round trip to the server and the
+## result has replicated back.
+func _refresh_soon() -> void:
+	refresh_ui()
+	if not Net.is_server():
+		get_tree().create_timer(0.35).timeout.connect(func() -> void:
+			if visible:
+				refresh_ui())

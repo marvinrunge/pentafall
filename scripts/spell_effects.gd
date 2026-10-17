@@ -62,10 +62,32 @@ static func cast_red_fireball(caster: Player, charge_pct: float) -> void:
 ## the other half, and lands on the clip's own final impact frame - see
 ## `release_on_last` in SpellDatabase and _slam_ground below, which is what
 ## `execute_spell` actually calls.
+##
+## It lands where the crosshair is, not a fixed distance ahead: the flight time is fixed by
+## the rise (and tuned against the clip, see GameSettings.spell_green_leap_rise), so the
+## horizontal speed is whatever covers the distance to the aimed point in that time. Rank
+## buys reach. Aimed past the reach, or at the sky, it carries the full reach that way.
 static func cast_green_titanic_leap(caster: Player) -> void:
-	var forward: Vector3 = -caster.transform.basis.z.normalized()
+	var forward: Vector3 = -caster.transform.basis.z
 	forward.y = 0.0
-	caster.velocity = forward.normalized() * GameSettings.spell_green_leap_speed
+	forward = forward.normalized()
+	var max_range: float = GameSettings.rank_fraction(
+		GameSettings.spell_green_leap_range, GameSettings.spell_green_leap_range_max, caster._casting_rank
+	) * caster.reach_area_mult()
+	var distance: float = max_range
+	var aim_dir: Vector3 = caster.aim_direction()
+	var target: Vector3 = caster.aim_hit_point(max_range * 3.0)
+	var offset: Vector3 = target - caster.global_position
+	offset.y = 0.0
+	# A crosshair on the open sky (the ray meets nothing) or BEHIND the caster keeps the
+	# full reach straight ahead rather than a point the player did not mean.
+	var hit_something: bool = target.distance_to(caster.aim_origin() + aim_dir * max_range * 3.0) > 0.01
+	if hit_something and offset.dot(forward) > 0.0:
+		distance = clampf(offset.length(), GameSettings.spell_green_leap_range_min, max_range)
+		forward = offset.normalized()
+	var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+	var flight_time: float = maxf(2.0 * GameSettings.spell_green_leap_rise / maxf(gravity, 0.1), 0.1)
+	caster.velocity = forward * (distance / flight_time)
 	caster.velocity.y = GameSettings.spell_green_leap_rise
 	caster._leap_timer = GameSettings.spell_green_leap_duration
 	caster._start_rampage()
@@ -358,9 +380,10 @@ static func cast_blue_displace(caster: Player) -> void:
 		target = from + offset.normalized() * max_distance
 		target = caster._ground_snap(target, ENVIRONMENT_MASK)
 	caster._spawn_spell_fx("blue_5_from", from, 1.0)
-	caster.global_position = target
+	# Through the owner: position is the caster's own synchroniser's, so moving a client's
+	# avatar here on the server lasted until their next packet put them straight back.
+	caster.teleport_to(target)
 	caster._invulnerable_timer = maxf(caster._invulnerable_timer, GameSettings.spell_blue_displace_invulnerability)
-	caster.velocity = Vector3.ZERO
 	caster._spawn_spell_fx("blue_5", caster.global_position, 1.0)
 	caster._play_sound(&"spell_cast", caster.global_position)
 
@@ -684,8 +707,12 @@ static func cast_green_giant_growth(caster: Player) -> void:
 
 
 ## green_3. Ground where enemies deal nothing. Half of green's crystal-defence pair.
+##
+## Rises around the caster, not at the crosshair: it is cover to stand in. What it stops is
+## ranged damage - an arrow or a spell aimed at anything inside it, and the archers and mages
+## standing in it - and a sword still connects (DoTZone.is_fogged, EnemyBase).
 static func cast_green_fog(caster: Player) -> void:
-	var target: Vector3 = caster._aim_point(20.0)
+	var target: Vector3 = caster._ground_snap(caster.global_position, ENVIRONMENT_MASK)
 	caster._place_networked({
 		"kind": "dot_zone", "type": "fog", "position": target,
 		"radius": GameSettings.spell_green_fog_radius * caster._rank_area(),

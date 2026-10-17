@@ -48,6 +48,7 @@ var _start_button: Button
 
 ## The same options panel the HUD opens on Escape, over the menu. See scripts/settings_menu.gd.
 const SettingsMenuScript := preload("res://scripts/settings_menu.gd")
+const ReadyStyle := preload("res://scripts/ready_style.gd")
 const LoadingScreenScript := preload("res://scripts/loading_screen.gd")
 const LOGO: Texture2D = preload("res://assets/images/logo_pentafall.png")
 const MENU_ART: Texture2D = preload("res://assets/images/menu.jpg")
@@ -517,7 +518,9 @@ func _refresh_lobby() -> void:
 	var active: bool = Net.is_active()
 	_lobby_title.text = Net.server_name if active else "Not connected"
 	_ready_button.disabled = not active
-	_ready_button.text = "NOT READY" if Net.is_ready(Net.local_id()) else "READY"
+	var local_ready: bool = Net.is_ready(Net.local_id())
+	_ready_button.text = "READY - click to cancel" if local_ready else "NOT READY - click when ready"
+	ReadyStyle.style_button(_ready_button, local_ready)
 	# Only the host starts, and only once every single person has said yes.
 	_start_button.visible = Net.is_server()
 	_start_button.disabled = not (active and Net.is_server() and Net.all_ready())
@@ -531,18 +534,11 @@ func _refresh_lobby() -> void:
 
 	for id in Net.ordered_ids():
 		var peer_id: int = int(id)
-		var row := Label.new()
 		var tag: String = " (you)" if peer_id == Net.local_id() else ""
 		var host_tag: String = " - host" if peer_id == 1 else ""
-		var state: String = "READY" if Net.is_ready(peer_id) else "not ready"
-		row.text = "%d. %s%s%s   -   %s" % [
-			Net.seat_of(peer_id) + 1, Net.display_name(peer_id), tag, host_tag, state,
-		]
-		row.add_theme_color_override(
-			"font_color",
-			Color(0.5, 0.9, 0.55) if Net.is_ready(peer_id) else Color(0.8, 0.78, 0.7),
-		)
-		_peer_list.add_child(row)
+		_peer_list.add_child(ReadyStyle.row("%d. %s%s%s" % [
+			Net.seat_of(peer_id) + 1, Net.display_name(peer_id), tag, host_tag,
+		], Net.is_ready(peer_id)))
 
 
 # --- ui -----------------------------------------------------------------------

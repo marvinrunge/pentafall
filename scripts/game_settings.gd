@@ -307,13 +307,20 @@ extends Node
 # ============================================================
 # GREEN: TITANIC BRAWL
 # ============================================================
-## The launch impulse. Forward speed decides how far the leap carries; the rise is
+## The launch impulse. The forward speed is worked out per leap from the distance to the
+## crosshair (see spell_green_leap_range below); the rise is
 ## tuned against the clip rather than to taste - the jump_attack clip lands its slam
 ## at 79% of a 1.1s cast, i.e. 0.87s in, and at the engine's 9.8 gravity an initial
 ## 4.25/s puts the character back on the floor at exactly that moment. Retune it
 ## alongside spell green_1's cast_duration, never on its own.
-@export var spell_green_leap_speed: float = 11.0
 @export var spell_green_leap_rise: float = 4.25
+## How far the leap can carry, at rank 1 and at max rank. It lands under the crosshair
+## within that reach (SpellEffects.cast_green_titanic_leap); the old fixed leap covered
+## about 9.5 m (leap_speed over the 0.87 s flight). The minimum stops a crosshair at the
+## caster's feet from turning the leap into a hop on the spot.
+@export var spell_green_leap_range: float = 10.0
+@export var spell_green_leap_range_max: float = 18.0
+@export var spell_green_leap_range_min: float = 2.5
 ## How long the player's own movement input stays suspended. Ends early at the slam.
 @export var spell_green_leap_duration: float = 1.1
 ## The slam. Heavy single-target damage spread over an area, which is what makes it
@@ -509,8 +516,15 @@ func get_tier_cost(tier_index: int) -> int:
 ## Rhystic Study - blue's Attunement. Every cast banks this much shield, up to the cap.
 ## It used to cut cooldowns by 30% as well, which is the blue AFFINITY's number - so that
 ## half went, and the shield grew to carry the node on its own.
-@export var aura_rhystic_study_shield_amount: float = 20.0
-@export var aura_rhystic_study_shield_max: float = 60.0
+##
+## Rank 1 -> rank 5, walked with rank_fraction (2026-10-16). It used to be 20 per cast up to
+## 60 at rank 1, scaled by the damage curve to 40 up to 120 at rank 5: three casts of the
+## first rank already banked 60% of a player's health, which made the 3-point aura the
+## strongest defence in the game the moment it was bought.
+@export var aura_rhystic_study_shield_amount: float = 7.0
+@export var aura_rhystic_study_shield_amount_max: float = 18.0
+@export var aura_rhystic_study_shield_max: float = 22.0
+@export var aura_rhystic_study_shield_max_max: float = 55.0
 ## ...and when the shield breaks, whatever is standing close enough to have broken it is
 ## frozen (bosses slowed) for this long, at rank 1. The duration curve lengthens it.
 @export var aura_rhystic_study_shatter_radius: float = 4.0
@@ -544,8 +558,12 @@ func get_tier_cost(tier_index: int) -> int:
 ## anyway, for this share of maximum health per second of cooldown left (rank 1 -> rank 5).
 ## Refused if it would leave the player below 1 health. It used to be +25% damage and +15%
 ## speed paid for by a constant drain - red's number and the boots' number.
-@export var aura_phyrexian_arena_life_per_second: float = 0.012
-@export var aura_phyrexian_arena_life_per_second_max: float = 0.007
+##
+## Raised 2026-10-16 from 1.2% -> 0.7%: an 8 s Titanic Brawl skipped for under 10% of health
+## at rank 1 meant cooldowns barely existed. Now a full cooldown costs about a third of
+## health at rank 1 and still half that at rank 5.
+@export var aura_phyrexian_arena_life_per_second: float = 0.035
+@export var aura_phyrexian_arena_life_per_second_max: float = 0.018
 
 # ============================================================
 # SKILL ROSTER - docs/SKILL_DESIGN.md

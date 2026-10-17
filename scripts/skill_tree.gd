@@ -236,6 +236,7 @@ func _input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ui_accept"):
 		var record: Dictionary = _find_record(COLOR_NAMES[_selected_color_index], _selected_branch_index)
 		if not record.is_empty():
+			SoundBank.play(&"ui_button_click")
 			_on_node_pressed(record["color"], record["branch_index"], record["info"])
 		get_viewport().set_input_as_handled()
 	elif event is InputEventKey and event.pressed and not event.echo \
@@ -294,6 +295,7 @@ func _select_direction(direction: Vector2) -> void:
 			best_score = score
 			best_record = record
 	if not best_record.is_empty():
+		SoundBank.play(&"ui_button_hover")
 		_select_record(best_record)
 
 func _position_selection_ring(button: TextureButton) -> void:
