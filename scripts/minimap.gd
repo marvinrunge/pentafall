@@ -23,11 +23,48 @@ const SCOPE_COLORS: Dictionary = {
 	"Green": Color(0.45, 0.95, 0.4),
 }
 
+const FOG_SHADER := preload("res://assets/shaders/minimap_fog.gdshader")
+## The rounded corners' share of the side, as the picture had them (IconStyle.CORNER_RATIO).
+const FOG_CORNER_RATIO := 0.25
+
+## The fog of war's own material for the map picture under the dots, made when a FogOfWar
+## first turns up (a match; there is none in the menus).
+var _fog_material: ShaderMaterial = null
+
 func _process(delta: float) -> void:
 	_redraw_timer -= delta
 	if _redraw_timer <= 0:
 		_redraw_timer = GameSettings.minimap_update_interval
+		_update_fog()
 		queue_redraw()
+
+
+## The match's fog of war (scripts/fog_of_war.gd), or null - outside a match, or switched off.
+func _fog() -> Node:
+	if not GameSettings.fog_of_war_enabled:
+		return null
+	var scene: Node = get_tree().current_scene
+	return scene.get_node_or_null("FogOfWar") if scene != null else null
+
+
+## Puts the fog on the map picture the HUD laid under this node (MinimapPicture), replacing its
+## plain rounded-corner material, and hands it this moment's sight circles.
+func _update_fog() -> void:
+	var fog: Node = _fog()
+	var picture: TextureRect = get_parent().get_node_or_null("MinimapPicture") as TextureRect if get_parent() != null else null
+	if fog == null or picture == null:
+		return
+	if _fog_material == null:
+		_fog_material = ShaderMaterial.new()
+		_fog_material.shader = FOG_SHADER
+		_fog_material.set_shader_parameter("radius_ratio", FOG_CORNER_RATIO)
+	if picture.material != _fog_material:
+		picture.material = _fog_material
+	_fog_material.set_shader_parameter("explored", fog.explored_texture)
+	_fog_material.set_shader_parameter("sources", fog.shader_sources())
+	_fog_material.set_shader_parameter("source_count", fog.shader_source_count())
+	_fog_material.set_shader_parameter("unexplored_darkness", GameSettings.fog_unexplored_darkness)
+	_fog_material.set_shader_parameter("unseen_darkness", GameSettings.fog_unseen_darkness)
 
 func _draw() -> void:
 	var center = size / 2.0
@@ -48,10 +85,15 @@ func _draw() -> void:
 	var local: Node = PlayerRegistry.get_local()
 	if local != null and local.has_method("equipment_value"):
 		scope = float(local.equipment_value("explorers_scope")) > 0.0
+	# Under the fog of war only what the team sees is drawn - Explorer's Scope's beasts aside.
+	var fog: Node = _fog()
 	var enemies = get_tree().get_nodes_in_group("enemies")
 	for enemy in enemies:
+		var scoped: bool = scope and enemy is EnemyBase and (enemy as EnemyBase).is_beast()
+		if fog != null and not scoped and not fog.is_seen(enemy.global_position):
+			continue
 		var pos = _world_to_map(enemy.global_position, center, scale_factor)
-		if scope and enemy is EnemyBase and (enemy as EnemyBase).is_beast():
+		if scoped:
 			var beast := enemy as EnemyBase
 			draw_circle(pos, 3.0 + 1.3 * beast._beast_size, SCOPE_COLORS.get(beast.enemy_data.color_identity, enemy_color))
 			continue

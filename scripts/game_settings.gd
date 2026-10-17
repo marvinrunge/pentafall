@@ -1926,6 +1926,26 @@ const ENCHANTMENT_DESCRIPTIONS: Dictionary = {
 # ============================================================
 @export var minimap_update_interval: float = 0.15
 
+# --- Fog of war (scripts/fog_of_war.gd) ------------------------------------------------------
+#
+# The minimap only shows what the team can see. Players, myrs, the team's own summons and the
+# crystal each see a circle around them, shared by everyone; an enemy - wave or beast - is on
+# the minimap only inside one of those circles. Ground anyone has seen stays uncovered for the
+# rest of the run, dimmed while nobody is looking at it; ground nobody has seen is dark.
+# Explorer's Scope still shows the beasts anywhere.
+@export var fog_of_war_enabled: bool = true
+## Sight radii, metres.
+@export var fog_vision_player: float = 45.0
+@export var fog_vision_myr: float = 25.0
+@export var fog_vision_ally: float = 15.0
+@export var fog_vision_crystal: float = 60.0
+## How often the sight circles and the explored map are brought up to date, seconds.
+@export var fog_update_interval: float = 0.2
+## How dark the minimap draws ground nobody has seen, and seen ground nobody is watching now
+## (0 = as the map, 1 = black).
+@export var fog_unexplored_darkness: float = 0.85
+@export var fog_unseen_darkness: float = 0.45
+
 # ============================================================
 # UI & DEBUG
 # ============================================================

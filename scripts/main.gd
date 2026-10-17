@@ -3,6 +3,7 @@ class_name MainController
 
 const IntroTour := preload("res://scripts/intro_tour.gd")
 const WildlifeManager := preload("res://scripts/wildlife_manager.gd")
+const FogOfWar := preload("res://scripts/fog_of_war.gd")
 
 @export var player_scene: PackedScene = preload("res://scenes/misc/player.tscn")
 @export var myr_scene: PackedScene = preload("res://scenes/misc/myr.tscn")
@@ -83,6 +84,12 @@ func _ready() -> void:
 		var st = skill_tree_scene.instantiate()
 		st.name = "SkillTree"
 		add_child(st)
+
+	# The minimap's fog of war: what the team sees and has seen, one per match so a new run
+	# starts dark. Every peer keeps its own, from the positions it is sent anyway.
+	var fog: Node = FogOfWar.new()
+	fog.name = "FogOfWar"
+	add_child(fog)
 
 	# The build phase between waves. Built in code rather than as a scene because it is
 	# all data-driven from RunState and has no authored layout worth keeping in a .tscn.
@@ -696,6 +703,10 @@ func _on_peer_entered_match(peer_id: int) -> void:
 	# The economy and the crystal only ever go out when they CHANGE, so a newcomer would
 	# otherwise play with a full crystal and an empty mana pool until the next kill.
 	RunState.push_state_to(peer_id)
+	# ...and the minimap of a run under way would be dark wherever the team went before.
+	var fog: Node = get_node_or_null("FogOfWar")
+	if fog != null:
+		fog.push_to(peer_id)
 	_sync_crystal_health.rpc_id(peer_id, crystal_health)
 	# ...and everybody's skill build. A build goes out when it CHANGES, and in a match
 	# already under way every change happened before this player connected - so without
