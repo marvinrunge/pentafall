@@ -53,6 +53,8 @@ var _air_fall_speed: float = 0.0
 # scene blurred behind an open menu. _menu_blur eases between the two.
 var _camera_attributes: CameraAttributesPractical = null
 var _menu_blur: float = 0.0
+## Until when (Time.get_ticks_msec) another hit-stop is not started - see _hit_stop.
+var _hit_stop_until: int = 0
 ## The camera's pitch, published by the owner so every other copy of this player can tilt its
 ## own camera rig to match - which is what lets their aim ray, and the archer's spine aiming
 ## along it (BowAim), point up and down on every screen. Look input never leaves the machine
@@ -3972,6 +3974,25 @@ func _deal_damage(target: Node, amount: float, is_melee: bool, exile_on_kill: bo
 ## travels to the server.
 func _melee_strike(enemy: Node3D, dmg: float, exile: bool) -> void:
 	_basic_strike(enemy, dmg, exile, true)
+	_hit_stop(_action_is_heavy)
+
+
+## The impact frame of a blade that connects: the whole world holds for a few hundredths of
+## a second (longer for a heavy swing), which is what gives a hit its weight. Single-player
+## only - in a networked game it would slow this machine's simulation against everyone
+## else's. One stop per moment: a swing through a crowd does not stack them.
+func _hit_stop(heavy: bool) -> void:
+	if not is_local or Net.is_active() or not GameSettings.hit_stop_enabled:
+		return
+	var now: int = Time.get_ticks_msec()
+	if now < _hit_stop_until:
+		return
+	var seconds: float = GameSettings.hit_stop_heavy if heavy else GameSettings.hit_stop_light
+	_hit_stop_until = now + int((seconds + GameSettings.hit_stop_cooldown) * 1000.0)
+	Engine.time_scale = GameSettings.hit_stop_time_scale
+	# Real seconds, ignoring the time scale it is itself holding down.
+	get_tree().create_timer(seconds, true, false, true).timeout.connect(func() -> void:
+		Engine.time_scale = 1.0)
 
 
 ## One enemy struck by any class's basic attack - a blade or an arrow - with everything the

@@ -138,6 +138,13 @@ extends Node
 @export var camera_dof_far_amount: float = 0.06
 ## How strongly the scene behind an open menu is blurred.
 @export var camera_menu_blur_amount: float = 0.16
+## Hit-stop (Player._hit_stop): real seconds the world holds when a blade connects, light and
+## heavy, how slow it runs meanwhile, and the gap before the next stop can start.
+@export var hit_stop_enabled: bool = true
+@export var hit_stop_light: float = 0.045
+@export var hit_stop_heavy: float = 0.08
+@export var hit_stop_time_scale: float = 0.05
+@export var hit_stop_cooldown: float = 0.06
 
 ## How far, in degrees, the crosshair may sit off an enemy's body and still pick it for a
 ## single-target spell (Kill, Contagion). Small on purpose: this forgives a twitchy mouse on
