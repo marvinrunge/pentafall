@@ -108,6 +108,7 @@ func apply_scene_dependent() -> void:
 	apply_shadows(shadows_enabled)
 	apply_glow(glow_enabled)
 	apply_ssao()
+	apply_taa()
 
 
 func apply_render_scale(value: float) -> void:
@@ -133,8 +134,9 @@ func apply_upscaler(mode: int) -> void:
 			root.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
 		_:
 			root.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-	# FSR 2 smooths edges itself; MSAA under it would be paid for twice.
+	# FSR 2 smooths edges itself; MSAA or TAA under it would be paid for twice.
 	apply_msaa(msaa_level)
+	apply_taa()
 	_changed(&"upscaler")
 
 
@@ -277,6 +279,15 @@ func apply_ssao() -> void:
 		environment.ssao_intensity = GameSettings.graphics_ssao_intensity
 		environment.ssao_power = GameSettings.graphics_ssao_power
 		environment.ssao_detail = 0.5
+
+
+## Temporal anti-aliasing from the High preset up. MSAA smooths polygon edges only, and the
+## shimmer in the meadows is alpha-tested grass and leaves, which only a temporal pass (or
+## FSR 2, which carries its own - Ultra uses it at full resolution) calms. Off where FSR 2
+## already runs, and on the Compatibility renderer, which has none.
+func apply_taa() -> void:
+	var wanted: bool = preset != Preset.LOW and preset != Preset.MEDIUM
+	get_tree().root.use_taa = wanted and not fsr2_active() and active_rendering_method == "forward_plus"
 
 
 func _scene_environments() -> Array[Environment]:
@@ -482,7 +493,9 @@ func apply_preset(p: int) -> void:
 			set_pending_rendering_method("forward_plus")
 		Preset.ULTRA:
 			apply_render_scale(1.0)
-			apply_upscaler(Upscaler.BILINEAR)
+			# FSR 2 at full resolution: no upscaling, only its temporal anti-aliasing, the best
+			# there is for the grass and leaves (see apply_taa).
+			apply_upscaler(Upscaler.FSR2)
 			apply_shadows(true)
 			apply_msaa(2)
 			apply_glow(true)
@@ -494,6 +507,7 @@ func apply_preset(p: int) -> void:
 		Preset.CUSTOM:
 			pass
 	apply_ssao()
+	apply_taa()
 	_changed(&"preset")
 
 
