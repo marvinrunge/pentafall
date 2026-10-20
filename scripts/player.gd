@@ -498,6 +498,8 @@ func _ready() -> void:
 	add_child(StatusFx.new())
 	if kit is GreatswordKit:
 		add_child(WhirlwindFx.new())
+	if kit is MeleeKit:
+		add_child(SwingTrail.new())
 	
 	# A skill tree is PERSONAL. These signals carry no owner, so every avatar in the
 	# scene would answer them - one player's purchase would unlock the spell on all four
