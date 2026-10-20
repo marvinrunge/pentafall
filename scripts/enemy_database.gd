@@ -42,7 +42,8 @@ static func get_enemy_data(color_id: String, type_id: String) -> EnemyData:
 		data.attack_speed = 3.0 # Slow cast time
 		data.model_scale = 1.0
 	elif type_id == "Boss":
-		data.health = 800.0
+		# Doubled from 800 on 2026-10-20: bosses fell before their phases had played out.
+		data.health = 1600.0
 		data.speed = 1.2
 		data.attack_damage = 40.0
 		data.attack_range = 3.0

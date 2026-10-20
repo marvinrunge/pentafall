@@ -49,6 +49,24 @@ const MODEL_SCALES := {
 	"Black": 2.3,
 }
 
+## How fast each boss's walk clip carries its body, in hip heights per second at 1x - measured
+## on the source walks (the built clips have the travel stripped): standing_melee 1.14 (the
+## giants), mutant 1.27 (the treant, and the zombie lord, which borrows it), sword_shield 1.63
+## (the paladin). EnemyBase.walk_speed_for_boss turns it into metres per second at the boss's
+## size and animation speed, so the feet match the ground instead of sliding in slow motion.
+const WALK_STRIDES := {"Red": 1.14, "Blue": 1.14, "Green": 1.27, "White": 1.63, "Black": 1.27}
+## A biped's hips sit at this share of its height (the boss visuals are built to 1.7 units).
+const HIP_HEIGHT_SHARE := 0.53
+const VISUAL_HEIGHT := 1.7
+
+
+## Metres per second at which `color`'s boss walks with its feet on the ground: its clip's
+## stride, its size, and how fast it animates.
+static func walk_speed(color_identity: String, model_scale: float, anim_speed: float) -> float:
+	var stride: float = float(WALK_STRIDES.get(color_identity, 1.2))
+	return stride * HIP_HEIGHT_SHARE * VISUAL_HEIGHT * model_scale * anim_speed
+
+
 ## Telegraphed, dodgeable special attacks - between them the boss's whole offence. Bosses
 ## have no ordinary swing at all.
 ##

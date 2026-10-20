@@ -528,6 +528,9 @@ func setup(data: EnemyData) -> void:
 		# that arrives sounding like a fire giant is barely better.
 		SoundBank.play_at(StringName("boss_spawn_" + data.color_identity.to_lower()), global_position)
 		_anim_speed_scale = GameSettings.get_boss_anim_speed(data.model_scale)
+		# Walks as fast as its walk clip steps - it used to cover 1.2 m/s under strides
+		# meant for 2.5-3.5, and slid along in slow motion.
+		data.speed = BossDatabase.walk_speed(data.color_identity, data.model_scale, _anim_speed_scale) 			* GameSettings.boss_walk_pace
 		# A boss that animates slower should also swing less often - otherwise
 		# perform_attack() just compresses the swing back to normal speed to fit
 		# the unchanged cadence and the size never reads in the animation.

@@ -1865,6 +1865,8 @@ func wave_time_limit(wave_number: int) -> float:
 @export var boss_anim_scale_strength: float = 1.0
 @export var boss_anim_speed_min: float = 0.55
 @export var boss_anim_speed_max: float = 1.35
+## A boss walks at the pace its walk clip steps (BossDatabase.walk_speed) times this.
+@export var boss_walk_pace: float = 1.0
 
 # Special (dodgeable) attacks. Each boss telegraphs a danger zone for
 # boss_special_windup_* seconds before the hit lands - that window is the dodge.
