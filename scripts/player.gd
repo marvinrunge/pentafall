@@ -41,6 +41,14 @@ var _shake_phase: float = 0.0
 # its field of view, so the crosshair and the aim ray stay exactly where they were.
 var _camera_base_fov: float = 75.0
 var _aim_zoom: float = 0.0
+# --- Camera feel (docs/GRAPHICS_FEEL_PLAN.md) ---
+# The camera distance the player picked with Ctrl + mouse wheel, the eased extra field of
+# view of sprinting and of a dash or leap, and the dip on landing - all local only.
+var _spring_arm: SpringArm3D = null
+var _zoom_distance: float = GameSettings.player_camera_distance
+var _fov_extra: float = 0.0
+var _land_dip: float = 0.0
+var _air_fall_speed: float = 0.0
 ## The camera's pitch, published by the owner so every other copy of this player can tilt its
 ## own camera rig to match - which is what lets their aim ray, and the archer's spine aiming
 ## along it (BowAim), point up and down on every screen. Look input never leaves the machine
@@ -527,6 +535,7 @@ func setup_camera() -> void:
 	spring_arm.position = Vector3.ZERO
 	spring_arm.add_excluded_object(get_rid())
 	camera_pivot.add_child(spring_arm)
+	_spring_arm = spring_arm
 
 	# A SpringArm3D REWRITES the transform of its direct children every frame, parking
 	# them at (0, 0, current_spring_length) so collision can pull them in. The camera
@@ -593,7 +602,30 @@ func _update_aim_zoom(delta: float) -> void:
 	_aim_zoom = lerpf(_aim_zoom, target, 1.0 - exp(-rate * delta))
 	if absf(_aim_zoom - target) < 0.001:
 		_aim_zoom = target
-	camera.fov = _camera_base_fov * lerpf(1.0, GameSettings.archer_aim_zoom_fov_mult, _aim_zoom)
+	camera.fov = _camera_base_fov * lerpf(1.0, GameSettings.archer_aim_zoom_fov_mult, _aim_zoom) + _fov_extra
+
+
+## The camera's feel, local only: the zoom distance eased in, a wider lens while sprinting
+## and a stronger kick while dashing or leaping, and a dip of the view on landing that
+## grows with the speed of the fall.
+func _update_camera_feel(delta: float) -> void:
+	if camera == null or not is_local or _spring_arm == null:
+		return
+	_spring_arm.spring_length = lerpf(_spring_arm.spring_length, _zoom_distance, 1.0 - exp(-10.0 * delta))
+	var planar: float = Vector2(velocity.x, velocity.z).length()
+	var fov_target: float = 0.0
+	if _leap_timer > 0.0 or _dash_timer > 0.0:
+		fov_target = GameSettings.camera_dash_fov_add
+	elif planar > GameSettings.player_base_speed * 1.15 and is_on_floor():
+		fov_target = GameSettings.camera_sprint_fov_add
+	_fov_extra = lerpf(_fov_extra, fov_target, 1.0 - exp(-(8.0 if fov_target > _fov_extra else 4.0) * delta))
+	if not is_on_floor():
+		_air_fall_speed = maxf(-velocity.y, 0.0)
+	elif _air_fall_speed > 0.0:
+		_land_dip = minf(_air_fall_speed * GameSettings.camera_land_dip_per_speed, GameSettings.camera_land_dip_max)
+		_air_fall_speed = 0.0
+	_land_dip = lerpf(_land_dip, 0.0, 1.0 - exp(-7.0 * delta))
+	camera_pivot.position.y = GameSettings.player_camera_height - _land_dip
 
 ## "[E]" or "[D-pad up]", whichever the player last had in hand. See InputHint.
 func _interact_key_label() -> String:
@@ -791,7 +823,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if event is InputEventMouseButton and event.pressed:
-			if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			# Ctrl + wheel moves the camera in and out; the wheel alone still cycles spells.
+			if event.ctrl_pressed and (event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+				var step: float = -GameSettings.camera_zoom_step if event.button_index == MOUSE_BUTTON_WHEEL_UP else GameSettings.camera_zoom_step
+				_zoom_distance = clampf(_zoom_distance + step, GameSettings.camera_zoom_min, GameSettings.camera_zoom_max)
+			elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
 				cycle_spell(-1)
 			elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				cycle_spell(1)
@@ -4015,6 +4051,7 @@ func _physics_process(delta: float) -> void:
 	# Runs before the downed early-out so a shake still settles while downed.
 	_update_camera_shake(delta)
 	_update_aim_zoom(delta)
+	_update_camera_feel(delta)
 	if _is_out_of_world():
 		_rescue_from_out_of_world()
 		return

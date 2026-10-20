@@ -121,6 +121,16 @@ extends Node
 @export var player_camera_shoulder_offset: float = 0.85
 @export var player_camera_height: float = 1.80
 @export var player_camera_distance: float = 3.2
+## Ctrl + mouse wheel zoom: the nearest and farthest the camera goes, and one notch.
+@export var camera_zoom_min: float = 2.2
+@export var camera_zoom_max: float = 5.5
+@export var camera_zoom_step: float = 0.4
+## Degrees added to the field of view while sprinting, and while dashing or leaping.
+@export var camera_sprint_fov_add: float = 6.0
+@export var camera_dash_fov_add: float = 11.0
+## The view dips on landing: metres per m/s of fall speed, and at most.
+@export var camera_land_dip_per_speed: float = 0.035
+@export var camera_land_dip_max: float = 0.3
 
 ## How far, in degrees, the crosshair may sit off an enemy's body and still pick it for a
 ## single-target spell (Kill, Contagion). Small on purpose: this forgives a twitchy mouse on
