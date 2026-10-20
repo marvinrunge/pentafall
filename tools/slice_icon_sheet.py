@@ -42,6 +42,14 @@ SETS = {
         "bloodthirst", "hurl-axe", "battle-frenzy", "defence-block",
         "defence-shield", "defence-unstoppable", "defence-roll", "defence-blink",
     ],
+    # The equipment (EquipmentDatabase.ORDER's thirteen, in the sheet's order) and three more
+    # Magic equipment pieces for later.
+    "equipment": [
+        "equip-cobbled-wings", "equip-fireshrieker", "equip-amulet-of-vigor", "equip-icy-manipulator",
+        "equip-whispersilk-cloak", "equip-executioners-capsule", "equip-swiftfoot-boots", "equip-loxodon-warhammer",
+        "equip-leonin-scimitar", "equip-explorers-scope", "equip-nim-deathmantle", "equip-bonesplitter",
+        "equip-vorrac-battlehorns", "equip-lightning-greaves", "equip-skullclamp", "equip-sword-of-fire-and-ice",
+    ],
 }
 # How far either side of a third the gutter is looked for, as a share of the sheet.
 SEARCH = 0.06

@@ -195,3 +195,11 @@ Row 4 - the defences:
 15. Dodge Roll (archer): an elven archer rolling sideways, an enemy strike cutting through the empty air where she stood, a dust trail behind her.
 16. Blink (mage): a robed mage vanishing in lavender light and reappearing a few steps away, a fading afterimage left behind.
 ```
+
+## Equipment - sixteen in one image
+
+The thirteen pieces of EquipmentDatabase.ORDER (in the order of SETS["equipment"] in
+`tools/slice_icon_sheet.py`) and three spares: Lightning Greaves, Skullclamp, Sword of Fire
+and Ice. Generated 2026-10-20 without a reference image, the style spelled out in the prompt
+(painterly, semi-realistic ARPG inventory icon, one object, soft dark vignette, 4 x 4 grid with
+near-black gutters). Cut with `python tools/slice_icon_sheet.py <sheet> --set equipment`.
