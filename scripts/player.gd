@@ -49,6 +49,10 @@ var _zoom_distance: float = GameSettings.player_camera_distance
 var _fov_extra: float = 0.0
 var _land_dip: float = 0.0
 var _air_fall_speed: float = 0.0
+# Depth of field on the local camera: a soft far blur in play (High and up), and the whole
+# scene blurred behind an open menu. _menu_blur eases between the two.
+var _camera_attributes: CameraAttributesPractical = null
+var _menu_blur: float = 0.0
 ## The camera's pitch, published by the owner so every other copy of this player can tilt its
 ## own camera rig to match - which is what lets their aim ray, and the archer's spine aiming
 ## along it (BowAim), point up and down on every screen. Look input never leaves the machine
@@ -557,6 +561,8 @@ func setup_camera() -> void:
 	# is what the screen looks through.
 	if is_local:
 		camera.make_current()
+		_camera_attributes = CameraAttributesPractical.new()
+		camera.attributes = _camera_attributes
 
 	SignalBus.camera_shake_requested.connect(_on_camera_shake_requested)
 
@@ -626,6 +632,26 @@ func _update_camera_feel(delta: float) -> void:
 		_air_fall_speed = 0.0
 	_land_dip = lerpf(_land_dip, 0.0, 1.0 - exp(-7.0 * delta))
 	camera_pivot.position.y = GameSettings.player_camera_height - _land_dip
+	_update_depth_of_field(delta)
+
+
+## Far blur in play from the High preset up - the fight stays sharp, the far side of the map
+## goes soft - and, behind a menu that has the mouse (skill tree, Upkeep, options), the whole
+## scene blurred so the menu lifts off it.
+func _update_depth_of_field(delta: float) -> void:
+	if _camera_attributes == null:
+		return
+	var in_menu: bool = Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not IntroTour.playing
+	_menu_blur = lerpf(_menu_blur, 1.0 if in_menu else 0.0, 1.0 - exp(-8.0 * delta))
+	var far_in_play: bool = GraphicsSettings.preset != GraphicsSettings.Preset.LOW 		and GraphicsSettings.preset != GraphicsSettings.Preset.MEDIUM
+	_camera_attributes.dof_blur_far_enabled = far_in_play or _menu_blur > 0.01
+	_camera_attributes.dof_blur_near_enabled = _menu_blur > 0.01
+	_camera_attributes.dof_blur_far_distance = lerpf(GameSettings.camera_dof_far_distance, 0.5, _menu_blur)
+	_camera_attributes.dof_blur_far_transition = lerpf(GameSettings.camera_dof_far_transition, 2.0, _menu_blur)
+	_camera_attributes.dof_blur_near_distance = 0.4
+	_camera_attributes.dof_blur_near_transition = 0.3
+	_camera_attributes.dof_blur_amount = lerpf(GameSettings.camera_dof_far_amount if far_in_play else 0.0,
+		GameSettings.camera_menu_blur_amount, _menu_blur)
 
 ## "[E]" or "[D-pad up]", whichever the player last had in hand. See InputHint.
 func _interact_key_label() -> String:

@@ -131,6 +131,13 @@ extends Node
 ## The view dips on landing: metres per m/s of fall speed, and at most.
 @export var camera_land_dip_per_speed: float = 0.035
 @export var camera_land_dip_max: float = 0.3
+## Depth of field in play (High preset and up): sharp to this many metres, softening over
+## the transition, at this strength - subtle, or the map reads as a miniature.
+@export var camera_dof_far_distance: float = 45.0
+@export var camera_dof_far_transition: float = 30.0
+@export var camera_dof_far_amount: float = 0.06
+## How strongly the scene behind an open menu is blurred.
+@export var camera_menu_blur_amount: float = 0.16
 
 ## How far, in degrees, the crosshair may sit off an enemy's body and still pick it for a
 ## single-target spell (Kill, Contagion). Small on purpose: this forgives a twitchy mouse on
