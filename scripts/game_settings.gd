@@ -1980,6 +1980,11 @@ func wave_time_limit(wave_number: int) -> float:
 @export var camera_shake_melee_heavy_strength: float = 0.2
 @export var camera_shake_melee_duration: float = 0.16
 
+## SSAO (GraphicsSettings.apply_ssao): metres it reaches, how dark, and how hard the falloff.
+@export var graphics_ssao_radius: float = 1.2
+@export var graphics_ssao_intensity: float = 1.8
+@export var graphics_ssao_power: float = 1.5
+
 # ============================================================
 # GRAPHICS - BLOOM
 # ============================================================

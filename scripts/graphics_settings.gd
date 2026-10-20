@@ -107,6 +107,7 @@ func _booted_rendering_method() -> String:
 func apply_scene_dependent() -> void:
 	apply_shadows(shadows_enabled)
 	apply_glow(glow_enabled)
+	apply_ssao()
 
 
 func apply_render_scale(value: float) -> void:
@@ -258,6 +259,38 @@ func apply_glow(enabled: bool) -> void:
 	for environment: Environment in environments:
 		configure_glow(environment, enabled)
 	_changed(&"glow_enabled")
+
+
+## Ambient occlusion, following the preset (docs/GRAPHICS_FEEL_PLAN.md): it grounds the
+## characters, rocks and grass in the terrain. Off on Low and Medium, half resolution on
+## High and Custom, full resolution and higher quality on Ultra. Not an option of its own -
+## one more toggle in the menu bought nothing the preset does not already say.
+func apply_ssao() -> void:
+	var enabled: bool = preset != Preset.LOW and preset != Preset.MEDIUM
+	var ultra: bool = preset == Preset.ULTRA
+	RenderingServer.environment_set_ssao_quality(
+		RenderingServer.ENV_SSAO_QUALITY_HIGH if ultra else RenderingServer.ENV_SSAO_QUALITY_MEDIUM,
+		not ultra, 0.5, 2, 50.0, 300.0)
+	for environment: Environment in _scene_environments():
+		environment.ssao_enabled = enabled
+		environment.ssao_radius = GameSettings.graphics_ssao_radius
+		environment.ssao_intensity = GameSettings.graphics_ssao_intensity
+		environment.ssao_power = GameSettings.graphics_ssao_power
+		environment.ssao_detail = 0.5
+
+
+func _scene_environments() -> Array[Environment]:
+	var environments: Array[Environment] = []
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		for world_env: Node in scene.find_children("*", "WorldEnvironment", true, false):
+			var environment: Environment = (world_env as WorldEnvironment).environment
+			if environment != null and not environments.has(environment):
+				environments.append(environment)
+	for world_env: WorldEnvironment in get_tree().get_nodes_in_group("world_environment"):
+		if world_env.environment != null and not environments.has(world_env.environment):
+			environments.append(world_env.environment)
+	return environments
 
 
 ## The game's bloom on one environment, and nothing else - no state kept, nothing saved.
@@ -460,6 +493,7 @@ func apply_preset(p: int) -> void:
 			set_pending_rendering_method("forward_plus")
 		Preset.CUSTOM:
 			pass
+	apply_ssao()
 	_changed(&"preset")
 
 
