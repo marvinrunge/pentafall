@@ -109,6 +109,7 @@ func apply_scene_dependent() -> void:
 	apply_glow(glow_enabled)
 	apply_ssao()
 	apply_taa()
+	apply_volumetric_fog()
 
 
 func apply_render_scale(value: float) -> void:
@@ -288,6 +289,20 @@ func apply_ssao() -> void:
 func apply_taa() -> void:
 	var wanted: bool = preset != Preset.LOW and preset != Preset.MEDIUM
 	get_tree().root.use_taa = wanted and not fsr2_active() and active_rendering_method == "forward_plus"
+
+
+## Volumetric fog on Ultra only (docs/GRAPHICS_FEEL_PLAN.md): thin enough not to haze the
+## day, but the torches, crystals and wells cast visible shafts of light at night and the sun
+## cuts rays through the trees at dawn and dusk. Every light already contributes by default.
+func apply_volumetric_fog() -> void:
+	var enabled: bool = preset == Preset.ULTRA and active_rendering_method == "forward_plus"
+	for environment: Environment in _scene_environments():
+		environment.volumetric_fog_enabled = enabled
+		environment.volumetric_fog_density = GameSettings.graphics_volumetric_fog_density
+		environment.volumetric_fog_albedo = Color(0.9, 0.9, 0.92)
+		environment.volumetric_fog_anisotropy = 0.6
+		environment.volumetric_fog_length = GameSettings.graphics_volumetric_fog_length
+		environment.volumetric_fog_sky_affect = 0.0
 
 
 func _scene_environments() -> Array[Environment]:
@@ -508,6 +523,7 @@ func apply_preset(p: int) -> void:
 			pass
 	apply_ssao()
 	apply_taa()
+	apply_volumetric_fog()
 	_changed(&"preset")
 
 

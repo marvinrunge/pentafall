@@ -2010,6 +2010,10 @@ func wave_time_limit(wave_number: int) -> float:
 @export var graphics_ssao_radius: float = 1.2
 @export var graphics_ssao_intensity: float = 1.8
 @export var graphics_ssao_power: float = 1.5
+## Volumetric fog (Ultra, GraphicsSettings.apply_volumetric_fog): how thick, and how far out
+## it is computed - light shafts, not haze.
+@export var graphics_volumetric_fog_density: float = 0.012
+@export var graphics_volumetric_fog_length: float = 64.0
 
 # ============================================================
 # GRAPHICS - BLOOM
