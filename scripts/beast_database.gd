@@ -105,6 +105,18 @@ static func tinted_material(color_id: String, source: Material) -> Material:
 	_tinted[key] = material
 	return material
 
+## Builds this biome's recoloured materials ahead of its first beast (see WildlifeManager.setup).
+static func warm_up(color_id: String, scene: PackedScene) -> void:
+	var instance: Node = scene.instantiate()
+	for node: Node in instance.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh == null:
+			continue
+		for surface: int in mesh_instance.mesh.get_surface_count():
+			tinted_material(color_id, mesh_instance.get_active_material(surface))
+	instance.free()
+
+
 ## The colour each biome's beast is drawn in where a flat colour is needed (health bar
 ## tags, payouts) - the same per-colour tints EnemyDatabase uses.
 const VISUAL_COLORS: Dictionary = {

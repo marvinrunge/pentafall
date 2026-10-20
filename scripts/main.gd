@@ -371,9 +371,13 @@ func bake_map_navigation() -> void:
 
 	# A 512 m heightmap takes a couple of seconds to bake - on a thread, so the map is
 	# not frozen while it does.
-	var baked := [false]
-	NavigationServer3D.bake_from_source_geometry_data_async(nav_mesh, source, func() -> void: baked[0] = true)
-	while not baked[0]:
+	#
+	# Polled rather than told: a callback here was a lambda on this node, and quitting while the
+	# bake was still running - during the load, or a test done before the map was - had the
+	# bake's thread call it on the way out, after the map and the script it lived in were gone.
+	# Godot crashed after everything else had finished (an access violation in ntdll).
+	NavigationServer3D.bake_from_source_geometry_data_async(nav_mesh, source)
+	while NavigationServer3D.is_baking_navigation_mesh(nav_mesh):
 		await get_tree().process_frame
 	nav_region.navigation_mesh = nav_mesh
 	await _wait_for_navigation_map()
@@ -663,6 +667,8 @@ func spawn_players(count: int) -> void:
 		# Player 0 is whoever is sitting here. The rest are placeholders until Phase 1
 		# gives them a peer to be driven by.
 		player.set_meta("is_local", i == 0)
+		# The one sitting here plays the class they picked; the placeholders the default.
+		player.set_meta("character_class", Net.local_class() if i == 0 else ClassDatabase.DEFAULT_CLASS)
 		$Players.add_child(player)
 
 
@@ -680,6 +686,7 @@ func spawn_networked_players() -> void:
 		# survive a reconnect - the same player must come back to the same chair.
 		$PlayerSpawner.spawn({
 			"peer": int(id), "seat": Net.seat_of(int(id)), "total": Net.match_seats,
+			"class": Net.class_of(int(id)),
 		})
 
 
@@ -699,6 +706,7 @@ func _on_peer_entered_match(peer_id: int) -> void:
 	_despawn_avatar(peer_id)
 	$PlayerSpawner.spawn({
 		"peer": peer_id, "seat": Net.seat_of(peer_id), "total": Net.match_seats,
+		"class": Net.class_of(peer_id),
 	})
 	# The economy and the crystal only ever go out when they CHANGE, so a newcomer would
 	# otherwise play with a full crystal and an empty mana pool until the next kill.
@@ -749,6 +757,8 @@ func _spawn_avatar(data: Variant) -> Node:
 	var player: Node3D = player_scene.instantiate()
 	player.name = "Player_%d" % int(info["peer"])
 	player.set_multiplayer_authority(int(info["peer"]))
+	# Before add_child: the animator reads it in its own _ready to pick the visual.
+	player.set_meta("character_class", ClassDatabase.resolve(String(info.get("class", ""))))
 	_seat_player(player, int(info["seat"]))
 	return player
 
@@ -936,8 +946,23 @@ static func build_effect(info: Dictionary, caster: Node3D) -> Node3D:
 			if bool(info.get("dimir", false)):
 				ally.add_to_group(&"dimir_ghouls")
 			node = ally
+		"decoy":
+			# Blink of an Eye (MageSkills): an illusion of the mage who blinked away, in their
+			# class's own visual and the colour of their path.
+			var illusion := TemporaryAlly.new()
+			illusion.configure("decoy", float(info["hp"]), float(info["duration"]), 0.0, caster)
+			illusion.visual_player_class = String(info.get("class", ""))
+			illusion.decoy_tint = MageBolt.tint_of(String(info.get("color", "")))
+			node = illusion
 		"bolt_telegraph":
 			node = _build_bolt_telegraph(float(info["radius"]), float(info["delay"]))
+		"hurled_axe":
+			# Hurl Axe (WarriorSkills): flown on every peer from the same start, struck on the
+			# server - the caster is who it comes back to.
+			node = HurledAxe.create(
+				info["direction"], float(info["range"]), float(info["speed"]),
+				float(info["radius"]), float(info["damage"]), caster
+			)
 		"boss_hazard":
 			node = BossHazard.create(
 				String(info["style"]), float(info["radius"]), float(info.get("inner_radius", 0.0)),

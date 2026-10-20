@@ -36,6 +36,17 @@ var _shake_duration: float = 0.0
 var _shake_timer: float = 0.0
 var _shake_phase: float = 0.0
 
+# --- Aim zoom ---
+# The archer's draw narrows the lens (AttackKit.aim_zoom); only the local camera, and only
+# its field of view, so the crosshair and the aim ray stay exactly where they were.
+var _camera_base_fov: float = 75.0
+var _aim_zoom: float = 0.0
+## The camera's pitch, published by the owner so every other copy of this player can tilt its
+## own camera rig to match - which is what lets their aim ray, and the archer's spine aiming
+## along it (BowAim), point up and down on every screen. Look input never leaves the machine
+## it was typed on; this is the one number of it that does.
+var aim_pitch: float = 0.0
+
 # --- RPG Stats ---
 var hp: float = GameSettings.player_max_hp
 var max_hp: float = GameSettings.player_max_hp
@@ -84,7 +95,7 @@ var _dash_trail_dps: float = 0.0
 var _dash_trail_duration: float = 0.0
 var _dash_trail_radius: float = 0.0
 ## Rubblebelt Rioters (red+green guild node): set by _start_rampage after Titanic Brawl or
-## Fire Dash, consumed one per melee impact frame in _apply_melee_damage - see there for
+## Fire Dash, consumed one per melee impact frame in MeleeKit.apply_hit - see there for
 ## why that is "a hit" rather than per enemy a cleave connects with.
 var _rampage_hits_left: int = 0
 var aura_ranks: Dictionary = {}
@@ -209,10 +220,30 @@ func display_name() -> String:
 
 
 ## One enemy killed by this player. Called from EnemyBase.take_damage, which is the only
-## place that knows both that the hit was fatal and who threw it.
-func on_enemy_killed_by_me() -> void:
+## place that knows both that the hit was fatal and who threw it - and whether it was a basic
+## attack (`basic_attack`).
+func on_enemy_killed_by_me(basic_attack: bool = false) -> void:
 	add_stat("kills")
 	_on_kill_for_equipment()
+	if basic_attack and has_class_skill("warrior_bloodthirst"):
+		_bloodthirst()
+
+
+## Bloodthirst (the warrior's level-3 skill): a kill by the axe heals a little, here on the server
+## where the kill is known - and quickens the chain's next stage, which is a swing on the
+## warrior's own machine, so a remote warrior is told.
+func _bloodthirst() -> void:
+	_credit_heal(self, heal(max_hp * GameSettings.warrior_bloodthirst_heal, false))
+	if is_local:
+		kit.on_bloodthirst()
+	elif Net.is_active() and Net.is_server():
+		_net_bloodthirst.rpc_id(get_multiplayer_authority())
+
+
+@rpc("authority", "call_remote", "reliable")
+func _net_bloodthirst() -> void:
+	if is_local:
+		kit.on_bloodthirst()
 
 
 ## Books `restored` health against this player as healing, split by whether it landed on
@@ -237,6 +268,14 @@ var _reprisal_reflect: float = 0.0
 var _reprisal_block_chance: float = 0.0
 ## Ironbark (green_5). The only CC immunity in the game.
 var _ironbark_timer: float = 0.0
+## Berserk, the barbarian's capstone: seconds left, on the server (see is_berserk).
+var _berserk_timer: float = 0.0
+## Phalanx, the knight's capstone: seconds until the taunt is renewed.
+var _phalanx_tick: float = 0.0
+## When the shield last came up (Time ticks, msec), wherever this copy of the player is - the
+## server reads it for Shield Wall's perfect block. Set by _track_guard.
+var guard_raised_msec: int = -100000
+var _was_blocking: bool = false
 var _ironbark_reduction: float = 0.0
 ## Harvesting a mana well by hand. Seconds left on the channel, and which well is being
 ## worked. Both local to the harvesting player: this is a held action with a progress
@@ -329,51 +368,32 @@ var _menu_seen_frame: int = -10
 # --- Downed & Revive State ---
 var is_downed: bool = false
 var down_timer: float = 0.0
+## Real seconds left of a jump's run-up (PlayerAnimator.begin_jump), -1 when none is under way.
+var _jump_runup_left: float = -1.0
 
-# --- Melee Combo State ---
-## Swings fire on the button's RELEASE: a tap is a LIGHT attack, a release after at
-## least GameSettings.player_heavy_hold_time is a HEAVY one.
-##
-## There are exactly two melee moves. The heavy is a single committed spin. The
-## light is a CHAIN: one stored multi-hit flourish, spent one stage per click, so a
-## single tap plays the opening stage and fades back to the resting pose while a
-## second well-timed tap continues into the next stage instead of restarting. The
-## clip is split into its stages by PlayerAnimator.combo_windows().
-##
-## Unlocking the chain extension in the skill tree swaps the two-stage clip for a
-## three-stage one whose last stage lands harder.
-const LIGHT_CHAIN_CLIP := "combo_3"
-const LIGHT_CHAIN_STAGES := 2
-const LIGHT_CHAIN_CLIP_EXTENDED := "combo_2"
-const LIGHT_CHAIN_STAGES_EXTENDED := 3
-## The third stage and beyond, i.e. only ever the last stage of the extended chain.
-const LIGHT_CHAIN_HEAVY_STAGE := 2
-const HEAVY_CLIP := "spin_high"
-const HEAVY_LUNGE_DISTANCE: float = 0.65
-const HEAVY_LUNGE_EXTRA_DISTANCE: float = 0.35
-const HEAVY_LUNGE_EXTRA_START: float = 0.50
-const HEAVY_LUNGE_EXTRA_END: float = 0.70
+# --- Class, basic attack and defence ---
+## The class this player picked for the run (ClassDatabase): set on the spawn data as
+## "character_class" metadata before the node enters the tree, so the animator - a child,
+## ready before this - loads the right visual.
+var character_class: String = ClassDatabase.DEFAULT_CLASS
+## The class's basic attack - the warrior's light chain, heavy spin and kick (MeleeKit), the
+## barbarian's cleaves and charged overhead (GreatswordKit), the archer's bow (BowKit), the
+## mage's bolts (MageKit) - and its defence: the warrior's guard (BlockGuard), the archer's
+## roll (DodgeRoll), the mage's blink (Blink), nothing for the barbarian. What they share with a cast - the committed-action clock below - stays
+## here.
+var kit: AttackKit
+var defence: ClassDefence
+## A roll in progress (start_evade): the body is carried at _evade_velocity until the timer
+## runs out, whatever the stick says.
+var _evade_timer: float = 0.0
+var _evade_velocity: Vector3 = Vector3.ZERO
 
 var animator: PlayerAnimator
 
-## Set by the skill tree: lengthens the light chain from two stages to three.
+## Blade Dance, the warrior's level-10 class skill: lengthens the light chain from two
+## stages to three (MeleeKit._advance_light_chain).
 var melee_combo_extended: bool = false
 
-## How many stages of the light chain have been spent. Reset by anything that breaks
-## the chain, so the next click starts it over from its opening stage.
-var _combo_stage: int = 0
-## Seconds the heavy attack's wind-up has been held, or -1 when none is. Once the
-## hold makes a heavy inevitable there is nothing left to wait for, so the wind-up
-## starts then rather than on release - see _update_heavy_charge.
-var _heavy_charge_timer: float = -1.0
-## Seconds the attack button has been held, or -1 when it is not down. The swing
-## fires on RELEASE, and how long it was held is what picks light versus heavy.
-var _attack_hold_timer: float = -1.0
-## A resolved-but-not-yet-startable swing ("L"/"H"), held for
-## player_attack_buffer_time so a release that lands just before the combo window
-## opens still connects instead of being silently dropped.
-var _buffered_swing: String = ""
-var _buffered_swing_timer: float = 0.0
 ## Seconds of committed action left, and how long the commitment was. A swing and a
 ## cast are the same thing here. Kept in Player rather than read back off the
 ## animator so gameplay has one source of truth.
@@ -392,20 +412,6 @@ var _action_is_melee: bool = false
 ## True while the current committed melee is the heavy spin. Heavy swings are a
 ## single full-body commitment and must not be retriggered before the first one ends.
 var _action_is_heavy: bool = false
-## Impact moments still to pay out for the swing in flight, earliest first.
-var _pending_hits: Array[float] = []
-var _attack_damage_mult: float = 1.0
-## What the move in flight sounds like: the swing through the air, played the moment
-## it starts, and the impact, played on each frame that actually connects. A miss is
-## just the first with nothing after it. Chosen where the move is started rather than
-## derived from the damage multiplier, because the kick is a boot rather than a blade
-## while dealing nothing like an enemy club's damage.
-var _attack_swing_sound: StringName = &"blade_swing"
-var _attack_impact_sound: StringName = &"blade_hit"
-var _attack_knockback_strength: float = GameSettings.spell_melee_knockback
-## How hard a connecting impact kicks the camera. Chosen alongside the sounds, for
-## the same reason: it is a property of the move, not of its damage number.
-var _attack_shake_strength: float = 0.0
 ## The spell whose wind-up is playing, and when in the action it actually goes off.
 ## Empty when no cast is in flight. Like melee damage, the effect lands on the clip's
 ## measured release frame rather than on the keypress.
@@ -416,10 +422,6 @@ var _pending_cast_charge: float = 1.0
 ## no charge is being wound up. Kept so the release can continue that same shot instead
 ## of firing a second one over the top of it - see _begin_cast.
 var _cast_windup_clip: String = ""
-## The chain lapses if nothing continues it, so a stage landed a minute ago isn't
-## still counted as step one.
-var _combo_reset_timer: float = 0.0
-
 var is_blocking: bool = false
 ## Whether this player is standing on something, published by the machine that owns them.
 ##
@@ -445,6 +447,25 @@ var is_local: bool = true
 func _ready() -> void:
 	add_to_group("player")
 	animator = $Animator
+	character_class = ClassDatabase.resolve(String(get_meta("character_class", "")))
+	var class_data: Dictionary = ClassDatabase.get_class_data(character_class)
+	match String(class_data["kit"]):
+		"bow": kit = BowKit.new(self)
+		"bolt": kit = MageKit.new(self)
+		"greatsword": kit = GreatswordKit.new(self)
+		"sword_shield": kit = KnightKit.new(self)
+		_: kit = MeleeKit.new(self)
+	match String(class_data["defence"]):
+		"dodge": defence = DodgeRoll.new(self)
+		"blink": defence = Blink.new(self)
+		"block": defence = BlockGuard.new(self)
+		"shield": defence = KnightGuard.new(self)
+		_:
+			# The barbarian has none: the block button does nothing, and a heavy swing that
+			# cannot be interrupted stands in for it (GreatswordKit.unstoppable).
+			defence = ClassDefence.new()
+			defence.player = self
+	speed = GameSettings.player_base_speed * ClassDatabase.body_mult(character_class, "speed_mult")
 	animator.footfall.connect(_on_footfall)
 	if Net.is_active():
 		# Networked: the peer that owns this avatar drives it, everyone else runs it as a
@@ -461,6 +482,8 @@ func _ready() -> void:
 	
 	setup_camera()
 	add_child(StatusFx.new())
+	if kit is GreatswordKit:
+		add_child(WhirlwindFx.new())
 	
 	# A skill tree is PERSONAL. These signals carry no owner, so every avatar in the
 	# scene would answer them - one player's purchase would unlock the spell on all four
@@ -479,6 +502,9 @@ func _ready() -> void:
 
 	# Delay emitting the initial active spell until the HUD is ready
 	call_deferred("_emit_initial_spell")
+	# A player arriving in a run already past a class skill's level gets it now, on the bar.
+	if is_local:
+		call_deferred("_grant_class_skills", false)
 
 func _emit_initial_spell() -> void:
 	SignalBus.active_spell_changed.emit(get_spell_name_for_slot(active_spell_index))
@@ -516,6 +542,7 @@ func setup_camera() -> void:
 	camera.name = "Camera3D"
 	camera.position = Vector3(0, 0, 0)
 	shake_pivot.add_child(camera)
+	_camera_base_fov = camera.fov
 	# Exactly one camera may be current. Every player still builds its own rig - the
 	# shake, the spring arm and the aim ray all read from it - but only the local one
 	# is what the screen looks through.
@@ -555,6 +582,18 @@ func _update_camera_shake(delta: float) -> void:
 	)
 	if _shake_timer <= 0.0:
 		camera.position = Vector3.ZERO
+
+## Eases the lens towards what the kit asks for - in at the draw's pace, back out faster,
+## so the release reads as the shot letting go.
+func _update_aim_zoom(delta: float) -> void:
+	if camera == null or not is_local:
+		return
+	var target: float = kit.aim_zoom() if kit != null and not is_downed else 0.0
+	var rate: float = GameSettings.archer_aim_zoom_in_rate if target > _aim_zoom else GameSettings.archer_aim_zoom_out_rate
+	_aim_zoom = lerpf(_aim_zoom, target, 1.0 - exp(-rate * delta))
+	if absf(_aim_zoom - target) < 0.001:
+		_aim_zoom = target
+	camera.fov = _camera_base_fov * lerpf(1.0, GameSettings.archer_aim_zoom_fov_mult, _aim_zoom)
 
 ## "[E]" or "[D-pad up]", whichever the player last had in hand. See InputHint.
 func _interact_key_label() -> String:
@@ -600,6 +639,7 @@ func _apply_look_delta(yaw: float, pitch: float) -> void:
 	camera_pivot.rotation.x = clampf(
 		camera_pivot.rotation.x + pitch, -deg_to_rad(70.0), deg_to_rad(30.0)
 	)
+	aim_pitch = camera_pivot.rotation.x
 
 ## Replicates the least that produces the most: position, rotation and VELOCITY.
 ##
@@ -622,7 +662,7 @@ func _build_synchronizer() -> void:
 	var owned := SceneReplicationConfig.new()
 	for property: String in [":position", ":rotation", ":velocity",
 			":is_grounded", ":is_blocking",
-			":is_charging", ":charge_timer", ":charge_max_time"]:
+			":is_charging", ":charge_timer", ":charge_max_time", ":aim_pitch"]:
 		owned.add_property(NodePath(property))
 		owned.property_set_replication_mode(
 			NodePath(property), SceneReplicationConfig.REPLICATION_MODE_ALWAYS
@@ -988,7 +1028,32 @@ func is_spell_owned(spell_id: String) -> bool:
 
 
 func get_spell_rank(spell_id: String) -> int:
+	# A class skill is never bought: it is held at rank 1 from its level on, which is what
+	# lets an active one sit on the quick bar and be cast like any spell.
+	if ClassDatabase.is_skill(spell_id):
+		return 1 if has_class_skill(spell_id) else 0
 	return int(spell_ranks.get(spell_id, 0))
+
+
+## Whether this player's class has `skill_id` at the team's level right now.
+func has_class_skill(skill_id: String) -> bool:
+	return ClassDatabase.has_skill(character_class, skill_id, RunState.team_level)
+
+
+## Puts every active class skill the team level has reached on the first free quick slot,
+## and with `announce` says so for the ones this very level unlocked. Run at every level
+## change and once on arrival - for a late joiner or a reconnect quietly, since their level
+## was reached without them.
+func _grant_class_skills(announce: bool) -> void:
+	for skill_id: String in ClassDatabase.skills_of(character_class):
+		if skill_id == "" or not has_class_skill(skill_id):
+			continue
+		if ClassDatabase.is_active(skill_id) and not quick_slots.has(skill_id):
+			var slot: int = first_free_quick_slot()
+			if slot >= 0:
+				assign_quick_slot(slot, skill_id)
+		if announce and ClassDatabase.unlock_level(skill_id) == RunState.team_level:
+			_notify("%s unlocked" % SpellDatabase.get_display_name(skill_id))
 
 
 ## Everything this player has put into one colour, counted in ranks: the colour's affinity
@@ -1009,6 +1074,22 @@ func color_investment(color: String) -> int:
 static func spell_color(spell_id: String) -> String:
 	var parts: PackedStringArray = spell_id.split("_")
 	return parts[0] if parts.size() > 1 else ""
+
+
+## The colour of this player's path: the one they have put the most into (color_investment),
+## a tie going to the colour they last chose in the tree, and "" before they have put anything
+## into any colour. What the mage's bolts and blinks are drawn in (MageBolt.TINTS) - only
+## drawn: "a class is the WEAPON, a colour is the MAGIC", so the colour changes how a bolt
+## looks and nothing about what it does.
+func path_color() -> String:
+	var best: String = ""
+	var best_total: int = 0
+	for color: String in SpellDatabase.COLORS:
+		var total: int = color_investment(color)
+		if total > best_total or (total > 0 and total == best_total and color == chosen_color_path):
+			best = color
+			best_total = total
+	return best
 
 
 ## Whether the NEXT rank of this spell is reachable right now, and why not if it is not.
@@ -1207,11 +1288,8 @@ func on_damage_dealt(amount: float, basic_attack: bool = false) -> void:
 	# EnemyBase clamps this to the health actually removed before calling, so overkill on a
 	# finishing blow is not counted - the scoreboard shows damage done, not damage rolled.
 	add_stat("damage_dealt", amount)
-	# Vampiric Link heals from basic attacks only (GameSettings.affinity_cap says why); the
-	# team's Exquisite Blood stacks still heal from every hit, as they did.
-	var lifesteal: float = RunState.lifesteal_bonus()
-	if basic_attack:
-		lifesteal += get_affinity_bonus("black")
+	# Vampiric Link heals from basic attacks only (GameSettings.affinity_cap says why).
+	var lifesteal: float = get_affinity_bonus("black") if basic_attack else 0.0
 	if lifesteal > 0.0 and amount > 0.0:
 		add_stat("heal_self", heal(amount * lifesteal))
 
@@ -1237,8 +1315,10 @@ func _reduce_spell_cooldowns(seconds: float) -> void:
 		var remaining: float = float(spell_cooldown_timers[key]) - seconds
 		if remaining <= 0.0:
 			spell_cooldown_timers.erase(key)
+			_mastery_charge_back(key)
 		else:
 			spell_cooldown_timers[key] = remaining
+	_tick_mastery(seconds)
 
 
 ## Wipes spell cooldowns only. `spell_cooldown_timers` also carries non-spell
@@ -1247,6 +1327,8 @@ func _clear_spell_cooldowns() -> void:
 	for key in spell_cooldown_timers.keys():
 		if SpellDatabase.has_spell(key):
 			spell_cooldown_timers.erase(key)
+	_mastery_spent.clear()
+	_mastery_recharge.clear()
 
 ## Cooldowns are flat across ranks with exactly one exception: black's Kill, whose whole
 ## rank curve IS its cooldown (docs/SKILL_DESIGN.md - "Scales with rank: cooldown, boss
@@ -1264,6 +1346,108 @@ func _get_spell_cooldown(spell_id: String) -> float:
 ## one on top (x0.7), which made the same number twice in the same colour.
 func _spell_cooldown_recovery_rate() -> float:
 	return 1.0 + get_affinity_bonus("blue")
+
+# --- Spell Mastery: the mage's charges ------------------------------------------------------
+#
+# The mage's level-10 class skill: every colour spell holds two charges (GameSettings.
+# mage_spell_mastery_charges). Mechanical rather than a cooldown cut - blue's affinity is the one
+# place cooldowns get shorter - so a spell still recovers ONE charge per cooldown; Mastery only
+# lets the second be spent at once. `spell_cooldown_timers` keeps its meaning throughout: it
+# runs only while NO charge is left, so everything that asks "is this spell ready" (the cast,
+# the bar, Phyrexian Arena) still asks it. The charge coming back while one is still in hand
+# is kept beside it, in _mastery_recharge.
+
+## Charges spent and not back yet, per colour spell.
+var _mastery_spent: Dictionary = {}
+## Seconds until the charge on its way back arrives, while the spell still has one in hand.
+var _mastery_recharge: Dictionary = {}
+## How long one charge takes to come back, per spell - its cooldown when last cast.
+var _mastery_period: Dictionary = {}
+
+
+## Whether Spell Mastery gives `spell_id` charges: a colour spell, not a channel (which refills
+## by how long it was held), and the mage has the skill.
+func _has_spell_mastery(spell_id: String) -> bool:
+	return SpellDatabase.has_spell(spell_id) and not SpellDatabase.is_channelled(spell_id) \
+		and has_class_skill("mage_spell_mastery")
+
+
+## Starts `spell_id`'s cooldown of `seconds` - or, under Spell Mastery, spends one of its
+## charges, and only the last one makes the spell wait.
+func _start_spell_cooldown(spell_id: String, seconds: float) -> void:
+	var charges: int = maxi(GameSettings.mage_spell_mastery_charges, 1)
+	var spent: int = int(_mastery_spent.get(spell_id, 0))
+	if not _has_spell_mastery(spell_id) or spent >= charges:
+		# No charges, or none left (a Phyrexian Arena cast paid in life): the plain cooldown.
+		spell_cooldown_timers[spell_id] = seconds
+		return
+	spent += 1
+	_mastery_spent[spell_id] = spent
+	_mastery_period[spell_id] = seconds
+	if spent == 1:
+		_mastery_recharge[spell_id] = seconds
+	if spent >= charges:
+		# The last charge: the spell waits for the one already on its way back.
+		spell_cooldown_timers[spell_id] = float(_mastery_recharge.get(spell_id, seconds))
+		_mastery_recharge.erase(spell_id)
+
+
+## `spell_id`'s cooldown ran out: under Spell Mastery that is one charge back, and the next
+## one starts on its way if more are missing.
+func _mastery_charge_back(spell_id: String) -> void:
+	if not _mastery_spent.has(spell_id):
+		return
+	var spent: int = int(_mastery_spent[spell_id]) - 1
+	if spent <= 0:
+		_mastery_spent.erase(spell_id)
+		_mastery_recharge.erase(spell_id)
+		return
+	_mastery_spent[spell_id] = spent
+	_mastery_recharge[spell_id] = float(_mastery_period.get(spell_id, 1.0))
+
+
+## Brings the charges on their way back `seconds` nearer - every frame, and by the basic
+## attack's refund, exactly as the cooldowns are.
+func _tick_mastery(seconds: float) -> void:
+	for key in _mastery_recharge.keys():
+		var remaining: float = float(_mastery_recharge[key]) - seconds
+		if remaining > 0.0:
+			_mastery_recharge[key] = remaining
+			continue
+		_mastery_recharge.erase(key)
+		_mastery_charge_back(key)
+
+
+## How many charges `spell_id` has in hand under Spell Mastery, or -1 when it has none to count
+## (no Mastery, or not a colour spell). For the quick bar.
+func spell_charges(spell_id: String) -> int:
+	if not _has_spell_mastery(spell_id):
+		return -1
+	return maxi(GameSettings.mage_spell_mastery_charges, 1) - int(_mastery_spent.get(spell_id, 0))
+
+
+## Makes `spell_id` ready again at once with every charge it holds - Mana Surge. Returns false
+## when it was ready already.
+func recharge_spell(spell_id: String) -> bool:
+	var was_waiting: bool = spell_cooldown_timers.has(spell_id) or _mastery_spent.has(spell_id)
+	spell_cooldown_timers.erase(spell_id)
+	_mastery_spent.erase(spell_id)
+	_mastery_recharge.erase(spell_id)
+	return was_waiting
+
+
+## The colour spell this player cast last - what Mana Surge recharges. Their own machine only.
+var last_color_spell_id: String = ""
+
+
+## A colour spell of this player's just went off, on their own machine: remembered for Mana
+## Surge, and told to the kit (the mage's Prowess). Class skills are not colour spells.
+func _note_spell_cast(spell_id: String) -> void:
+	if not SpellDatabase.has_spell(spell_id):
+		return
+	last_color_spell_id = spell_id
+	kit.on_spell_cast(spell_id)
+
 
 func is_chargeable(spell_id: String) -> bool:
 	return SpellDatabase.is_chargeable(spell_id)
@@ -1291,6 +1475,7 @@ func cast_active_spell() -> void:
 
 	if SpellDatabase.is_channelled(spell_id):
 		_casting_rank = maxi(get_spell_rank(spell_id), 1)
+		_note_spell_cast(spell_id)
 		# Held from the start, or the channel never learns that the button coming up should end
 		# it - which is how a Fire Cone ran its full five seconds whatever the player did.
 		var held: bool = is_local and _cast_held()
@@ -1320,8 +1505,7 @@ func cast_active_spell() -> void:
 ## forgotten, and the cast starts on this frame. Only melee yields: another cast, a
 ## stagger or being down still has to finish first.
 func _yield_melee_to_cast() -> void:
-	_clear_pending_swing()
-	_cancel_heavy_charge()
+	kit.drop_swing()
 	if _action_timer <= 0.0 or not _action_is_melee:
 		return
 	_action_timer = 0.0
@@ -1329,9 +1513,7 @@ func _yield_melee_to_cast() -> void:
 	_action_roots_player = false
 	_action_is_melee = false
 	_action_is_heavy = false
-	_pending_hits.clear()
-	_combo_stage = 0
-	_combo_reset_timer = 0.0
+	kit.cancel()
 
 
 ## A cast is a committed action like a swing, so it queues behind one rather than
@@ -1487,8 +1669,7 @@ func _cancel_spell_charge() -> void:
 ## `windup_progress` is how far into the charge window a held cast got, or negative for
 ## an ordinary uncharged one. A released charge does NOT start a new shot: the one the
 ## charge is already playing speeds up to cast pace, so the caster continues from the
-## exact pose the wind-up reached rather than snapping back and starting over - the same
-## continuity _release_heavy_charge() gives the heavy swing.
+## exact pose the wind-up reached rather than snapping back and starting over.
 func _begin_cast(spell_id: String, charge_pct: float, windup_progress: float = -1.0) -> void:
 	var row: Dictionary = SpellDatabase.get_spell(spell_id)
 	var clip: String = String(row.get("cast_clip", ""))
@@ -1539,6 +1720,9 @@ func _begin_cast(spell_id: String, charge_pct: float, windup_progress: float = -
 		commit += remaining / maxf(pace, 0.01) - duration
 	else:
 		_pending_cast_time = animator.release_time(clip, duration, release_on_last)
+	if row.has("release_at"):
+		# A class skill on a clip with no impact of its own (a roll) says where it lands.
+		_pending_cast_time = duration * float(row["release_at"])
 	# A spell whose animation MOVES the caster has to start moving now, not on the
 	# release frame - the release is the payload landing, and by then the leap has to
 	# already have carried them there. Fire Dash is the same shape: the release frame
@@ -1546,7 +1730,10 @@ func _begin_cast(spell_id: String, charge_pct: float, windup_progress: float = -
 	match spell_id:
 		"green_1": SpellEffects.cast_green_titanic_leap(self)
 		"red_2": SpellEffects.cast_red_fire_dash(self)
-	_pending_hits.clear()
+		"archer_disengage": ArcherSkills.begin_disengage(self, duration)
+		"barbarian_whirlwind": BarbarianSkills.begin_whirlwind(self, duration)
+		"warrior_battle_frenzy": WarriorSkills.begin_battle_frenzy(self)
+	kit.drop_hits()
 	# The two halves separately, rather than through _begin_action: a cast may be
 	# committed for less time than its animation runs, and a recovery that is still
 	# playing after the player has control back is the whole point of `commit`.
@@ -1610,7 +1797,12 @@ func execute_spell(spell_id: String, charge_pct: float = 1.0) -> void:
 		blood_cost = blood_cast_cost(spell_id)
 	var cooldown: float = _get_spell_cooldown(spell_id)
 	if cooldown > 0.0:
-		spell_cooldown_timers[spell_id] = cooldown / _spell_cooldown_recovery_rate()
+		_start_spell_cooldown(spell_id, cooldown / _spell_cooldown_recovery_rate())
+	_note_spell_cast(spell_id)
+	# Mana Surge acts on the cooldowns, which live on this machine and nowhere else - so it
+	# resolves here, before a client's cast goes on to the server.
+	if spell_id == "mage_mana_surge":
+		MageSkills.surge(self)
 	# Whether the caster is still HOLDING the button, read on the machine that owns the
 	# keyboard. Only Fire Cone uses it - a channel ends when the button comes up - and the
 	# server has no way to find it out for itself: asking Input there answers for the HOST,
@@ -1737,6 +1929,14 @@ func _run_spell_effect(spell_id: String, charge_pct: float, held: bool = false) 
 		"green_3": SpellEffects.cast_green_fog(self)
 		"green_4": SpellEffects.cast_green_roar(self)
 		"green_5": SpellEffects.cast_green_ironbark(self)
+		# --- CLASS SKILLS ---
+		"archer_disengage": ArcherSkills.lay_snare(self)
+		"archer_volley": ArcherSkills.cast_volley(self)
+		"barbarian_berserk": BarbarianSkills.cast_berserk(self)
+		"knight_shield_bash": KnightSkills.cast_shield_bash(self)
+		"mage_blink_of_an_eye": MageSkills.cast_blink_of_an_eye(self)
+		"warrior_hurl_axe": WarriorSkills.cast_hurl_axe(self)
+		"warrior_battle_frenzy": WarriorSkills.cast_battle_frenzy(self)
 
 	last_spell_cast_time = Time.get_ticks_msec() / 1000.0
 
@@ -1748,8 +1948,7 @@ func _on_melee_combo_unlocked() -> void:
 	melee_combo_extended = true
 	# The chain clip changes underneath, so a half-spent chain would carry its stage
 	# count across into a different animation. Start the new one from the top.
-	_combo_stage = 0
-	_combo_reset_timer = 0.0
+	kit.reset_chain()
 
 
 func _on_spell_unlocked(color: String, spell_id: String) -> void:
@@ -1764,10 +1963,12 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false) -
 	var can_use_defenses: bool = source != self
 	var remaining_damage: float = amount
 	# The guard comes first: it should soak the hit before shields are spent on it.
-	var was_blocked: bool = can_use_defenses and _blocks_attack_from(source)
+	var was_blocked: bool = can_use_defenses and defence.blocks_attack_from(source)
 	if was_blocked:
-		_play_sound(_block_sound_for(source), global_position)
-		remaining_damage *= 1.0 - GameSettings.player_block_damage_reduction
+		_play_sound(BlockGuard.sound_for(source), global_position)
+		remaining_damage *= 1.0 - defence.damage_reduction()
+		defence.on_blocked(source)
+		_notify_blocked()
 		animator.play_reaction("block_react", GameSettings.player_block_react_duration)
 		if remaining_damage <= 0.0:
 			return
@@ -1797,9 +1998,14 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false) -
 	# shields so it makes them last longer rather than being wasted on damage they already ate.
 	if can_use_defenses and _ironbark_timer > 0.0:
 		remaining_damage *= 1.0 - _ironbark_reduction
+	# Berserk's price: everything lands harder while it lasts.
+	if _berserk_timer > 0.0:
+		remaining_damage *= GameSettings.barbarian_berserk_damage_taken_mult
 	# ...and a white teammate's Glorious Anthem, which shelters everyone near them but them.
 	if can_use_defenses:
 		remaining_damage *= Player.anthem_damage_taken_mult(self)
+		# ...and a knight's Phalanx, held up in front of them.
+		remaining_damage *= Player.phalanx_damage_taken_mult(self)
 
 	if can_use_defenses:
 		var shield_before: float = total_shield()
@@ -1842,7 +2048,7 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false) -
 func _try_hit_reaction(damage: float, source: Node3D) -> void:
 	# Ironbark: nothing staggers you. This is the half of the skill players actually
 	# feel - a swing that finishes instead of being interrupted.
-	if _hit_react_cooldown > 0.0 or is_downed or is_control_immune():
+	if _hit_react_cooldown > 0.0 or is_downed or is_control_immune() or kit.unstoppable():
 		return
 	if damage < max_hp * GameSettings.player_hit_react_damage_pct:
 		return
@@ -1862,16 +2068,12 @@ func _cancel_action() -> void:
 	_action_duration = 0.0
 	_action_roots_player = false
 	_action_is_melee = false
-	_pending_hits.clear()
 	# A cast interrupted before its release frame simply never happens - and since
 	# the cooldown is only stamped in execute_spell(), it costs the player nothing.
 	_pending_cast_id = ""
 	_end_channel()
 	_cancel_spell_charge()
-	_combo_stage = 0
-	_combo_reset_timer = 0.0
-	_cancel_heavy_charge()
-	_clear_pending_swing()
+	kit.cancel()
 
 ## Recomputes maximum health and the aura's permanent effects from scratch whenever
 ## one of their inputs moves. Giant Growth is one of those inputs now: it adds flat health
@@ -1888,7 +2090,7 @@ func _sync_auras() -> void:
 		return
 
 	var health_ratio: float = hp / max_hp if max_hp > 0.0 else 1.0
-	max_hp = GameSettings.player_max_hp
+	max_hp = GameSettings.player_max_hp * ClassDatabase.body_mult(character_class, "health_mult")
 	max_hp *= 1.0 + get_affinity_bonus("green")
 	# Circle of Protection's shield is deliberately NOT cleared here. This function re-runs
 	# whenever the giant bonus changes, i.e. on every Giant Growth, and a green/white player
@@ -2172,6 +2374,66 @@ static func anthem_damage_mult(ally: Node3D) -> float:
 
 
 ## Multiplier on what `ally` takes, from a teammate's Anthem. 1.0 when none reaches them.
+## Phalanx (the knight's level-14 skill): the share of a hit `ally` takes while a knight with
+## the skill holds the shield up near them and between them and the fight - within
+## knight_phalanx_radius and behind the knight's facing. A knight does not shelter itself.
+## Asked by whoever is hit, like the anthem: players, summons and myrs.
+static func phalanx_damage_taken_mult(ally: Node3D) -> float:
+	if ally == null or not ally.is_inside_tree():
+		return 1.0
+	for node: Node in ally.get_tree().get_nodes_in_group("player"):
+		var knight := node as Player
+		if knight == null or knight == ally or not knight.is_blocking or knight.is_downed:
+			continue
+		if not knight.has_class_skill("knight_phalanx"):
+			continue
+		var offset: Vector3 = ally.global_position - knight.global_position
+		offset.y = 0.0
+		if offset.length() > GameSettings.knight_phalanx_radius:
+			continue
+		if -knight.global_basis.z.dot(offset) < 0.0:
+			return GameSettings.knight_phalanx_damage_taken_mult
+	return 1.0
+
+
+## When the guard comes up, on every copy of this player: the server's copy of a remote one
+## follows the replicated is_blocking, and that is where a perfect block is judged.
+func _track_guard() -> void:
+	if is_blocking and not _was_blocking:
+		guard_raised_msec = Time.get_ticks_msec()
+	_was_blocking = is_blocking
+
+
+## Phalanx's other half: while the shield is up, every enemy near the knight turns on it. Where
+## enemies think - the server, or the solo game - renewed a little before it runs out.
+func _update_phalanx(delta: float) -> void:
+	if Net.is_active() and not Net.is_server():
+		return
+	_phalanx_tick -= delta
+	if _phalanx_tick > 0.0 or not is_blocking or is_downed or not has_class_skill("knight_phalanx"):
+		return
+	_phalanx_tick = GameSettings.knight_phalanx_taunt_duration * 0.5
+	for enemy: Node3D in _enemies_in_radius(global_position, GameSettings.knight_phalanx_taunt_radius):
+		if enemy.has_method("apply_taunt"):
+			enemy.apply_taunt(self, GameSettings.knight_phalanx_taunt_duration)
+
+
+## The shield stopped a hit. Blocks are decided where the damage lands - the server - while the
+## knight's riposte (First Strike) is a swing on the knight's own machine, so a remote knight
+## is told.
+func _notify_blocked() -> void:
+	if is_local:
+		kit.on_blocked()
+	elif Net.is_active() and Net.is_server():
+		_net_blocked.rpc_id(get_multiplayer_authority())
+
+
+@rpc("authority", "call_remote", "reliable")
+func _net_blocked() -> void:
+	if is_local:
+		kit.on_blocked()
+
+
 static func anthem_damage_taken_mult(ally: Node3D) -> float:
 	var rank: int = _anthem_rank_reaching(ally)
 	if rank <= 0:
@@ -2340,10 +2602,11 @@ func die() -> void:
 	add_stat("downs")
 
 	var total_players = get_tree().get_nodes_in_group("player").size()
+	# Animate Dead, black's team enchantment, shortens either clock.
 	var timer: float = (
 		GameSettings.player_downed_duration if total_players > 1
 		else GameSettings.player_downed_solo_duration
-	)
+	) * RunState.undeath_time_multiplier()
 	_enter_downed(timer)
 	# Enemies only think on the server, so `die` is reached there and nowhere else - which
 	# left a client at zero health still walking around on their own screen while the host
@@ -2536,8 +2799,8 @@ func _aim_point(max_distance: float, mask: int = 1) -> Vector3:
 ## to the side of it, and a Kill that measured "in the sights" from the character's feet.
 ##
 ## On the server, while a CLIENT's spell resolves, these answer with the ray that client sent
-## along with it (see _request_spell): the server's copy of a remote camera has no pitch -
-## look input never leaves the machine it was typed on - so it points somewhere else.
+## along with it (see _request_spell): the server's copy of a remote camera only follows the
+## replicated `aim_pitch`, a beat behind and short of the exact ray, so it is not trusted for hits.
 func aim_origin() -> Vector3:
 	if not _aim_override.is_empty():
 		return _aim_override[0]
@@ -2895,6 +3158,11 @@ func _request_harvest(color: String) -> void:
 	NetFx.ring(global_position, tint, 1.4)
 
 
+## How long the revive channel takes, Animate Dead (black's team enchantment) included.
+func _revive_channel_time() -> float:
+	return GameSettings.player_revive_channel_time * RunState.undeath_time_multiplier()
+
+
 ## The revive channel, ticked. Everything the HELPER does that is not kneeling breaks
 ## it - moving, attacking, casting, kicking, jumping. Taking a hit does NOT: a rescue
 ## under fire is supposed to be possible, just slow.
@@ -2921,7 +3189,7 @@ func _update_revive_channel(delta: float, in_range_of_someone: bool) -> void:
 		SignalBus.interact_prompt_changed.emit("", false)
 		return
 	_revive_channel_left -= delta
-	var pct: int = int(100.0 * (1.0 - _revive_channel_left / GameSettings.player_revive_channel_time))
+	var pct: int = int(100.0 * (1.0 - _revive_channel_left / _revive_channel_time()))
 	SignalBus.interact_prompt_changed.emit("Reviving... %d%%" % pct, true)
 	if _revive_channel_left <= 0.0:
 		_revive_channel_target = null
@@ -3093,6 +3361,8 @@ func _update_status_fx() -> void:
 		bits |= StatusFx.REPRISAL
 	if _ironbark_timer > 0.0:
 		bits |= StatusFx.IRONBARK
+	if _berserk_timer > 0.0:
+		bits |= StatusFx.BERSERK
 	if exalted_charges > 0:
 		bits |= StatusFx.EXALTED
 	if _phoenix_ward_timer > 0.0:
@@ -3103,7 +3373,14 @@ func _update_status_fx() -> void:
 
 
 func is_control_immune() -> bool:
-	return _ironbark_timer > 0.0
+	return _ironbark_timer > 0.0 or (kit != null and kit.control_immune())
+
+
+## Berserk (the barbarian's level-14 skill) holds. The timer is the server's, where the cast
+## resolves and the damage lands; the barbarian's own machine, where the swings are, reads it
+## off the replicated status bits.
+func is_berserk() -> bool:
+	return _berserk_timer > 0.0 or (status_fx & StatusFx.BERSERK) != 0
 
 
 ## How far apart the dash drops its burning patches. Close enough that the trail reads as
@@ -3120,6 +3397,9 @@ func _update_skill_timers(delta: float) -> void:
 		_phoenix_ward_timer -= delta
 	if _ironbark_timer > 0.0:
 		_ironbark_timer -= delta
+	if _berserk_timer > 0.0:
+		_berserk_timer -= delta
+	_update_phalanx(delta)
 	if _cloak_timer > 0.0:
 		_cloak_timer -= delta
 
@@ -3319,10 +3599,13 @@ func _on_team_level_changed(level: int, levels_gained: int) -> void:
 	# Blade Dance used to be the tree's centre node, bought with mana. It is a reward for
 	# surviving now: the hub shows the team level instead, and the third combo stage arrives
 	# on its own when that level reaches BLADE_DANCE_LEVEL.
-	if level >= BLADE_DANCE_LEVEL and not melee_combo_extended:
+	# Only for a class that has it - Blade Dance is the warrior's level-10 class skill.
+	if level >= BLADE_DANCE_LEVEL and not melee_combo_extended and ClassDatabase.has_skill(character_class, "warrior_blade_dance", level):
 		melee_combo_extended = true
 		SignalBus.melee_combo_unlocked.emit()
 		_notify("Blade Dance unlocked")
+	if is_local:
+		_grant_class_skills(levels_gained > 0)
 	if levels_gained <= 0:
 		return
 	hp = max_hp
@@ -3361,21 +3644,14 @@ func _notify(text: String) -> void:
 	SignalBus.interact_prompt_changed.emit(text, true)
 
 
-# --- MELEE ---
+# --- ACTIONS ---
 #
-# Two moves, both fired on the button's RELEASE: a tap is a light attack, a release
-# after player_heavy_hold_time is the heavy spin. Firing on release is what lets one
-# button carry both without the light attack having to wait out the hold threshold
-# to find out which it is; player_attack_buffer_time then holds a release that
-# arrives slightly too early until the swing in flight can be chained out of.
-#
-# The light attack is a chain rather than a single swing - see LIGHT_CHAIN_CLIP.
-#
-# Damage does not land on the keypress. Each attack clip carries the moments its
-# weapon actually connects (measured at build time by
-# tools/player_character_builder.gd) and those are queued as _pending_hits.
+# A committed move - a swing or a cast - owns the player for its duration: the clock is
+# here, the clips and the impact frames of the swings are MeleeKit's, a cast's release
+# frame is _begin_cast's.
 
-## The whole melee input path. Called once per physics frame from _physics_process.
+## The action clock, and the basic attack's buttons. Called once per physics frame from
+## _physics_process.
 ##
 ## Everything below the timers is INPUT, so a remote player runs the timers - its
 ## pending hits and cooldowns still tick - and reads no keys. What it should do instead
@@ -3385,22 +3661,11 @@ func _update_actions(delta: float) -> void:
 		_hit_react_cooldown -= delta
 	if _stagger_timer > 0.0:
 		_stagger_timer -= delta
-	if _combo_reset_timer > 0.0:
-		_combo_reset_timer -= delta
-		if _combo_reset_timer <= 0.0:
-			_combo_stage = 0
+	kit.tick(delta)
 
 	if _action_timer > 0.0:
 		_action_elapsed += delta
-		while not _pending_hits.is_empty() and _pending_hits[0] <= _action_elapsed:
-			_pending_hits.remove_at(0)
-			if _apply_melee_damage(_attack_damage_mult) > 0:
-				_reduce_spell_cooldowns(GameSettings.melee_hit_cooldown_reduction)
-				# The swing was already heard when the move began; this is the weapon
-				# arriving. A whiff simply never reaches this line.
-				_play_sound(_attack_impact_sound, global_position)
-				_shake(
-					_attack_shake_strength, GameSettings.camera_shake_melee_duration)
+		kit.land_due_hits()
 		if _pending_cast_id != "" and _action_elapsed >= _pending_cast_time:
 			var ready_spell: String = _pending_cast_id
 			var ready_charge: float = _pending_cast_charge
@@ -3412,229 +3677,14 @@ func _update_actions(delta: float) -> void:
 			_action_roots_player = false
 			_action_is_melee = false
 			_action_is_heavy = false
-			_pending_hits.clear()
-
-	if _attack_hold_timer >= 0.0:
-		_attack_hold_timer += delta
-	if _buffered_swing_timer > 0.0:
-		_buffered_swing_timer -= delta
-		if _buffered_swing_timer <= 0.0:
-			_buffered_swing = ""
+			kit.drop_hits()
 
 	if not is_local:
 		return
 	if is_downed or _stagger_timer > 0.0 or _menu_blocks_input():
-		_clear_pending_swing()
+		kit.drop_swing()
 		return
-
-	if Input.is_action_just_pressed("kick"):
-		_try_kick()
-
-	# Nothing fires on the press - it only starts the clock. Firing on press and
-	# then swapping the clip once the hold threshold passed used to cut the light
-	# swing off mid-stroke, which is the whole reason this is release-driven.
-	if is_blocking:
-		_clear_pending_swing()
-	else:
-		# Press and release are checked independently, NOT as an if/elif chain: a
-		# click fast enough to land both inside one physics frame reports both as
-		# "just" happened, and an elif would take the press and never see the
-		# release, silently eating the attack. Handling both in order resolves it
-		# as a zero-length hold, i.e. a light tap.
-		if Input.is_action_just_pressed("attack"):
-			_attack_hold_timer = 0.0
-		if Input.is_action_just_released("attack") and _attack_hold_timer >= 0.0:
-			# Already winding up settles it regardless of the clock: the player has
-			# watched the charge start, so the release has to be the heavy.
-			var is_heavy: bool = _heavy_charge_timer >= 0.0 or _attack_hold_timer >= GameSettings.player_heavy_hold_time
-			_buffered_swing = "H" if is_heavy else "L"
-			_buffered_swing_timer = GameSettings.player_attack_buffer_time
-			_attack_hold_timer = -1.0
-		_update_heavy_charge(delta)
-
-	if _buffered_swing != "" and _can_start_attack():
-		var symbol := _buffered_swing
-		_clear_pending_swing()
-		_try_attack(symbol)
-
-
-## The heavy attack's wind-up, from the moment the hold makes a heavy inevitable.
-##
-## Starting the animation here rather than on release is the whole point: the player
-## sees the raise while they are still holding, instead of the character standing
-## still and then snapping into a swing. The clip's lead-in is spread across
-## player_heavy_charge_max, front-loaded by player_heavy_charge_ease: the axe comes up
-## quickly and then settles near the top, which is what holding a wind-up should feel
-## like. See _windup_speed.
-##
-## Nothing about the strike lives here. The wind-up stops where the strike window
-## begins (see PlayerAnimator.play_windup), so a charge can never land a hit, and the
-## swing released out of it is the ordinary full-speed heavy - a long charge buys
-## position and timing, not damage.
-func _update_heavy_charge(delta: float) -> void:
-	if _heavy_charge_timer < 0.0:
-		if _attack_hold_timer < GameSettings.player_heavy_hold_time or is_blocking:
-			return
-		# Once the hold is clearly heavy, commit the full attack immediately. A short
-		# tap is still resolved on release as a normal fast attack.
-		if not _can_start_attack():
-			return
-	_attack_hold_timer = -1.0
-	_clear_pending_swing()
-	_start_heavy()
-
-
-## How much of the raise is behind the player after holding for `progress` of the
-## charge window. Front-loaded, so the axe comes up fast and then settles near the top
-## instead of crawling at one rate the whole way.
-##
-## The release reads the same curve, which is what keeps the swing continuous: the
-## pose it picks up from has to be the pose the wind-up actually reached.
-func _charge_progress_eased(progress: float) -> float:
-	return 1.0 - pow(1.0 - clampf(progress, 0.0, 1.0), GameSettings.player_heavy_charge_ease)
-
-
-## Clip-seconds per real second for the wind-up at this instant - the rate of change
-## of _charge_progress_eased - so however front-loaded it is, the raise still arrives
-## at the top of the swing exactly as the charge window closes.
-func _windup_speed() -> float:
-	var charge_max: float = maxf(GameSettings.player_heavy_charge_max, 0.01)
-	var progress: float = clampf(_heavy_charge_timer / charge_max, 0.0, 1.0)
-	var ease_power: float = GameSettings.player_heavy_charge_ease
-	return animator.windup_length(HEAVY_CLIP) * ease_power * pow(1.0 - progress, ease_power - 1.0) / charge_max
-
-
-## Drops a wind-up that is not going to become a swing. Does nothing unless one is
-## actually being held, so the callers that cancel everything else - a stagger, the
-## guard going up - do not abort an unrelated action's animation in passing.
-func _cancel_heavy_charge() -> void:
-	if _heavy_charge_timer < 0.0:
-		return
-	_heavy_charge_timer = -1.0
-	animator.stop_action()
-
-
-func _clear_pending_swing() -> void:
-	_attack_hold_timer = -1.0
-	_buffered_swing = ""
-	_buffered_swing_timer = 0.0
-
-
-## Starts the swing a completed press/release resolved to. `symbol` is "L" for a tap
-## and "H" for a hold.
-func _try_attack(symbol: String) -> void:
-	if is_blocking or not _can_start_attack():
-		return
-	if symbol == "H":
-		_start_heavy()
-	else:
-		_advance_light_chain()
-
-
-## The spin: one committed move rather than a chain step, so it takes the whole body,
-## roots the player, and drops whatever light chain was building.
-func _start_heavy() -> void:
-	_combo_stage = 0
-	_combo_reset_timer = 0.0
-	_attack_swing_sound = &"blade_heavy_swing"
-	_attack_impact_sound = &"blade_heavy_hit"
-	_attack_knockback_strength = GameSettings.player_heavy_knockback
-	_attack_shake_strength = GameSettings.camera_shake_melee_heavy_strength
-
-	if _heavy_charge_timer >= 0.0:
-		_release_heavy_charge()
-		return
-	# No charge was running - something else owned the body when the hold crossed the
-	# threshold - so this is an ordinary swing from the top of the strike window.
-	var duration: float = GameSettings.player_heavy_duration / _attack_speed_mult()
-	_begin_melee_action(HEAVY_CLIP, duration, GameSettings.player_heavy_damage_mult, false)
-
-
-## Turns a held wind-up into its swing WITHOUT restarting anything: the shot the
-## charge is already playing simply speeds up, so the character carries on from the
-## exact pose the raise had reached.
-##
-## Firing a fresh shot here is what used to make a full-length charge visibly start
-## over. A one-shot ends when its own clip does and fades back to the locomotion
-## layer, so at the moment the raise completed the character dropped towards idle -
-## and the new shot then blended in from there rather than from the raise.
-##
-## Releasing early is continuous for the same reason: the swing picks up wherever the
-## raise got to and finishes it at full speed, so a barely-charged heavy simply has a
-## little more clip left to cover.
-func _release_heavy_charge() -> void:
-	var lead_in: float = animator.windup_length(HEAVY_CLIP)
-	var strike: float = animator.strike_length(HEAVY_CLIP)
-	# Clip-seconds per real second: the pace an uncharged heavy plays at, matched
-	# exactly, so a charge makes the swing longer rather than slower.
-	var pace: float = strike / maxf(GameSettings.player_heavy_duration / _attack_speed_mult(), 0.01)
-	var progress: float = clampf(_heavy_charge_timer / GameSettings.player_heavy_charge_max, 0.0, 1.0)
-	var from: float = lead_in * _charge_progress_eased(progress)
-	var remaining: float = lead_in + strike - from
-
-	_attack_damage_mult = GameSettings.player_heavy_damage_mult
-	_pending_cast_id = ""
-	_play_sound(_attack_swing_sound, global_position)
-	# Roots, like every heavy swing: this used to read as `upper_body = false`, which
-	# meant the same thing back when rooting was derived from it.
-	_commit_action(remaining / maxf(pace, 0.01), true, true)
-	animator.release_windup(remaining, _action_duration)
-	if Net.is_active() and is_local:
-		_net_release_windup.rpc(remaining, _action_duration)
-
-	# Scheduled off the same position the animation continues from, so the impacts
-	# stay on their frames however long the charge was held.
-	_pending_hits.clear()
-	for offset: float in animator.hit_offsets(HEAVY_CLIP):
-		if offset > from:
-			_pending_hits.append((offset - from) / pace)
-	if _pending_hits.is_empty():
-		_pending_hits = [_action_duration * 0.5]
-
-
-## One click, one stage of the light chain. A click that lands while the chain is
-## still live continues it; anything else starts over at the opening stage.
-##
-## Standing still and moving get genuinely different swings. A player who is not
-## asking to go anywhere gets the clip WHOLE - its own footwork included - and is
-## held in place until it finishes, which is the version the animation was authored
-## for. A player on the move gets the same swing masked to the upper body, with the
-## walk cycle carrying on underneath.
-##
-## Stage durations are proportional to how much of the clip the stage covers, so
-## every stage plays at the same speed and a whole chain still runs one swing
-## duration per click.
-func _advance_light_chain() -> void:
-	var clip: String = LIGHT_CHAIN_CLIP_EXTENDED if melee_combo_extended else LIGHT_CHAIN_CLIP
-	var stages: int = LIGHT_CHAIN_STAGES_EXTENDED if melee_combo_extended else LIGHT_CHAIN_STAGES
-	if not animator.has_clip(clip):
-		push_warning("Light attack chain clip '%s' is missing from the player library" % clip)
-		return
-
-	var moving: bool = _wants_to_move()
-	var stage: int = _combo_stage if _combo_stage < stages else 0
-	# Blade Dance's third stage is a planted, full-body flourish - there is no walking
-	# version of it to mask onto the legs - so a player on the move never reaches it
-	# and simply starts the chain over instead.
-	if moving and stage >= LIGHT_CHAIN_HEAVY_STAGE:
-		stage = 0
-
-	var window: Vector2 = animator.combo_windows(clip, stages)[stage]
-	var duration: float = _swing_duration() * (window.y - window.x) * float(stages)
-	var damage_mult: float = 1.0
-	_attack_swing_sound = &"blade_swing"
-	_attack_impact_sound = &"blade_hit"
-	_attack_knockback_strength = GameSettings.spell_melee_knockback
-	_attack_shake_strength = GameSettings.camera_shake_melee_strength
-	if stage >= LIGHT_CHAIN_HEAVY_STAGE:
-		damage_mult = GameSettings.player_combo_finisher_damage_mult
-		# The chain's last stage hits harder than the rest, and sounds and feels like it.
-		_attack_swing_sound = &"blade_heavy_swing"
-		_attack_impact_sound = &"blade_heavy_hit"
-		_attack_shake_strength = GameSettings.camera_shake_melee_heavy_strength
-	_combo_stage = stage + 1
-	_combo_reset_timer = duration + GameSettings.player_combo_grace
-	_begin_melee_action(clip, duration, damage_mult, moving, window)
+	kit.read_input()
 
 
 ## Whether the player is asking to go somewhere right now.
@@ -3647,26 +3697,6 @@ func _wants_to_move() -> bool:
 	if not is_local or _menu_blocks_input():
 		return false
 	return Input.get_vector("move_left", "move_right", "move_forward", "move_back").length_squared() > 0.01
-
-
-func _try_kick() -> void:
-	if is_blocking or not _can_start_attack():
-		return
-	if spell_cooldown_timers.get("kick", 0.0) > 0.0:
-		return
-	spell_cooldown_timers["kick"] = GameSettings.spell_cooldown_kick
-	# A kick is its own move, not a combo step - it breaks the chain. The negative
-	# damage multiplier is what marks it as a kick for _apply_melee_damage().
-	_combo_stage = 0
-	_clear_pending_swing()
-	# A boot, not a blade - the same blunt pair an enemy's club uses.
-	_attack_swing_sound = &"blunt_swing"
-	_attack_impact_sound = &"blunt_hit"
-	_attack_knockback_strength = GameSettings.spell_melee_kick_knockback
-	_attack_shake_strength = GameSettings.camera_shake_melee_strength
-	# Rooted despite being a single strike: it is a leg animation, and a walk cycle
-	# running underneath it would destroy it.
-	_begin_melee_action("kick", GameSettings.player_swing_duration * 1.4, -1.0, false)
 
 
 ## A new attack may start when nothing is committed, or late enough into the swing
@@ -3692,11 +3722,6 @@ func _can_start_attack() -> bool:
 	return progress >= 1.0 - GameSettings.player_combo_window
 
 
-## Attack cadence, shortened by Fervor exactly as the old flat melee cooldown was.
-func _swing_duration() -> float:
-	return GameSettings.player_swing_duration / _attack_speed_mult()
-
-
 ## The shared primitive behind every committed move, melee or cast: play `clip` over
 ## `duration`, and hold the player still unless it is an upper-body one.
 ##
@@ -3708,7 +3733,7 @@ func _swing_duration() -> float:
 ## can say so. That move is Titanic Brawl: full body, and moving, because the movement
 ## it makes is the jump the clip is playing.
 ##
-## `window` narrows playback to one stage of a chained clip; see _advance_light_chain.
+## `window` narrows playback to one stage of a chained clip; see MeleeKit._advance_light_chain.
 func _begin_action(clip: String, duration: float, upper_body: bool, roots: bool, is_melee: bool, window: Vector2 = PlayerAnimator.FULL_WINDOW) -> void:
 	_combat_timer = GameSettings.player_combat_linger
 	_commit_action(duration, roots, is_melee)
@@ -3747,6 +3772,74 @@ func _net_stop_action() -> void:
 	animator.stop_action()
 
 
+## Stops the action layer here and on every other screen.
+func _stop_action_everywhere() -> void:
+	animator.stop_action()
+	if Net.is_active() and is_local:
+		_net_stop_action.rpc()
+
+
+## Retimes the action in flight here and on every other screen - the archer's hold, which
+## overdraws at one pace and then stops dead on a full draw.
+func _set_action_speed(clip_seconds_per_second: float) -> void:
+	animator.set_action_speed(clip_seconds_per_second)
+	if Net.is_active() and is_local:
+		_net_set_action_speed.rpc(clip_seconds_per_second)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _net_set_action_speed(clip_seconds_per_second: float) -> void:
+	animator.set_action_speed(clip_seconds_per_second)
+
+
+## An arrow loosed on the shooter's screen, flown here as a picture: it does no damage on
+## this side - the shooter's copy did that already (BowKit._loose).
+@rpc("authority", "call_remote", "unreliable")
+func _net_spawn_arrow(origin: Vector3, launch_velocity: Vector3, pierce: int) -> void:
+	PlayerArrow.launch(self, origin, launch_velocity, pierce)
+
+
+## A bolt thrown on the mage's screen, flown here as a picture: no damage on this side - the
+## thrower's copy did that already (MageKit._loose). The colour is sent as its MageBolt.COLORS
+## index.
+@rpc("authority", "call_remote", "unreliable")
+func _net_spawn_bolt(origin: Vector3, launch_velocity: Vector3, color_index: int, size: float,
+		blast_radius: float, shot_range: float) -> void:
+	var color: String = MageBolt.COLORS[clampi(color_index, 0, MageBolt.COLORS.size() - 1)]
+	MageBolt.launch(self, origin, launch_velocity, color, size, blast_radius, shot_range)
+	# The orb left the thrower's palm on their screen; it leaves it on this one too.
+	if animator.hand_orb() != null:
+		animator.hand_orb().spend()
+
+
+## A roll: carries the body by `travel` over `duration` seconds and makes it untouchable for
+## the first `invulnerable` of them. `clip` is the roll to play - `window` of it, as an
+## action's - or empty when a cast is already playing one (Disengage). The speed is constant
+## unless something steers `_evade_velocity` frame by frame (DodgeRoll follows its clip).
+##
+## The untouchable window has to hold where the hits LAND, which for every player is the
+## server - so a client's roll tells the host too.
+func start_evade(travel: Vector3, duration: float, invulnerable: float, clip: String = "", window: Vector2 = PlayerAnimator.FULL_WINDOW) -> void:
+	kit.cancel()
+	if clip != "":
+		_begin_action(clip, duration, false, true, false, window)
+	_evade_timer = maxf(duration, 0.01)
+	_evade_velocity = travel / _evade_timer
+	_invulnerable_timer = maxf(_invulnerable_timer, invulnerable)
+	if Net.is_active() and not Net.is_server():
+		_net_evade_guard.rpc_id(1, invulnerable)
+
+
+func _is_evading() -> bool:
+	return _evade_timer > 0.0
+
+
+@rpc("authority", "call_remote", "reliable")
+func _net_evade_guard(invulnerable: float) -> void:
+	if Net.is_server():
+		_invulnerable_timer = maxf(_invulnerable_timer, minf(invulnerable, 1.0))
+
+
 ## How much the giant hits for, straight off the size: twice as tall is twice as hard.
 ## The cadence pays for it below, so the buff reads as mighty rather than as a cheat.
 func _giant_damage_mult() -> float:
@@ -3772,13 +3865,10 @@ func _cast_speed_mult() -> float:
 
 
 ## The gameplay half of starting a committed move: how long it owns the player, and
-## what that stops them doing. Split out from _begin_action because a charged heavy
+## what that stops them doing. Split out from _begin_action because a charged cast
 ## continues an animation that is already running instead of starting a new one, and
 ## so needs this half without the other.
 func _commit_action(duration: float, roots: bool, is_melee: bool) -> void:
-	# Ends the charge as a flag only. Whatever animation follows either replaces the
-	# wind-up's shot or continues it; either way there is nothing to abort.
-	_heavy_charge_timer = -1.0
 	# A held spell is dropped outright instead, because the action layer has room for
 	# exactly one thing: a swing started mid-charge would take the shot the charge is
 	# riding, and the release would then speed up the SWING. A cast released out of its
@@ -3791,26 +3881,6 @@ func _commit_action(duration: float, roots: bool, is_melee: bool) -> void:
 	_action_roots_player = roots
 	_action_is_melee = is_melee
 	_action_is_heavy = false
-
-
-## A swing: commits the player and schedules the impact frames measured inside the
-## stretch of clip it actually plays.
-func _begin_melee_action(clip: String, duration: float, damage_mult: float, upper_body: bool, window: Vector2 = PlayerAnimator.FULL_WINDOW) -> void:
-	_attack_damage_mult = damage_mult
-	_pending_cast_id = ""
-	_action_is_heavy = clip == HEAVY_CLIP
-	# Heard now, whatever it goes on to hit. The impact is a separate sound scheduled
-	# with the damage below, so a swing through empty air still makes a noise.
-	_play_sound(_attack_swing_sound, global_position)
-	# Melee keeps the two tied together: a swing that takes the whole body is a
-	# committed move, and one masked to the upper body is walked through.
-	_begin_action(clip, duration, upper_body, not upper_body, true, window)
-	_pending_hits = animator.hit_times(clip, _action_duration, window)
-	if clip == HEAVY_CLIP and not _pending_hits.is_empty():
-		_pending_hits = [_pending_hits[-1]]
-	if _pending_hits.is_empty():
-		# Nothing measured in this stretch: still land one hit, halfway through.
-		_pending_hits = [_action_duration * 0.5]
 
 
 ## Deals `amount` to `target`, wherever authority for that actually lives.
@@ -3835,73 +3905,24 @@ func _deal_damage(target: Node, amount: float, is_melee: bool, exile_on_kill: bo
 		target.request_damage.rpc_id(1, amount, Net.local_id(), is_melee, exile_on_kill, basic_attack)
 
 
-## One impact frame's worth of melee damage. A negative `damage_mult` means "this is
-## the kick", which has its own damage and knockback rather than scaling the sword.
-##
-## Returns how many enemies it connected with, which is what lets a whiff earn the
-## player nothing from the melee-into-spell cooldown refund.
-func _apply_melee_damage(damage_mult: float) -> int:
-	var is_kick: bool = damage_mult < 0.0
-	var reach: float = GameSettings.spell_melee_kick_range if is_kick else GameSettings.spell_melee_range
-	var knockback: float = GameSettings.spell_melee_kick_knockback if is_kick else _attack_knockback_strength
-	var dmg: float = GameSettings.spell_melee_kick_damage if is_kick else GameSettings.spell_melee_damage * damage_mult
-	dmg *= get_spell_damage_multiplier() * _giant_damage_mult()
-	# Loxodon Warhammer: melee scales off the player's own health pool, which is what makes
-	# it pair with green's size - Giant Growth and the green affinity both raise the pool.
-	dmg += max_hp * equipment_value("loxodon_warhammer")
-
-	# Exalted Strike (white_1). A kick is not a strike, so it never spends the charge -
-	# otherwise the buff could be thrown away by a button the player pressed for spacing.
-	var exalted: bool = exalted_charges > 0 and not is_kick
-	if exalted:
-		exalted_charges -= 1
-		dmg *= _exalted_damage_mult
-		reach += _exalted_reach_bonus
-		_spawn_cast_flash(Color(1.0, 0.97, 0.75), 2.0)
-
-	# Rubblebelt Rioters: one impact frame is "a hit", the same unit Exalted Strike's
-	# charge spends above - a cleave that connects with three enemies on one swing must
-	# not burn three of the three charges this grants.
-	if _rampage_hits_left > 0 and not is_kick:
-		_rampage_hits_left -= 1
-		dmg *= GameSettings.guild_gruul_rampage_damage_mult
-		knockback *= GameSettings.guild_gruul_rampage_knockback_mult
-
-	var space_state = get_world_3d().direct_space_state
-	var start = camera.global_position
-	var end = start - camera.global_basis.z * reach
-	var query = PhysicsRayQueryParameters3D.create(start, end, 4)
-	var result = space_state.intersect_ray(query)
-
-	if result and result.collider.is_in_group("enemies"):
-		var enemy = result.collider
-		_melee_strike(enemy, dmg, exalted)
-		_apply_basic_attack_knockback(enemy, knockback)
-		return 1
-
-	var connected: int = 0
-	var enemies = get_tree().get_nodes_in_group("enemies")
-	for e in enemies:
-		if is_instance_valid(e) and global_position.distance_to(e.global_position) <= reach:
-			var dir_to_e = (e.global_position - global_position).normalized()
-			if -transform.basis.z.dot(dir_to_e) > GameSettings.spell_melee_cone:
-				_melee_strike(e, dmg, exalted)
-				_apply_basic_attack_knockback(e, knockback)
-				connected += 1
-	return connected
-
-
 ## One enemy struck by one melee impact, with everything the player wears on the weapon arm.
 ## Rolled here, on the machine that swung, like the rest of melee - only the consequence
 ## travels to the server.
 func _melee_strike(enemy: Node3D, dmg: float, exile: bool) -> void:
-	_deal_damage(enemy, dmg, true, exile, true)
+	_basic_strike(enemy, dmg, exile, true)
+
+
+## One enemy struck by any class's basic attack - a blade or an arrow - with everything the
+## player wears on the weapon arm. `is_melee` is false for an arrow, which still counts as a
+## basic attack for everything that reads that (Vampiric Link, the equipment below).
+func _basic_strike(enemy: Node3D, dmg: float, exile: bool, is_melee: bool) -> void:
+	_deal_damage(enemy, dmg, is_melee, exile, true)
 	# Fireshrieker: the blade sometimes lands twice. A second hit rather than a bigger one,
 	# which is what double strike means - it is seen as two numbers, and a second hit on a
 	# nearly dead enemy is a kill where one bigger hit would only have been overkill.
 	var double_chance: float = equipment_value("fireshrieker")
 	if double_chance > 0.0 and randf() < double_chance and is_instance_valid(enemy):
-		_deal_damage(enemy, dmg, true, exile, true)
+		_deal_damage(enemy, dmg, is_melee, exile, true)
 		NetFx.impact(enemy.global_position + Vector3(0.0, 1.2, 0.0), FX_RED, 0.6)
 	# Icy Manipulator: the hit sometimes freezes what it lands on.
 	var freeze_chance: float = equipment_value("icy_manipulator")
@@ -3944,70 +3965,8 @@ func _apply_basic_attack_knockback(enemy: Node3D, strength: float = -1.0) -> voi
 		enemy.apply_control_weaken(self)
 
 
-func _heavy_lunge_distance(progress: float) -> float:
-	if progress <= HEAVY_LUNGE_EXTRA_START:
-		return HEAVY_LUNGE_DISTANCE * progress / HEAVY_LUNGE_EXTRA_START
-	if progress <= HEAVY_LUNGE_EXTRA_END:
-		var extra_progress: float = (progress - HEAVY_LUNGE_EXTRA_START) / (HEAVY_LUNGE_EXTRA_END - HEAVY_LUNGE_EXTRA_START)
-		return HEAVY_LUNGE_DISTANCE + HEAVY_LUNGE_EXTRA_DISTANCE * extra_progress
-	return HEAVY_LUNGE_DISTANCE + HEAVY_LUNGE_EXTRA_DISTANCE
-
-
-# --- BLOCK ---
-
-## Guard state for this frame. Deliberately not gated on a swing being in flight -
-## releasing into a guard mid-swing is fine, the swing still finishes because
-## _can_start_attack() and the animator both keep their own timers.
-func _update_block() -> void:
-	var wants_to_block: bool = (
-		is_local
-		and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
-		and Input.is_action_pressed("block")
-		and is_on_floor()
-		and not is_downed
-		and _stagger_timer <= 0.0
-		and _action_timer <= 0.0
-	)
-	if wants_to_block:
-		_combat_timer = GameSettings.player_combat_linger
-	if wants_to_block and not is_blocking:
-		# Raising the guard drops any half-built combo, and anything being wound up -
-		# a heavy or a held spell alike. Both are two-handed commitments; neither can
-		# survive the same hands coming up to guard.
-		_combo_stage = 0
-		_attack_hold_timer = -1.0
-		_cancel_heavy_charge()
-		_cancel_spell_charge()
-	is_blocking = wants_to_block
-
-
-## Whether a guard actually stops this hit: it has to come from in front, and - per
-## GameSettings.player_block_ignores_boss - a Boss swings straight through one.
-func _blocks_attack_from(source: Node3D) -> bool:
-	if not is_blocking or not is_instance_valid(source):
-		return false
-	if GameSettings.player_block_ignores_boss and "enemy_data" in source:
-		var data = source.enemy_data
-		if data != null and data.enemy_class == "Boss":
-			return false
-	var to_source: Vector3 = source.global_position - global_position
-	to_source.y = 0.0
-	if to_source.length_squared() <= 0.001:
-		return true
-	return -transform.basis.z.dot(to_source.normalized()) >= GameSettings.player_block_cone
-
-
-func _block_sound_for(source: Node3D) -> StringName:
-	if is_instance_valid(source) and "enemy_data" in source:
-		var data: EnemyData = source.enemy_data as EnemyData
-		if data != null:
-			if data.enemy_class == "Ranged":
-				return &"block_impact_arrow"
-			if data.enemy_class == "Mage":
-				return &"block_impact_magic"
-	return &"block_impact_blunt"
-
 func _physics_process(delta: float) -> void:
+	_track_guard()
 	if not is_local:
 		# A puppet's transform is authored by its owner and arrives over the wire. All
 		# this end has to do is keep the animator fed from the replicated velocity,
@@ -4015,7 +3974,9 @@ func _physics_process(delta: float) -> void:
 		# `is_grounded`, not `is_on_floor()` - see the property. Blocking is replicated for
 		# the same reason: it changes which gait the animator drives, and without it a
 		# teammate holding guard walked around with their sword down.
-		animator.update_locomotion(delta, Vector3(velocity.x, 0.0, velocity.z), false, is_grounded, is_blocking, false)
+		animator.update_locomotion(delta, Vector3(velocity.x, 0.0, velocity.z), false, is_grounded, is_blocking, false, velocity.y)
+		if camera_pivot != null:
+			camera_pivot.rotation.x = aim_pitch
 		# Everything about this player that is a CONDITION rather than a pose - the
 		# fireball growing between their hands, the flames of a channel - rebuilt here
 		# from replicated numbers rather than sent as visuals.
@@ -4053,6 +4014,7 @@ func _physics_process(delta: float) -> void:
 	_publish_build()
 	# Runs before the downed early-out so a shake still settles while downed.
 	_update_camera_shake(delta)
+	_update_aim_zoom(delta)
 	if _is_out_of_world():
 		_rescue_from_out_of_world()
 		return
@@ -4093,7 +4055,7 @@ func _physics_process(delta: float) -> void:
 		_channel_release_sent = false
 		# Melee fires on release: a tap advances the light chain by one stage, a hold
 		# commits to the heavy spin. See _update_actions().
-		_update_block()
+		defence.update()
 		_update_actions(delta)
 
 	# Published for the other peers, who have no way to work it out for themselves.
@@ -4107,9 +4069,23 @@ func _physics_process(delta: float) -> void:
 			fall_gravity *= GameSettings.equipment_cobbled_wings_glide_gravity_mult
 		velocity.y -= fall_gravity * delta
 
-	if is_local and Input.is_action_just_pressed("jump") and is_on_floor() and not _menu_blocks_input():
-		velocity.y = jump_velocity * (1.0 + equipment_value("cobbled_wings"))
-		animator.start_jump(velocity.y)
+	# The jump: the clip's crouch first (the run-up, PlayerAnimator.begin_jump), and the body
+	# leaves the ground on the clip's own take-off frame.
+	if is_local and Input.is_action_just_pressed("jump") and is_on_floor() and not _menu_blocks_input() 			and _jump_runup_left < 0.0:
+		_jump_runup_left = animator.begin_jump(animator.in_run_gait())
+	if _jump_runup_left >= 0.0:
+		_jump_runup_left -= delta
+		if is_downed:
+			_jump_runup_left = -1.0
+			animator.cancel_jump()
+		elif _jump_runup_left <= 0.0:
+			_jump_runup_left = -1.0
+			if is_on_floor():
+				velocity.y = jump_velocity * (1.0 + equipment_value("cobbled_wings"))
+				animator.takeoff(velocity.y)
+			else:
+				# Walked off an edge during the crouch: that is a fall, not a jump.
+				animator.cancel_jump()
 
 	# Titanic Brawl is in the air: gravity and the launch impulse own the player, so
 	# the ordinary movement code below is skipped entirely rather than being allowed
@@ -4137,6 +4113,22 @@ func _physics_process(delta: float) -> void:
 			SpellEffects._drop_trail_segment(self)
 		move_and_slide()
 		animator.update_locomotion(delta, Vector3(velocity.x, 0.0, velocity.z), true, is_on_floor(), false, true)
+		return
+
+	# A roll, the same shape again: the roll owns the body for its length. Gravity still
+	# applies, so rolling off a ledge falls.
+	if _evade_timer > 0.0:
+		_evade_timer -= delta
+		# Counted down here as well as at the bottom, which a roll never reaches - or the
+		# untouchable window would last the whole roll and then its own length again.
+		if _invulnerable_timer > 0.0:
+			_invulnerable_timer -= delta
+		velocity.x = _evade_velocity.x
+		velocity.z = _evade_velocity.z
+		move_and_slide()
+		# The roll's clip carries the legs; under its fades the locomotion stands rather than
+		# sprinting at the roll's speed, which is what used to show through.
+		animator.update_locomotion(delta, Vector3.ZERO, false, is_on_floor(), false, true)
 		return
 
 	# Charging Logic
@@ -4174,7 +4166,7 @@ func _physics_process(delta: float) -> void:
 				revived_teammate = true
 				if _revive_channel_target == null and Input.is_action_just_pressed("interact") and not _menu_blocks_input():
 					_revive_channel_target = teammate
-					_revive_channel_left = GameSettings.player_revive_channel_time
+					_revive_channel_left = _revive_channel_time()
 				break
 	_update_revive_channel(delta, revived_teammate)
 
@@ -4238,7 +4230,7 @@ func _physics_process(delta: float) -> void:
 	# and leaves movement alone.
 	# A wind-up roots as hard as the swing it becomes: it is a full-body clip, and the
 	# player chooses when it ends by letting go.
-	var rooted: bool = (_action_timer > 0.0 and _action_roots_player) or _stagger_timer > 0.0 or _heavy_charge_timer >= 0.0
+	var rooted: bool = (_action_timer > 0.0 and _action_roots_player) or _stagger_timer > 0.0
 	# On a gamepad, sprint is the default and there is no button for it. Holding a shoulder
 	# button for the whole of every trip across the map is a cramp, and the stick already says
 	# how fast the player means to go - so it is a firm push that sprints, and a gentle one
@@ -4246,11 +4238,13 @@ func _physics_process(delta: float) -> void:
 	var wants_sprint: bool = Input.is_action_pressed("sprint")
 	if InputHint.gamepad:
 		wants_sprint = input_dir.length() >= PAD_SPRINT_DEFLECTION
-	var sprinting: bool = is_local and wants_sprint and not is_blocking and not rooted
+	var sprinting: bool = is_local and wants_sprint and not is_blocking and not rooted and kit.move_speed_mult() >= 1.0
 	if sprinting:
 		current_speed *= GameSettings.player_sprint_speed_mult
 	if slow_timer > 0:
 		current_speed *= GameSettings.enemy_blue_mage_slow_mult
+	# A drawn bow slows the archer whatever else is going on.
+	current_speed *= kit.move_speed_mult()
 	if is_blocking:
 		current_speed *= GameSettings.player_block_speed_mult
 	elif _action_timer > 0.0:
@@ -4264,11 +4258,7 @@ func _physics_process(delta: float) -> void:
 		# Zeroed outright rather than by falling through to move_toward() below:
 		# with current_speed at 0 that call is a no-op, and the player would coast
 		# on at whatever velocity the swing started with.
-		var lunge_speed: float = 0.0
-		if _action_is_melee and _attack_swing_sound == &"blade_heavy_swing":
-			var previous_progress: float = clampf((_action_elapsed - delta) / maxf(_action_duration, 0.01), 0.0, 1.0)
-			var current_progress: float = clampf(_action_elapsed / maxf(_action_duration, 0.01), 0.0, 1.0)
-			lunge_speed = (_heavy_lunge_distance(current_progress) - _heavy_lunge_distance(previous_progress)) / maxf(delta, 0.001)
+		var lunge_speed: float = kit.lunge_speed(delta)
 		var lunge_direction: Vector3 = -transform.basis.z
 		lunge_direction.y = 0.0
 		velocity.x = lunge_direction.normalized().x * lunge_speed
@@ -4285,7 +4275,7 @@ func _physics_process(delta: float) -> void:
 	_combat_timer = maxf(_combat_timer - delta, 0.0)
 	animator.update_locomotion(
 		delta, Vector3(velocity.x, 0.0, velocity.z), sprinting, is_on_floor(), is_blocking,
-		_combat_timer > 0.0
+		_combat_timer > 0.0, velocity.y
 	)
 	
 	# NOTE: there used to be a second giant-growth timer here, left over from when
@@ -4314,3 +4304,5 @@ func _physics_process(delta: float) -> void:
 		spell_cooldown_timers[key] -= delta
 		if spell_cooldown_timers[key] <= 0.0:
 			spell_cooldown_timers.erase(key)
+			_mastery_charge_back(key)
+	_tick_mastery(delta)

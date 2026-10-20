@@ -59,12 +59,17 @@ static func targets() -> Array:
 		var name: String = MyrBuilder.MYRS[color]["name"]
 		out.append([MyrBuilder.ANIM_ROOT + "lib_%s.tres" % name, MyrBuilder.SCENE_DIR + "%s.tscn" % name,
 			MyrBuilder.SHARED_CLIPS.duplicate()])
-	# The player's own clips were downloaded onto the player's own model; the ones it borrows
-	# from the enemy rig - the death and the five casts - were not.
-	var foreign: Dictionary = {}
-	for clip: String in PlayerBuilder.FOREIGN_CLIPS:
-		foreign[clip] = PlayerBuilder.FOREIGN_CLIPS[clip][0]
-	out.append([PlayerBuilder.LIBRARY_PATH, PlayerBuilder.OUTPUT_SCENE, foreign])
+	# A player class's own clips were downloaded onto its own model; the ones it borrows -
+	# the warrior's death and casts from the enemy rig, the archer's leap from the warrior -
+	# were not. A class not built yet has no library to retarget and is skipped.
+	for class_id: String in PlayerBuilder.CONFIGS:
+		var config: Dictionary = PlayerBuilder.CONFIGS[class_id]
+		if not ResourceLoader.exists(config["library"]):
+			continue
+		var foreign: Dictionary = {}
+		for clip: String in config["foreign"]:
+			foreign[clip] = config["foreign"][clip][0]
+		out.append([config["library"], config["scene"], foreign])
 	return out
 
 

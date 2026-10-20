@@ -17,9 +17,8 @@ extends Node
 ## had just been started. From the next frame on _physics_process really does return early, so
 ## nothing ever asked for another animation and the body held that pose forever.
 ##
-## The death-animation debug logging shows this as a `play_requested` line with no matching
-## `confirmed` line. This drives the same paths directly and checks the clip that is actually
-## playing afterwards.
+## In a log it shows as an "Enemy death animation did not take over" warning. This drives the
+## same paths directly and checks the clip that is actually playing afterwards.
 ##
 ## The same early return is also why a corpse used to hang in the air - it skipped GRAVITY
 ## along with the AI - so _corpse_falls_to_the_ground lives here too, against the same

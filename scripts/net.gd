@@ -230,7 +230,7 @@ func _begin_hosting(player_name: String, label: String, password: String) -> voi
 	_password = password
 	match_in_progress = false
 	_reserved_seats.clear()
-	peers = {1: {"name": player_name, "ready": false, "seat": 0}}
+	peers = {1: {"name": player_name, "ready": false, "seat": 0, "class": local_class()}}
 
 
 func join(address: String, port: int = DEFAULT_PORT, player_name: String = "Player", password: String = "") -> Error:
@@ -347,7 +347,7 @@ func forget_last_join() -> void:
 func leave() -> void:
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer.close()
-	multiplayer.multiplayer_peer = null
+	_go_offline()
 	# Takes the lobby off the browser now rather than letting it time out, so nobody
 	# spends the next minute trying to join a game that has closed.
 	if online_session:
@@ -362,6 +362,14 @@ func leave() -> void:
 	_clear_pings()
 	_stop_advertising()
 	peer_list_changed.emit(peers)
+
+
+## Back to single-player: an OfflineMultiplayerPeer, which is what every SceneTree starts
+## with - never null. With no peer at all every MultiplayerSpawner refuses to spawn, so a
+## solo run started after leaving to the menu planned its waves, put not one enemy on the
+## map, and ran through wave after empty wave.
+func _go_offline() -> void:
+	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 
 
 ## Peer ids in a stable order, so every machine rings the same player around the crystal
@@ -419,6 +427,46 @@ func display_name(peer_id: int) -> String:
 
 func is_ready(peer_id: int) -> bool:
 	return bool(peers.get(peer_id, {}).get("ready", false))
+
+
+## The class `peer_id` plays (ClassDatabase). Anyone the list does not know - or who joined
+## from a build without classes - is the default class.
+func class_of(peer_id: int) -> String:
+	return ClassDatabase.resolve(String(peers.get(peer_id, {}).get("class", "")))
+
+
+## The class this machine's player picked in the menu.
+func local_class() -> String:
+	return ClassDatabase.resolve(UserSettings.character_class)
+
+
+## A class picked in the lobby. Like readiness the server is the only writer, and like the
+## plan says the class is fixed for the run: once the match is under way a change is
+## refused, and the new pick waits in UserSettings for the next run.
+func set_local_class(class_id: String) -> void:
+	if not is_active() or match_in_progress:
+		return
+	if multiplayer.is_server():
+		_apply_class(1, class_id)
+	else:
+		_submit_class.rpc_id(1, class_id)
+
+
+func _apply_class(peer_id: int, class_id: String) -> void:
+	if not peers.has(peer_id) or match_in_progress:
+		return
+	var entry: Dictionary = peers[peer_id]
+	entry["class"] = ClassDatabase.resolve(class_id)
+	peers[peer_id] = entry
+	_publish_peers.rpc(peers)
+	peer_list_changed.emit(peers)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _submit_class(class_id: String) -> void:
+	if not multiplayer.is_server():
+		return
+	_apply_class(multiplayer.get_remote_sender_id(), class_id)
 
 
 ## Everybody, host included. The host plays too, so a lobby where the host never has to
@@ -631,7 +679,7 @@ func _on_connected_to_server() -> void:
 
 
 func _on_connection_failed() -> void:
-	multiplayer.multiplayer_peer = null
+	_go_offline()
 	connection_failed.emit()
 
 
@@ -655,7 +703,7 @@ func _on_online_handshake_failed(reason: String) -> void:
 
 func _on_server_disconnected() -> void:
 	var was_in_match: bool = match_in_progress
-	multiplayer.multiplayer_peer = null
+	_go_offline()
 	peers.clear()
 	match_in_progress = false
 	_clear_pings()
@@ -671,11 +719,13 @@ func _on_server_disconnected() -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _request_identity() -> void:
-	_submit_identity.rpc_id(1, local_name, _pending_password)
+	_submit_identity.rpc_id(1, local_name, _pending_password, local_class())
 
 
+## `character_class` comes with the name, so a reconnect comes back as the same class: the
+## client sends what it picked, which is what it was playing.
 @rpc("any_peer", "call_remote", "reliable")
-func _submit_identity(player_name: String, password: String) -> void:
+func _submit_identity(player_name: String, password: String, character_class: String = "") -> void:
 	if not multiplayer.is_server():
 		return
 	var sender: int = multiplayer.get_remote_sender_id()
@@ -691,7 +741,10 @@ func _submit_identity(player_name: String, password: String) -> void:
 	_reserved_seats.erase(key)
 	# Already playing, so they are ready by definition - a match in progress must not
 	# wait on a ready flag from somebody who is standing in it.
-	peers[sender] = {"name": player_name, "ready": match_in_progress, "seat": seat}
+	peers[sender] = {
+		"name": player_name, "ready": match_in_progress, "seat": seat,
+		"class": ClassDatabase.resolve(character_class),
+	}
 	_publish_peers.rpc(peers)
 	peer_list_changed.emit(peers)
 	_announce_online()

@@ -215,7 +215,7 @@ and the only one whose power goes **up** with more allies alive.
 |---|---|---|---|---|
 | **Circle of Protection** ✅ | Support | A **temporary** shield on every nearby ally, a little larger for each ally present. Recasting refreshes it rather than stacking. | Shield per ally, duration, radius | `protection_shield` + its own timer |
 | **Reprisal Ward** ✏️✅ | Self-buff | Reflects a **percentage of damage taken** back at the attacker, and grants a **passive chance to block** outright. | Reflect %, block chance | The old briar-patch reflect path |
-| **Exalted Strike** ✅ | Buff | The **next attack** gets bonus damage and extra reach. Anything killed by it leaves **no corpse** and is exiled. | Bonus damage, reach, charges | `Player._apply_melee_damage`, corpse registry |
+| **Exalted Strike** ✅ | Buff | The **next attack** gets bonus damage and extra reach. Anything killed by it leaves **no corpse** and is exiled. | Bonus damage, reach, charges | `MeleeKit.apply_hit`, corpse registry |
 | **Wrath of God** 🆕✅ | 360° burst | Heavy damage to every enemy in a large radius around the caster. White's one panic button. | Damage, radius | Straight proximity sweep |
 | **Rally the Fallen** 🆕✅ | Support | Instantly **revives every downed teammate** in range and heals surviving allies — myrs included — back to full. | Radius, heal amount, revive count | `Player.revive()`, `is_downed`, `heal()`, myr group |
 | **Aura: Healing Orb** ✅ | Aura | An orb heals the caster and allies every 2s, always picking the **lowest-health** target in range. | Heal amount, radius, tick rate | `heal()`, myr/player group scan |

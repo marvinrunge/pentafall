@@ -49,7 +49,11 @@ assets/weapons/player/player_weapon_base_color.jpg*
 
 # Meshy's raw download archive for the player mesh. Godot cannot read a zip, nothing
 # references it, and the extracted fbx/textures next to it are what the project uses.
-assets/player/*_texture_fbx.zip
+# Each class has its own folder under assets/player now, hence the **.
+assets/player/**/*_texture_fbx.zip
+
+# Blender's automatic backup of the previous save, written next to every .blend.
+*.blend1
 
 # Export output. The Windows build is produced by .github/workflows/build-windows.yml
 # and downloaded from the run's artifacts, never committed.

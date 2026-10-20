@@ -287,6 +287,12 @@ var flee_from: Vector3 = Vector3.ZERO
 ## the crystal and the myrs.
 var taunt_timer: float = 0.0
 var taunt_source: Node3D = null
+## The wave's time ran out (WaveManager's time limit): storming the crystal, faster and deaf
+## to everything else, until the storm ends - and for good after that, see become_straggler.
+var storm_timer: float = 0.0
+## Left standing when its wave's storm ended: the wave was closed without it, so it is no
+## longer the wave's to count (die() and exile() skip SignalBus.enemy_died for it). Server only.
+var straggler: bool = false
 ## Fog (green_3): inside the cloud this enemy deals nothing at all. A separate timer
 ## from `damage_penalty` because that one is a flat SUBTRACTION and a big enough enemy
 ## would still push damage through it.
@@ -1215,6 +1221,8 @@ func _physics_tick(delta: float) -> void:
 		if taunt_timer <= 0.0:
 			taunt_source = null
 			evaluate_target()
+	if storm_timer > 0.0:
+		storm_timer -= delta
 	if flee_timer > 0.0:
 		flee_timer -= delta
 		if flee_timer <= 0.0:
@@ -1421,9 +1429,7 @@ func _raise_revived_enemy(enemy_type: String, power: float) -> void:
 	if new_enemy == null:
 		return
 	new_enemy.health = revived_data.health * GameSettings.enemy_black_mage_revive_hp_mult * power
-	var wm: Node = main.get_node_or_null("WaveManager")
-	if wm:
-		wm.register_enemy()
+	_count_into_wave(new_enemy, main.get_node_or_null("WaveManager"))
 
 
 ## Turns towards whatever this enemy is currently attacking. No-ops without a live
@@ -2580,8 +2586,7 @@ func _grow_saplings() -> void:
 		if sapling == null:
 			continue
 		sapling.set("sapling_boss", self)
-		if wave_manager:
-			wave_manager.register_enemy()
+		_count_into_wave(sapling, wave_manager)
 
 
 ## A sapling left standing long enough feeds its treant and withers. Withers rather than dies:
@@ -2632,8 +2637,7 @@ func _raise_dead(strike: Dictionary) -> void:
 			raised.health = raised.enemy_data.health * GameSettings.boss_raise_dead_health_mult
 			if raised.health_bar:
 				raised.health_bar.set_health(raised.health, raised.enemy_data.health)
-		if wave_manager:
-			wave_manager.register_enemy()
+		_count_into_wave(raised, wave_manager)
 
 
 # --- White: consecration -----------------------------------------------------------------
@@ -3575,8 +3579,9 @@ func _get_detection_range() -> float:
 ## Decoys are in `decoys` rather than `player`, so they are chosen the same way a myr
 ## is but nothing else in the game mistakes one for a real player.
 func evaluate_target() -> void:
-	# A beast running home at the end of its leash listens to nothing, a taunt included.
-	if is_beast() and _beast_returning:
+	# A beast running home at the end of its leash listens to nothing, a taunt included - nor
+	# does a wave enemy storming the crystal once its wave's time has run out.
+	if (is_beast() and _beast_returning) or storm_timer > 0.0:
 		if current_target != target_crystal:
 			current_target = target_crystal
 			update_path(true)
@@ -3708,7 +3713,7 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, e
 		# no source, and SignalBus.enemy_died carries none either - it is a team-wide "one
 		# fewer enemy", which is what the wave counter wants and not what a scoreboard does.
 		if is_instance_valid(source) and source.has_method("on_enemy_killed_by_me"):
-			source.on_enemy_killed_by_me()
+			source.on_enemy_killed_by_me(basic_attack)
 		die()
 		return
 	if is_beast():
@@ -3758,11 +3763,11 @@ func die() -> void:
 	if _exile_on_death:
 		exile()
 		return
-	var death_debug_before: Dictionary = _death_animation_debug_state()
 	if enemy_data:
 		# enemy_died is the wave's countdown (WaveManager._on_enemy_died). A beast was never
-		# part of a wave, and counting it would end one with its enemies still standing.
-		if not is_beast():
+		# part of a wave, and counting it would end one with its enemies still standing - nor
+		# is a straggler any more, whose wave was closed without it.
+		if not is_beast() and not straggler:
 			SignalBus.enemy_died.emit()
 		else:
 			_beast_sound(&"beast_death")
@@ -3789,7 +3794,6 @@ func die() -> void:
 	_hit_react_timer = 0.0
 
 	if visual_anim_player and visual_anim_player.has_animation("death"):
-		_log_death_animation_debug("play_requested", death_debug_before)
 		is_dying = true
 		# Nothing collides with a corpse (layer 0), but the corpse still has to find the
 		# FLOOR, or one killed in mid-air plays its death clip hanging there. See
@@ -3809,7 +3813,7 @@ func die() -> void:
 		_start_death_launch()
 		_register_corpse()
 	else:
-		push_warning("Enemy death animation unavailable: %s" % _format_death_animation_debug(death_debug_before))
+		push_warning("Enemy death animation unavailable: %s" % _format_death_animation_debug(_death_animation_debug_state()))
 		queue_free()
 
 
@@ -4224,11 +4228,6 @@ func _death_animation_debug_state() -> Dictionary:
 	return data
 
 
-func _log_death_animation_debug(stage: String, data: Dictionary, extra: String = "") -> void:
-	var suffix: String = "" if extra == "" else " %s" % extra
-	print("Enemy death animation %s: %s%s" % [stage, _format_death_animation_debug(data), suffix])
-
-
 func _format_death_animation_debug(data: Dictionary) -> String:
 	return "id=%s node=%s color=%s class=%s elite=%s health=%.2f dying=%s queued=%s player=%s current=%s playing=%s has_death=%s death_len=%.2f anims=[%s]" % [
 		str(data.get("id", "?")),
@@ -4248,16 +4247,16 @@ func _format_death_animation_debug(data: Dictionary) -> String:
 	]
 
 
+## Warns when the death clip did not take over the frame after it was asked for. Only then is the
+## debug state gathered: every death used to build it twice and print it, which in a siege was
+## dozens of long lines a second (and as many lines in the session log).
 func _check_death_animation_started(requested_speed: float) -> void:
 	if not is_instance_valid(self) or visual_anim_player == null:
 		return
-	var data: Dictionary = _death_animation_debug_state()
-	var playing_death: bool = String(data["current"]) == "death" and bool(data["playing"])
-	var extra: String = "requested_speed=%.3f" % requested_speed
-	if playing_death:
-		_log_death_animation_debug("confirmed", data, extra)
-	else:
-		push_warning("Enemy death animation did not take over: %s %s" % [_format_death_animation_debug(data), extra])
+	if visual_anim_player.current_animation == "death" and visual_anim_player.is_playing():
+		return
+	push_warning("Enemy death animation did not take over: %s requested_speed=%.3f" % [
+		_format_death_animation_debug(_death_animation_debug_state()), requested_speed])
 
 # Corpses are left in the scene (not freed) once their death clip finishes, up to
 # a cap; the oldest corpse is freed to make room for each new one past the cap.
@@ -4426,6 +4425,8 @@ func movement_speed_mult() -> float:
 	# enemy that has been slowed should still be visibly faster than a walking one.
 	if charge_timer > 0.0:
 		mult *= charge_mult
+	if storm_timer > 0.0:
+		mult *= GameSettings.wave_storm_speed_mult
 	return mult
 
 
@@ -4707,6 +4708,42 @@ func _request_ghoul(raiser: Node3D, duration: float, dimir: bool) -> void:
 	})
 
 
+## The wave's time is up (WaveManager): out of its formation and off whatever it was fighting,
+## at the crystal at a run until the storm ends. Taunts, pacifying and fear are dropped - none
+## of them may keep a wave going past its limit. Server only, like the rest of the AI.
+func begin_storm(duration: float) -> void:
+	if is_dying or is_beast():
+		return
+	storm_timer = duration
+	leave_formation()
+	taunt_timer = 0.0
+	taunt_source = null
+	pacified_timer = 0.0
+	flee_timer = 0.0
+	current_target = target_crystal
+	update_path(true)
+
+
+## The storm is over and this enemy is still standing. WaveManager closes the wave without it,
+## but it stays on the map - still storming the crystal, for good now, until somebody kills
+## it. Paid for like any kill when it falls; only the wave no longer counts it (`straggler`).
+func become_straggler() -> void:
+	if is_dying or is_beast():
+		return
+	straggler = true
+	storm_timer = INF
+
+
+## A body this enemy brings onto the field - a revive, a sapling, a raised corpse - belongs
+## to the same wave it does. A straggler's belongs to none: counted into the wave on now, its
+## death would be one of that wave's enemies the team never had to kill.
+func _count_into_wave(added: Node, wave_manager: Node) -> void:
+	if straggler:
+		added.set("straggler", true)
+	elif wave_manager:
+		wave_manager.register_enemy()
+
+
 ## Kill (black_3) and Exalted Strike (white_1). Removes the enemy WITHOUT leaving a
 ## corpse - which is a real mechanical difference and not only flavour: corpses are kept
 ## in the scene up to a cap and are what black's Zombify raises. Exiling denies that.
@@ -4715,7 +4752,7 @@ func exile() -> void:
 		return
 	if enemy_data:
 		# Not the wave's to count - see die().
-		if not is_beast():
+		if not is_beast() and not straggler:
 			SignalBus.enemy_died.emit()
 		SignalBus.enemy_died_at.emit(global_position)
 		# Exiled, but still paid for - and the payout is still shown where the body would

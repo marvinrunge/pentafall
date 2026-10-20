@@ -61,6 +61,9 @@ static func play(scene: Node, payload: Dictionary, owner: Node3D) -> void:
 	# only logged on the server. The orbs and corpses fire every second and are left out.
 	if not (spell.begins_with("orb_") or spell == "corpse_land"):
 		ErrorReporter.breadcrumb("fx %s size %.1f" % [spell, size])
+	if spell.begins_with("mage_"):
+		_play_mage(scene, spell, at, owner)
+		return
 	match spell:
 		"white_1":
 			_on_ground(scene, magic_circle("white", WHITE_GOLD, 1.4, 0.7, 0.18), at)
@@ -150,6 +153,25 @@ static func play(scene: Node, payload: Dictionary, owner: Node3D) -> void:
 			_on_ground(scene, magic_circle("green", EARTH.lerp(Player.FX_GREEN, 0.35), 1.4, 0.6, 0.2), at)
 			_on_owner(owner, splinters(EARTH, 1.0, 34))
 			_on_owner(owner, dust_ring(1.2, 0.6))
+
+
+## The mage's blink and class skills. Drawn in the colour of the mage's path, which rides on
+## the id after a slash ("mage_blink/red", "" for a mage on no path yet): the path is worked
+## out from the caster's build, and only their own machine is sure to have it current.
+static func _play_mage(scene: Node, spell: String, at: Vector3, owner: Node3D) -> void:
+	var tint: Color = MageBolt.tint_of(spell.get_slice("/", 1))
+	match spell.get_slice("/", 0):
+		"mage_blink_from":
+			_on_ground(scene, blink(tint, false), at)
+		"mage_blink":
+			_on_ground(scene, blink(tint, true), at)
+		# Mana Surge: the mana drawn back in - a column of the colour round the mage, motes
+		# rising into it.
+		"mage_surge":
+			_on_ground(scene, magic_circle("blue", tint, 1.5, 0.6, 0.2, 2.0), at)
+			_on_owner(owner, light_pillar(tint, 0.6, 4.2, 0.6, 1.0, 2.6))
+			_on_owner(owner, rising_motes(tint, 0.8, 30, 1.0))
+			_on_owner(owner, SpellFx.cast_glow(tint, 2.0))
 
 
 ## Keeps a client's copy of the caster's Grave Pact orb in step with the server's soul count.

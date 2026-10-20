@@ -175,7 +175,7 @@ if (-not $SkipRuntime) {
 
     # The player's footsteps are heard off the pose on screen, so a change to the gait
     # blend that leaves the feet dragging or double-tapping silences or doubles them.
-    $footstepResult = Invoke-GodotCheck -Name "player-footsteps" -Arguments @("--headless", "--path", $projectRoot, "res://tools/tests/player_footsteps.tscn") -TimeoutSeconds 120
+    $footstepResult = Invoke-GodotCheck -Name "player-footsteps" -Arguments @("--headless", "--fixed-fps", "60", "--path", $projectRoot, "res://tools/tests/player_footsteps.tscn") -TimeoutSeconds 120
     if ($footstepResult.Output -notmatch "TEST RESULT: PASS") {
         [Console]::WriteLine($footstepResult.Output)
         throw "A player gait misses footsteps or hears one step twice."

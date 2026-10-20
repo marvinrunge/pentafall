@@ -100,7 +100,7 @@ func _shoot() -> void:
 			int(STAGES[i] * 100.0),
 			orb._core.scale.x if orb != null else -1.0,
 			orb._light.light_energy if orb != null else -1.0,
-			orb._core_material.emission if orb != null else Color.BLACK])
+			orb._core_material.get_shader_parameter("body_color") if orb != null else Color.BLACK])
 		await RenderingServer.frame_post_draw
 		var numbered: String = out_path.get_basename() + "_%d.png" % i
 		if get_viewport().get_texture().get_image().save_png(numbered) == OK:

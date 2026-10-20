@@ -1,8 +1,8 @@
 extends SceneTree
 ## Headless entry point for PlayerCharacterBuilder.
 ##
-## Run with:
-##   "G:\Godot\Godot_v4.7-stable_win64_console.exe" --headless --path . --script tools/build_player_character.gd
+## Run with (the class - warrior, barbarian, archer - is optional and defaults to the warrior):
+##   "G:\Godot\Godot_v4.7-stable_win64_console.exe" --headless --path . --script tools/build_player_character.gd -- archer
 ##
 ## The bare `godot` on PATH is 4.6.2 on this machine, not the 4.7 this project
 ## targets - always name the 4.7 binary explicitly (see .agents/learnings.md).
@@ -19,7 +19,8 @@ const Builder = preload("res://tools/player_character_builder.gd")
 const RetargetPass = preload("res://tools/retarget_pass.gd")
 
 func _init() -> void:
-	Builder.build()
+	var args: PackedStringArray = OS.get_cmdline_user_args()
+	Builder.build(args[0] if not args.is_empty() else "warrior")
 	# Every library is written with the clips copied raw; the feet only come right once the
 	# retarget pass has run over them (tools/retarget_pass.gd). Already-done clips are skipped.
 	RetargetPass.run()

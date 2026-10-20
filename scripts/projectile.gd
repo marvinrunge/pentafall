@@ -29,6 +29,17 @@ var _stone_material: StandardMaterial3D
 ## these live and die with the pool entry, not with the bolt.
 var _trail: GPUParticles3D
 var _glow: OmniLight3D
+## The Fireball's own look (type 4): a ball of churning fire (SpellFx.energy_orb) wrapped in the
+## fire flipbook's flames, the air shimmering over it - where every other shot is the plain
+## glowing sphere. Built the first time this pooled projectile is a fireball and kept for its
+## next ones.
+var _fire_orb: Node3D
+## Flames lodged all round the ball and moving with it, and flames shed into the air behind it
+## as it flies - a fireball that leaves fire where it has been.
+var _fire_flames: GPUParticles3D
+var _fire_wake: GPUParticles3D
+## The fireball's ball at its base blast radius, metres - and it grows with the blast.
+const FIRE_ORB_RADIUS := 0.24
 
 func _ready() -> void:
 	base_speed = GameSettings.projectile_base_speed
@@ -148,6 +159,8 @@ func activate(start_pos: Vector3, dir: Vector3, type: int, _is_enemy: bool = fal
 		_trail.restart()
 	_trail.emitting = trail_amount > 0
 
+	_show_fire_orb(type == 4 and visual_kind == "magic")
+
 	life_timer = base_lifetime
 
 
@@ -195,6 +208,91 @@ func _apply_visual_mode(tint: Color) -> void:
 		visual.show()
 		projectile_material.albedo_color = tint
 		projectile_material.emission = tint
+
+
+func _show_fire_orb(on: bool) -> void:
+	if not on:
+		if _fire_orb != null:
+			_fire_orb.visible = false
+			_fire_flames.emitting = false
+			_fire_wake.emitting = false
+		return
+	if _fire_orb == null:
+		_build_fire_orb()
+	visual.hide()
+	_fire_orb.visible = true
+	# A bigger blast - more charge, more rank - is a bigger ball in the air.
+	var grow: float = clampf(aoe_radius / maxf(GameSettings.spell_red_fireball_base_radius, 0.01), 0.8, 2.0)
+	_fire_orb.scale = Vector3.ONE * grow
+	_fire_flames.scale = Vector3.ONE * grow
+	_fire_flames.emitting = true
+	_fire_flames.restart()
+	# Drawn in the world, so it cannot be scaled as a node: the flames themselves grow instead.
+	(_fire_wake.process_material as ParticleProcessMaterial).emission_sphere_radius = FIRE_ORB_RADIUS * 0.7 * grow
+	(_fire_wake.process_material as ParticleProcessMaterial).scale_min = 0.8 * grow
+	(_fire_wake.process_material as ParticleProcessMaterial).scale_max = 1.3 * grow
+	_fire_wake.emitting = true
+	_fire_wake.restart()
+
+
+func _build_fire_orb() -> void:
+	_fire_orb = SpellFx.energy_orb(FIRE_ORB_RADIUS, SpellFx.FIRE_ORB_EDGE, SpellFx.FIRE_ORB_BODY, SpellFx.FIRE_ORB_CORE, 0.016)
+	var material: ShaderMaterial = SpellFx.energy_orb_material(_fire_orb)
+	# Fire boils faster and turns less than the mage's arcane bolts, and gutters harder.
+	material.set_shader_parameter("energy", 1.8)
+	material.set_shader_parameter("swirl", 1.2)
+	material.set_shader_parameter("spin", 2.4)
+	material.set_shader_parameter("boil_scale", 3.2)
+	material.set_shader_parameter("boil_speed", 2.6)
+	material.set_shader_parameter("flicker", 0.4)
+	add_child(_fire_orb)
+	# Flames licking all round the ball: the fire flipbook churning on its surface, as on the
+	# Orb of Fire's balls (SpellVisuals.fire_bolt) but many more of them.
+	_fire_flames = _fireball_flames(26, 0.5, 0.38, true)
+	_fire_flames.name = "FireballFlames"
+	var process: ParticleProcessMaterial = _fire_flames.process_material
+	process.emission_sphere_radius = FIRE_ORB_RADIUS * 0.85
+	process.initial_velocity_min = 0.2
+	process.initial_velocity_max = 0.7
+	add_child(_fire_flames)
+	# And flames shed behind it: left in the air where it has been, rising and burning out.
+	_fire_wake = _fireball_flames(34, 0.45, 0.38, false)
+	_fire_wake.name = "FireballWake"
+	add_child(_fire_wake)
+
+
+## Flipbook flames for the fireball: `amount` at a time, each `size` across, living `lifetime`.
+## `on_ball` moves them with it; otherwise they stay where they were shed. They swell and then
+## shrink as they burn out, and rise - the default gravity dropped them under the ball as a
+## smudge. Flame all the way: EmberFx.fire_gradient ends in smoke, which is right for a blast
+## and made the wake read as a brown cloud.
+func _fireball_flames(amount: int, size: float, lifetime: float, on_ball: bool) -> GPUParticles3D:
+	var flames: GPUParticles3D = ExplosionFx.flipbook_particles(ExplosionFx.FIRE_FLIPBOOK, size, amount, lifetime)
+	flames.one_shot = false
+	flames.local_coords = on_ball
+	flames.preprocess = lifetime
+	var process: ParticleProcessMaterial = flames.process_material
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	process.emission_sphere_radius = FIRE_ORB_RADIUS * 0.7
+	process.direction = Vector3.UP
+	process.spread = 180.0
+	process.initial_velocity_min = 0.0
+	process.initial_velocity_max = 0.4
+	process.gravity = Vector3(0.0, 1.6, 0.0)
+	process.scale_min = 0.7
+	process.scale_max = 1.3
+	process.scale_curve = SpellFx._curve_texture([Vector2(0.0, 0.5), Vector2(0.3, 1.0), Vector2(1.0, 0.25)])
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1.0, 0.86, 0.45, 1.0))
+	gradient.add_point(0.3, Color(1.0, 0.52, 0.1, 0.95))
+	gradient.add_point(0.7, Color(0.9, 0.22, 0.04, 0.6))
+	gradient.set_color(gradient.get_point_count() - 1, Color(0.6, 0.08, 0.02, 0.0))
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = gradient
+	process.color_ramp = ramp
+	# Generous bounds: the wake trails a long way behind a fast ball, and a culled flame pops.
+	flames.visibility_aabb = AABB(Vector3(-4.0, -4.0, -4.0), Vector3(8.0, 8.0, 8.0))
+	return flames
 
 
 func _glow_energy_for_visual(type: int) -> float:

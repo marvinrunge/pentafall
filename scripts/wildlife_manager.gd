@@ -44,11 +44,30 @@ var _crystal_goal: Vector3 = Vector3.INF
 var _map: RID
 var _map_half_extent: float = 256.0
 var _check_timer: float = 0.0
+## The biomes still to be looked at in this check, the first being searched now. A check is
+## spread over as many physics ticks as it needs, beast_spawn_budget_ms of searching each: a
+## home costs navmesh queries of a millisecond or more apiece, and five biomes' worth of them in
+## one tick was a frame of 100-200 ms whenever beasts spawned (tools/tests/wave_perf).
+var _queue: Array[Dictionary] = []
+## Tries left for the biome at the head of the queue; -1 before its search has started.
+var _attempts_left: int = -1
+## The beast models, held for the match so the first of each to spawn does not load it from disk.
+var _scenes: Array[PackedScene] = []
 
 
 ## Reads the lanes off the map. Called by MainController once the navmesh is in.
 func setup(main: Node) -> void:
 	_main = main
+	# Every peer builds beasts, so every peer warms them: the models, and each biome's recoloured
+	# materials, whose first one compiled the tint shader inside the first beast's spawn - a
+	# 90 ms tick in the middle of a wave. Here it is part of loading the map.
+	for color_id: String in MainController.LANE_NAMES:
+		var scene: PackedScene = BeastDatabase.visual_scene(color_id)
+		if scene == null:
+			continue
+		if not _scenes.has(scene):
+			_scenes.append(scene)
+		BeastDatabase.warm_up(color_id, scene)
 	if not Net.is_server():
 		set_physics_process(false)
 		return
@@ -80,16 +99,23 @@ func _physics_process(delta: float) -> void:
 		return
 	for lane_name: String in _cooldowns:
 		_cooldowns[lane_name] = float(_cooldowns[lane_name]) - delta
-	_check_timer -= delta
-	if _check_timer > 0.0:
-		return
-	_check_timer = GameSettings.beast_spawn_check_interval
-	for lane: Dictionary in _lanes:
-		_tend(lane)
+	if _queue.is_empty():
+		_check_timer -= delta
+		if _check_timer > 0.0:
+			return
+		_check_timer = GameSettings.beast_spawn_check_interval
+		_queue = _lanes.duplicate()
+		_attempts_left = -1
+	var deadline: int = Time.get_ticks_usec() + int(GameSettings.beast_spawn_budget_ms * 1000.0)
+	while not _queue.is_empty() and Time.get_ticks_usec() < deadline:
+		if _tend(_queue[0], deadline):
+			_queue.pop_front()
+			_attempts_left = -1
 
 
-## One biome: forget the dead, and add a beast if there is room and its time has come.
-func _tend(lane: Dictionary) -> void:
+## One biome: forget the dead, and add a beast if there is room and its time has come. False
+## when the tick's time ran out before its search finished - it carries on from there next tick.
+func _tend(lane: Dictionary, deadline: int) -> bool:
 	var lane_name: String = lane["name"]
 	var living: Array = []
 	for beast: Variant in _beasts[lane_name]:
@@ -101,23 +127,28 @@ func _tend(lane: Dictionary) -> void:
 			randf_range(GameSettings.beast_respawn_min, GameSettings.beast_respawn_max))
 	_beasts[lane_name] = living
 	if living.size() >= GameSettings.beast_max_per_biome or float(_cooldowns[lane_name]) > 0.0:
-		return
-	if not _pending_sizes.has(lane_name) or int(_pending_misses.get(lane_name, 0)) >= SIZE_PATIENCE:
-		_pending_sizes[lane_name] = BeastDatabase.roll_size(_current_wave())
-		_pending_misses[lane_name] = 0
+		return true
+	if _attempts_left < 0:
+		if not _pending_sizes.has(lane_name) or int(_pending_misses.get(lane_name, 0)) >= SIZE_PATIENCE:
+			_pending_sizes[lane_name] = BeastDatabase.roll_size(_current_wave())
+			_pending_misses[lane_name] = 0
+		_attempts_left = GameSettings.beast_spawn_attempts
 	var size: float = float(_pending_sizes[lane_name])
-	var home: Vector3 = _find_home(lane, size)
+	var home: Vector3 = _find_home(lane, size, deadline)
 	if not home.is_finite():
+		if _attempts_left > 0:
+			return false
 		_pending_misses[lane_name] = int(_pending_misses[lane_name]) + 1
-		return
+		return true
 	_pending_sizes.erase(lane_name)
 	var beast: Node3D = _main.request_enemy({"color": lane_name, "type": "Beast", "position": home, "beast_size": size})
 	if beast == null:
-		return
+		return true
 	beast.rotation.y = randf() * TAU
 	living.append(beast)
 	_cooldowns[lane_name] = GameSettings.beast_spawn_stagger
 	print("Beast spawned: %s in %s at %s, size %.2f" % [BeastDatabase.display_name(lane_name), lane_name, home, size])
+	return true
 
 
 func _current_wave() -> int:
@@ -125,17 +156,24 @@ func _current_wave() -> int:
 	return maxi(int(waves.get("current_wave")), 1) if waves != null else 1
 
 
-## A home for a new beast of `size` in this biome, or INF if none of this check's tries was good
-## enough.
-func _find_home(lane: Dictionary, size: float) -> Vector3:
+## A home for a new beast of `size` in this biome, or INF if none of the tries left was good
+## enough - or if `deadline` came first, with _attempts_left still above 0.
+func _find_home(lane: Dictionary, size: float, deadline: int) -> Vector3:
 	var half: float = deg_to_rad(WEDGE_HALF_DEGREES - GameSettings.beast_wedge_margin_degrees)
 	var far: float = minf(float(lane["reach"]) * 0.97, _map_half_extent - 15.0)
 	var near: float = min_crystal_distance(size)
 	if far <= near:
 		return Vector3.INF
-	for attempt: int in GameSettings.beast_spawn_attempts:
+	while _attempts_left > 0:
+		if Time.get_ticks_usec() >= deadline:
+			return Vector3.INF
+		_attempts_left -= 1
 		var dir: Vector3 = (lane["dir"] as Vector3).rotated(Vector3.UP, randf_range(-half, half))
 		var wanted: Vector3 = _crystal + dir * randf_range(near, far)
+		# The free tests first, on the point as drawn: most tries fail one of them, and a failed
+		# try should not have paid for the navmesh. The snap below moves it at most a few metres.
+		if not _clear_of_others(wanted, lane, size):
+			continue
 		var spot: Vector3 = NavigationServer3D.map_get_closest_point(_map, wanted)
 		if _flat(spot, wanted) > 3.0:
 			continue # no ground there - a cliff, a wall, the map's edge
@@ -164,6 +202,20 @@ const BODY_HALF_LENGTH := 1.5
 
 
 func _good_home(spot: Vector3, lane: Dictionary, size: float) -> bool:
+	if not _clear_of_others(spot, lane, size):
+		return false
+	if _in_water(spot):
+		return false
+	if not _open_ground(spot, size):
+		return false
+	# Last, being the one that costs a route: a home that leads nowhere is an island.
+	var route: PackedVector3Array = NavigationServer3D.map_get_path(_map, spot, _crystal_goal, true)
+	return not route.is_empty() and route[route.size() - 1].distance_to(_crystal_goal) <= GameSettings.enemy_reach_crystal_tolerance
+
+
+## The tests that cost no query: inside the wedge, clear of the hub, the lanes, the players and
+## the other beasts' homes.
+func _clear_of_others(spot: Vector3, lane: Dictionary, size: float) -> bool:
 	if not in_wedge(spot, lane["dir"], GameSettings.beast_wedge_margin_degrees):
 		return false
 	if _flat(spot, _crystal) < min_crystal_distance(size):
@@ -179,13 +231,7 @@ func _good_home(spot: Vector3, lane: Dictionary, size: float) -> bool:
 			if is_instance_valid(beast) and _flat(spot, (beast as EnemyBase)._home_position) \
 					< home_spacing(size, (beast as EnemyBase)._beast_size):
 				return false
-	if _in_water(spot):
-		return false
-	if not _open_ground(spot, size):
-		return false
-	# Last, being the one that costs a route: a home that leads nowhere is an island.
-	var route: PackedVector3Array = NavigationServer3D.map_get_path(_map, spot, _crystal_goal, true)
-	return not route.is_empty() and route[route.size() - 1].distance_to(_crystal_goal) <= GameSettings.enemy_reach_crystal_tolerance
+	return true
 
 
 ## Nothing but the ground itself within a beast's length of `spot`: no tree, rock or wall. A

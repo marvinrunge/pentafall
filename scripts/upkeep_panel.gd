@@ -34,12 +34,22 @@ const COLOR_HEX: Dictionary = {
 }
 
 var _root: Control
-var _pool_label: RichTextLabel
+## The five mana amounts in the header, in COLORS order.
+var _pool_labels: Array[Label] = []
 var _level_label: Label
 var _timer_label: Label
-var _shop_rows: VBoxContainer
+var _shop_rows: HBoxContainer
+## Holds the proposals; hidden while there are none.
+var _vote_section: VBoxContainer
 var _vote_rows: VBoxContainer
 var _log_label: RichTextLabel
+## The line under the tiles: what the pointed-at item is, costs or lacks.
+var _detail_title: Label
+var _detail_cost: Label
+var _detail_body: Label
+## Each tile's words by its key, rebuilt with the tiles, and which one the line is showing.
+var _items: Dictionary = {}
+var _shown_item: String = ""
 var _ready_button: Button
 ## One chip per connected player in the footer - who the team is still waiting for.
 var _ready_rows: HFlowContainer
@@ -390,6 +400,17 @@ func _log(line: String) -> void:
 
 
 # --- ui -----------------------------------------------------------------------
+#
+# Compact: the header, one row of item tiles, what the pointed-at tile is said once under them,
+# and the proposals only while there are any. It used to be a full-screen 1040 x 580 list with
+# every description written out at once - at 720p it ran off the right of the screen, and the
+# proposals were the column that did not fit.
+
+## An item tile's icon button, square, in pixels.
+const TILE_SIZE := 50.0
+## What the detail line says with no tile pointed at.
+const IDLE_TITLE := "Spend the team's mana"
+
 
 func _build_ui() -> void:
 	_root = Control.new()
@@ -399,7 +420,7 @@ func _build_ui() -> void:
 
 	var backdrop := ColorRect.new()
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	backdrop.color = Color(0.015, 0.018, 0.025, 0.9)
+	backdrop.color = Color(0.015, 0.018, 0.025, 0.6)
 	_root.add_child(backdrop)
 
 	# Centred by a container rather than placed at a fixed offset. The panel used to be
@@ -409,99 +430,130 @@ func _build_ui() -> void:
 	# enchantment) the panel had grown down and to the right, off the screen.
 	var centre := CenterContainer.new()
 	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Centred in the upper two thirds, clear of the middle of the screen: the HUD's own prompts
+	# ("Press [E] to Manage Base", the mission banner) sit there and drew over it.
+	centre.anchor_bottom = 0.66
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(centre)
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(1040.0, 580.0)
-	panel.add_theme_stylebox_override("panel", _panel_style(Color(0.04, 0.045, 0.055, 0.98), Color(0.9, 0.67, 0.2)))
+	panel.custom_minimum_size = Vector2(560.0, 0.0)
+	panel.add_theme_stylebox_override("panel", _panel_style(Color(0.04, 0.045, 0.055, 0.97), Color(0.9, 0.67, 0.2)))
 	centre.add_child(panel)
 
 	var margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 22)
+		margin.add_theme_constant_override("margin_" + side, 14)
 	panel.add_child(margin)
 
 	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 12)
+	rows.add_theme_constant_override("separation", 8)
 	margin.add_child(rows)
 
-	# --- header: the pool, the level, the clock -------------------------------
+	# --- header: the name, the pool, the level, the clock ---------------------
 	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 20)
+	header.add_theme_constant_override("separation", 12)
 	rows.add_child(header)
-
 	var heading := Label.new()
 	heading.text = "UPKEEP"
-	heading.add_theme_font_size_override("font_size", 27)
+	heading.add_theme_font_size_override("font_size", 20)
 	heading.add_theme_color_override("font_color", Color(1.0, 0.8, 0.36))
 	header.add_child(heading)
-
-	_pool_label = RichTextLabel.new()
-	_pool_label.bbcode_enabled = true
-	_pool_label.fit_content = true
-	_pool_label.scroll_active = false
-	_pool_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(_pool_label)
-
+	var pool := HBoxContainer.new()
+	pool.add_theme_constant_override("separation", 8)
+	pool.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pool.alignment = BoxContainer.ALIGNMENT_CENTER
+	header.add_child(pool)
+	for color: String in COLORS:
+		var chip := HBoxContainer.new()
+		chip.add_theme_constant_override("separation", 3)
+		var pip := TextureRect.new()
+		pip.texture = SpellDatabase.get_icon(color.to_lower())
+		pip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pip.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pip.custom_minimum_size = Vector2(16.0, 16.0)
+		chip.add_child(pip)
+		var amount := Label.new()
+		amount.add_theme_font_size_override("font_size", 14)
+		amount.add_theme_color_override("font_color", COLOR_HEX[color])
+		chip.add_child(amount)
+		pool.add_child(chip)
+		_pool_labels.append(amount)
 	_level_label = Label.new()
-	_level_label.add_theme_font_size_override("font_size", 16)
+	_level_label.add_theme_font_size_override("font_size", 13)
+	_level_label.add_theme_color_override("font_color", Color(0.78, 0.8, 0.84))
 	header.add_child(_level_label)
-
 	_timer_label = Label.new()
-	_timer_label.add_theme_font_size_override("font_size", 24)
+	_timer_label.add_theme_font_size_override("font_size", 18)
 	_timer_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.3))
 	header.add_child(_timer_label)
 
-	rows.add_child(HSeparator.new())
+	# --- the items ------------------------------------------------------------
+	_shop_rows = HBoxContainer.new()
+	_shop_rows.add_theme_constant_override("separation", 8)
+	_shop_rows.alignment = BoxContainer.ALIGNMENT_CENTER
+	rows.add_child(_shop_rows)
 
-	# --- body: shop on the left, votes and log on the right -------------------
-	var body := HBoxContainer.new()
-	body.add_theme_constant_override("separation", 24)
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	rows.add_child(body)
+	# --- what the pointed-at item is ------------------------------------------
+	var detail := PanelContainer.new()
+	detail.add_theme_stylebox_override("panel", _panel_style(Color(0.025, 0.028, 0.035, 0.9), Color(0.3, 0.3, 0.33)))
+	rows.add_child(detail)
+	var detail_margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		detail_margin.add_theme_constant_override("margin_" + side, 8)
+	detail.add_child(detail_margin)
+	var detail_rows := VBoxContainer.new()
+	detail_rows.add_theme_constant_override("separation", 2)
+	detail_margin.add_child(detail_rows)
+	var detail_head := HBoxContainer.new()
+	detail_rows.add_child(detail_head)
+	_detail_title = Label.new()
+	_detail_title.add_theme_font_size_override("font_size", 15)
+	_detail_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail_head.add_child(_detail_title)
+	_detail_cost = Label.new()
+	_detail_cost.add_theme_font_size_override("font_size", 13)
+	detail_head.add_child(_detail_cost)
+	_detail_body = Label.new()
+	_detail_body.add_theme_font_size_override("font_size", 12)
+	_detail_body.add_theme_color_override("font_color", Color(0.68, 0.7, 0.75))
+	_detail_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# Two lines' room whatever is shown, so pointing along the row does not make it jump.
+	_detail_body.custom_minimum_size = Vector2(0.0, 32.0)
+	detail_rows.add_child(_detail_body)
 
-	var shop_column := VBoxContainer.new()
-	shop_column.add_theme_constant_override("separation", 6)
-	shop_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_child(shop_column)
-	shop_column.add_child(_section_label("PURCHASES"))
-	_shop_rows = VBoxContainer.new()
-	_shop_rows.add_theme_constant_override("separation", 6)
-	shop_column.add_child(_shop_rows)
-
-	var vote_column := VBoxContainer.new()
-	vote_column.add_theme_constant_override("separation", 6)
-	vote_column.custom_minimum_size = Vector2(360.0, 0.0)
-	body.add_child(vote_column)
-	vote_column.add_child(_section_label("PROPOSALS"))
+	# --- proposals, only while there are any ----------------------------------
+	_vote_section = VBoxContainer.new()
+	_vote_section.add_theme_constant_override("separation", 4)
+	rows.add_child(_vote_section)
+	_vote_section.add_child(_section_label("PROPOSALS"))
 	_vote_rows = VBoxContainer.new()
-	_vote_rows.add_theme_constant_override("separation", 6)
-	vote_column.add_child(_vote_rows)
-	vote_column.add_child(_section_label("THIS UPKEEP"))
+	_vote_rows.add_theme_constant_override("separation", 4)
+	_vote_section.add_child(_vote_rows)
+
 	_log_label = RichTextLabel.new()
 	_log_label.bbcode_enabled = true
 	_log_label.fit_content = true
 	_log_label.scroll_active = false
-	_log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vote_column.add_child(_log_label)
+	_log_label.add_theme_font_size_override("normal_font_size", 11)
+	rows.add_child(_log_label)
 
 	# --- footer: ready check --------------------------------------------------
-	rows.add_child(HSeparator.new())
 	_ready_rows = HFlowContainer.new()
-	_ready_rows.add_theme_constant_override("h_separation", 8)
-	_ready_rows.add_theme_constant_override("v_separation", 6)
+	_ready_rows.add_theme_constant_override("h_separation", 6)
+	_ready_rows.add_theme_constant_override("v_separation", 4)
 	rows.add_child(_ready_rows)
 	_ready_button = Button.new()
-	_ready_button.custom_minimum_size = Vector2(0.0, 42.0)
+	_ready_button.custom_minimum_size = Vector2(0.0, 34.0)
 	_ready_button.pressed.connect(_on_ready_pressed)
 	rows.add_child(_ready_button)
+	_show_item("")
 
 
 func _section_label(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.7, 0.72, 0.78))
+	label.add_theme_font_size_override("font_size", 11)
+	label.add_theme_color_override("font_color", Color(0.62, 0.64, 0.7))
 	return label
 
 
@@ -515,22 +567,19 @@ func _panel_style(background: Color, border: Color) -> StyleBoxFlat:
 
 
 func _refresh() -> void:
-	if not is_instance_valid(_pool_label):
+	if _pool_labels.is_empty():
 		return
 
-	var pool := PackedStringArray()
-	for color: String in COLORS:
-		pool.append("[color=#%s]%s %d[/color]" % [
-			COLOR_HEX[color].to_html(false), color.substr(0, 1), int(RunState.mana_pool.get(color, 0))])
-	_pool_label.text = "  ".join(pool)
+	for index: int in range(COLORS.size()):
+		_pool_labels[index].text = "%d" % int(RunState.mana_pool.get(COLORS[index], 0))
 
 	var progress: Vector2 = RunState.xp_progress()
 	var points: int = 0
 	var local: Node = _local_player()
 	if local != null and "skill_points" in local:
 		points = int(local.skill_points)
-	_level_label.text = "Level %d   XP %d/%d   Points %d" % [
-		RunState.team_level, int(progress.x), int(progress.y), points]
+	_level_label.text = "Lv %d  %d%%  |  %d pts" % [
+		RunState.team_level, int(round(100.0 * progress.x / maxf(progress.y, 1.0))), points]
 
 	# Every button below is rebuilt, and a rebuilt button is a new node - so whatever had
 	# focus (the Yes just pressed, on a pad the only way to point at anything) is gone.
@@ -543,9 +592,12 @@ func _refresh() -> void:
 	_rebuild_shop()
 	_rebuild_votes()
 	_rebuild_ready_rows()
-	_log_label.text = "\n".join(_log_lines) if not _log_lines.is_empty() else "[color=#666]nothing bought yet[/color]"
+	_log_label.text = "\n".join(_log_lines.slice(-2)) if not _log_lines.is_empty() else ""
+	_log_label.visible = not _log_lines.is_empty()
 	_ready_button.text = "READY - waiting for the rest" if _local_ready else "NOT READY - press to start the next wave"
 	ReadyStyle.style_button(_ready_button, _local_ready)
+	# The tile the pointer is on was rebuilt too; say what the new one says.
+	_show_item(_shown_item)
 
 	if focus_key != "":
 		var target: Control = _find_focus_key(_root, focus_key)
@@ -582,17 +634,18 @@ func _rebuild_ready_rows() -> void:
 		var ready: bool = _local_ready if peer_id == Net.local_id() else bool(_ready_peers.get(peer_id, false))
 		var tag: String = " (you)" if peer_id == Net.local_id() else ""
 		var chip: PanelContainer = ReadyStyle.row(Net.display_name(peer_id) + tag, ready)
-		chip.custom_minimum_size = Vector2(190.0, 0.0)
+		chip.custom_minimum_size = Vector2(150.0, 0.0)
 		_ready_rows.add_child(chip)
 
 
 func _rebuild_shop() -> void:
 	_clear(_shop_rows)
+	_items.clear()
 
-	_shop_rows.add_child(_purchase_row(
+	_shop_rows.add_child(_purchase_tile("myr", "upkeep_myr",
 		"Build a myr", "Harvests a lane and sweeps drops. Compounds, so worth most early.",
 		{"Colorless": GameSettings.myr_mana_cost}, _buy_myr, Color(0.8, 0.82, 0.86)))
-	_shop_rows.add_child(_purchase_row(
+	_shop_rows.add_child(_purchase_tile("point", "upkeep_skill_point",
 		"Skill point for everyone", "+1 point to every player, not just the buyer.",
 		{"Colorless": GameSettings.upkeep_skill_point_cost}, _buy_skill_point, Color(0.9, 0.85, 0.5)))
 
@@ -600,100 +653,136 @@ func _rebuild_shop() -> void:
 	# waste mana on it and a hurt one cannot miss it.
 	var main_controller: Node = get_tree().current_scene
 	if main_controller != null and main_controller.has_method("crystal_missing") and main_controller.crystal_missing() > 1.0:
-		_shop_rows.add_child(_purchase_row(
+		_shop_rows.add_child(_purchase_tile("repair", "upkeep_repair",
 			"Repair the crystal (%d missing)" % int(main_controller.crystal_missing()),
 			"Restores %d integrity. The only way to undo a leak." % int(GameSettings.upkeep_crystal_repair_amount),
 			{"Colorless": GameSettings.upkeep_crystal_repair_cost}, _buy_repair, Color(0.55, 0.85, 1.0)))
 
 	for color: String in COLORS:
-		var cost: Dictionary = RunState.enchantment_cost(color)
-		var label: String = "%s  (%s, %d stacks)" % [
-			RunState.enchantment_name(color), color, RunState.enchantment_stacks(color)]
-		var row: Control = _purchase_row(
-			label, RunState.enchantment_description(color), cost,
-			_propose.bind(color), COLOR_HEX[color])
-		_shop_rows.add_child(row)
+		var stacks: int = RunState.enchantment_stacks(color)
+		var vote: String = "" if not Net.is_active() else "  A majority has to agree."
+		_shop_rows.add_child(_purchase_tile(color, "enchantment_" + color.to_lower(),
+			"%s  (%s enchantment, %d %s)" % [RunState.enchantment_name(color), color, stacks, "stack" if stacks == 1 else "stacks"],
+			RunState.enchantment_description(color) + vote, RunState.enchantment_cost(color),
+			_propose.bind(color), COLOR_HEX[color], stacks))
 
 
-## One shop line. Unaffordable rows stay visible and name what is missing, because
-## knowing what you CANNOT buy is what drives the next wave's lane choice.
-func _purchase_row(title: String, subtitle: String, cost: Dictionary, on_press: Callable, tint: Color) -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-
-	var text := VBoxContainer.new()
-	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var name_label := Label.new()
-	name_label.text = title
-	name_label.add_theme_font_size_override("font_size", 16)
-	name_label.add_theme_color_override("font_color", tint)
-	text.add_child(name_label)
-	var desc_label := Label.new()
-	desc_label.text = subtitle
-	desc_label.add_theme_font_size_override("font_size", 12)
-	desc_label.add_theme_color_override("font_color", Color(0.65, 0.67, 0.72))
-	text.add_child(desc_label)
-	row.add_child(text)
-
-	var button := Button.new()
-	button.set_meta("focus_key", "shop:" + title.get_slice("(", 0).strip_edges())
-	button.custom_minimum_size = Vector2(210.0, 40.0)
+## One item: its icon as the button, its price under it, its stacks on it. Unaffordable ones
+## stay and name what is missing, because knowing what you CANNOT buy is what drives the next
+## wave's lane choice. The words are in the detail line, for the tile the pointer is on.
+func _purchase_tile(key: String, icon_id: String, title: String, description: String, cost: Dictionary,
+		on_press: Callable, tint: Color, stacks: int = 0) -> Control:
 	var missing: Dictionary = RunState.shortfall(_with_reservations(cost))
+	_items[key] = {"title": title, "desc": description, "tint": tint, "cost": cost, "missing": missing}
+
+	var tile := VBoxContainer.new()
+	tile.add_theme_constant_override("separation", 2)
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(TILE_SIZE, TILE_SIZE)
+	button.icon = SpellDatabase.get_icon(icon_id)
+	button.expand_icon = true
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	button.set_meta("focus_key", "shop:" + key)
+	button.mouse_entered.connect(_show_item.bind(key))
+	button.focus_entered.connect(_show_item.bind(key))
+	button.mouse_exited.connect(_show_item.bind(""))
 	if missing.is_empty():
-		button.text = _cost_text(cost)
 		button.pressed.connect(on_press)
 	else:
-		var parts := PackedStringArray()
-		for color: String in missing.keys():
-			parts.append("%d %s" % [int(missing[color]), color])
-		button.text = "needs %s" % ", ".join(parts)
 		button.disabled = true
-	row.add_child(button)
-	return row
+		button.modulate = Color(0.55, 0.56, 0.6)
+	tile.add_child(button)
+	if stacks > 0:
+		var badge := Label.new()
+		badge.text = "x%d" % stacks
+		badge.add_theme_font_size_override("font_size", 12)
+		badge.add_theme_color_override("font_color", Color(1.0, 0.92, 0.7))
+		badge.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+		badge.add_theme_constant_override("outline_size", 4)
+		badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		badge.position += Vector2(-2.0, 0.0)
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(badge)
+
+	var price := Label.new()
+	price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	price.add_theme_font_size_override("font_size", 11)
+	if missing.is_empty():
+		price.text = _short_cost(cost)
+		price.add_theme_color_override("font_color", tint if not cost.has("Colorless") else Color(0.8, 0.82, 0.86))
+	else:
+		price.text = "-" + _short_cost(missing)
+		price.add_theme_color_override("font_color", Color(0.95, 0.45, 0.4))
+	tile.add_child(price)
+	return tile
+
+
+## "2 any", "8 W": a price small enough to sit under a tile.
+func _short_cost(cost: Dictionary) -> String:
+	var parts := PackedStringArray()
+	for color: String in cost.keys():
+		parts.append("%d %s" % [int(cost[color]), "any" if color == "Colorless" else color.substr(0, 1)])
+	return " ".join(parts)
 
 
 func _cost_text(cost: Dictionary) -> String:
 	var parts := PackedStringArray()
 	for color: String in cost.keys():
 		parts.append("%d %s" % [int(cost[color]), "any" if color == "Colorless" else color])
-	return "Buy - " + ", ".join(parts)
+	return ", ".join(parts)
+
+
+## Says what item `key` is, costs or lacks - or, with "", what the panel is for.
+func _show_item(key: String) -> void:
+	if not is_instance_valid(_detail_title):
+		return
+	_shown_item = key if _items.has(key) else ""
+	if _shown_item == "":
+		_detail_title.text = IDLE_TITLE
+		_detail_title.add_theme_color_override("font_color", Color(0.85, 0.82, 0.72))
+		_detail_cost.text = ""
+		_detail_body.text = "Point at an item for what it does. Myrs and skill points are bought at once; an enchantment is %s." % (
+			"put to a vote" if Net.is_active() else "permanent for the run")
+		return
+	var item: Dictionary = _items[_shown_item]
+	_detail_title.text = String(item["title"])
+	_detail_title.add_theme_color_override("font_color", item["tint"])
+	_detail_body.text = String(item["desc"])
+	var missing: Dictionary = item["missing"]
+	if missing.is_empty():
+		_detail_cost.text = _cost_text(item["cost"])
+		_detail_cost.add_theme_color_override("font_color", Color(0.95, 0.85, 0.55))
+	else:
+		_detail_cost.text = "needs %s more" % _cost_text(missing)
+		_detail_cost.add_theme_color_override("font_color", Color(0.95, 0.45, 0.4))
 
 
 func _rebuild_votes() -> void:
 	_clear(_vote_rows)
-
-	if _proposals.is_empty():
-		var idle := Label.new()
-		idle.text = "No open proposals."
-		idle.add_theme_font_size_override("font_size", 12)
-		idle.add_theme_color_override("font_color", Color(0.55, 0.57, 0.62))
-		_vote_rows.add_child(idle)
-		return
-
+	_vote_section.visible = not _proposals.is_empty()
 	for color: String in _proposals.keys():
 		var proposal: Dictionary = _proposals[color]
 		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
+		row.add_theme_constant_override("separation", 6)
+		var icon := TextureRect.new()
+		icon.texture = SpellDatabase.get_icon("enchantment_" + color.to_lower())
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.custom_minimum_size = Vector2(22.0, 22.0)
+		row.add_child(icon)
 		var label := Label.new()
 		label.text = "%s   %d yes / %d no  (need %d)" % [
 			RunState.enchantment_name(color), int(proposal["yes"]), int(proposal["no"]), _vote_threshold()]
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label.add_theme_font_size_override("font_size", 14)
+		label.add_theme_font_size_override("font_size", 12)
 		label.add_theme_color_override("font_color", COLOR_HEX[color])
 		row.add_child(label)
-		var yes := Button.new()
-		yes.text = "Yes"
-		yes.set_meta("focus_key", "vote:%s:yes" % color)
-		yes.pressed.connect(_vote.bind(color, true))
-		row.add_child(yes)
-		var no := Button.new()
-		no.text = "No"
-		no.set_meta("focus_key", "vote:%s:no" % color)
-		no.pressed.connect(_vote.bind(color, false))
-		row.add_child(no)
-		var withdraw := Button.new()
-		withdraw.text = "x"
-		withdraw.set_meta("focus_key", "vote:%s:withdraw" % color)
-		withdraw.pressed.connect(_withdraw.bind(color))
-		row.add_child(withdraw)
+		for vote: Array in [["Yes", "yes", _vote.bind(color, true)], ["No", "no", _vote.bind(color, false)], ["x", "withdraw", _withdraw.bind(color)]]:
+			var button := Button.new()
+			button.text = String(vote[0])
+			button.add_theme_font_size_override("font_size", 12)
+			button.custom_minimum_size = Vector2(26.0 if vote[1] == "withdraw" else 40.0, 24.0)
+			button.set_meta("focus_key", "vote:%s:%s" % [color, vote[1]])
+			button.pressed.connect(vote[2])
+			row.add_child(button)
 		_vote_rows.add_child(row)

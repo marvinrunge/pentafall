@@ -178,7 +178,7 @@ the team's enchantment spread becomes a visible statement of how they intend to 
 |---|---|---|---|
 | **Red** | **Furnace of Rath** | Every player deals more damage | +8% damage |
 | **Blue** | **Propaganda** | All enemies attack and cast more slowly | −6% enemy attack speed |
-| **Black** | **Exquisite Blood** | Every player heals for a share of the damage they deal | +1% of damage dealt (every hit, spells included), at most 5% |
+| **Black** | **Animate Dead** | Fallen players are back sooner: less time downed, a faster revive channel | −12% to both, at most −60% |
 | **White** | **Sphere of Safety** | Enemies near the crystal are slowed and deal reduced damage to it | +2 radius, +8% reduction |
 | **Green** | **Overgrowth** | All mana income increases. Compounds | +12% mana |
 
@@ -196,7 +196,7 @@ obvious:
   every other enchantment is measured against.
 - **Blue is the scaling buy.** Slowing enemy attacks is worth little against wave 3 and
   enormous against a boss that one-shots people.
-- **Black is the sustain buy.** It keeps the *players* alive, where white keeps the
+- **Black is the comeback buy.** It brings fallen *players* back, where white keeps the
   *crystal* alive — different targets, so the two defensive colours never compete for the
   same slot. It is worth most to a team that is fighting well and dying anyway.
 - **White is the insurance buy.** It does nothing while the team is winning and saves the
@@ -209,9 +209,9 @@ obvious:
 > and a real performance risk in a game already spawning waves; and it did not match the
 > brief of a global buff to all players.
 >
-> Exquisite Blood also costs almost nothing to build: `Player.on_damage_dealt()` already
-> applies black-affinity lifesteal, so the enchantment is one more term in that same
-> line.
+> **Exquisite Blood held this slot until 2026-10-20** - team lifesteal from every hit. It
+> was replaced for doubling black's own affinity (Vampiric Link is lifesteal too) and for
+> healing from every area hit, which made area builds near unkillable.
 >
 > **The alternative, if sustain feels too safe:** *Culling the Weak* — every enemy below
 > a health threshold dies instantly (+3% threshold per stack, bosses excluded, matching
@@ -223,8 +223,8 @@ None of them is a damage number pretending to be a choice, and no ordering is co
 every run.
 
 Note that an enchantment **deliberately echoes its colour's affinity**: red's affinity is
-damage and its enchantment is damage; black's affinity is lifesteal and its enchantment is
-lifesteal. That repetition is the point — a colour should mean the same thing at every
+damage and its enchantment is damage. Black is the exception since Animate Dead: its
+affinity is lifesteal, and the same lifesteal twice was one number in two places. That repetition is otherwise the point — a colour should mean the same thing at every
 layer of the game, so a player who likes what black does personally also knows what black
 does for the team.
 
@@ -262,7 +262,7 @@ Every problem the earlier drafts ran into disappears rather than being solved:
 | Nothing to do in the rest period | Upkeep is 30 seconds of real decisions |
 
 And the pentagon still matters: **enchantments need their own colour**, so a team that
-never fights in the black lane never gets Exquisite Blood.
+never fights in the black lane never gets Animate Dead.
 
 ## What to delete
 

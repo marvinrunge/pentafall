@@ -297,7 +297,7 @@ func _run_cast_and_death_checks() -> void:
 
 	# --- the guard, as a teammate sees it ------------------------------------
 	#
-	# In two halves, because the end-to-end version cannot run here: Player._update_block
+	# In two halves, because the end-to-end version cannot run here: BlockGuard.update
 	# refuses to raise a guard unless `Input.mouse_mode == MOUSE_MODE_CAPTURED`, and a
 	# headless run has no display server to capture into - the host physically cannot
 	# block. So what is checked is the two things that make it work.

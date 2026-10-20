@@ -125,6 +125,8 @@ func _build() -> void:
 	logo.texture = LOGO
 	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	# Shrunk to a fifth, smoothly - see MainMenu's logo.
+	logo.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	logo.offset_left = 36.0
 	logo.offset_top = 24.0
 	logo.offset_right = 36.0 + 360.0

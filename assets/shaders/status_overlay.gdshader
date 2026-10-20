@@ -8,6 +8,7 @@ shader_type spatial;
 //   exalted  Exalted Strike charged: a slow gold pulse at the silhouette
 //   phoenix  Rally's ward: a flickering ember-gold rim
 //   giant    Giant Growth: a faint green rim
+//   berserk  the barbarian's Berserk: a blood-red rim throbbing like a pulse
 //
 // Each is a 0..1 amount, eased in and out by StatusFx, so they stack instead of replacing
 // each other. Bark is pigment and covers; the rest are light and only brighten.
@@ -19,6 +20,7 @@ uniform float reprisal = 0.0;
 uniform float exalted = 0.0;
 uniform float phoenix = 0.0;
 uniform float giant = 0.0;
+uniform float berserk = 0.0;
 uniform vec3 gold : source_color = vec3(1.0, 0.78, 0.36);
 // Real bark - the oak of the map's own trees - tiled along the mesh's UVs, so it stays put
 // on a moving limb. Procedural ridges used to stand in for it and read as brown stripes.
@@ -91,6 +93,11 @@ void fragment() {
 	float gi = giant * (fresnel * 0.8 + 0.05);
 	light += green * 1.4 * gi;
 	light_a += gi;
+
+	float throb = 0.55 + 0.45 * sin(TIME * 7.0);
+	float bz = berserk * (fresnel * 1.0 + 0.06) * throb;
+	light += vec3(0.95, 0.1, 0.05) * 2.0 * bz;
+	light_a += bz;
 
 	light_a = clamp(light_a, 0.0, 1.0);
 	float bark_a = bark * cover * 0.92;

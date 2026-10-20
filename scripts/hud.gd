@@ -50,12 +50,21 @@ var _hotbar_slots: Array[PanelContainer] = []
 ## and walks the children on every one of those calls.
 var _hotbar_overlays: Array[Control] = []
 var _hotbar_cd_labels: Array[Label] = []
+## Per slot, the charges a spell holds under the mage's Spell Mastery (Player.spell_charges),
+## in the slot's top corner. Hidden for anything that has none to count.
+var _hotbar_charge_labels: Array[Label] = []
 var _player: Node3D = null
+var _team_frames: TeamFrames = null
 var _active_spell_idx: int = 0
 var _wave_panel: PanelContainer
 var _wave_label: Label
 var _enemy_count_label: Label
 var _warning_panel: PanelContainer
+## The wave's time limit (WaveManager): the countdown panel, and when the limit runs out in
+## engine msec, or -1 when there is none.
+var _deadline_panel: PanelContainer
+var _deadline_label: Label
+var _deadline_end_msec: int = -1
 var _warning_label: Label
 var _warning_tween: Tween
 var _mission_panel: PanelContainer
@@ -254,6 +263,7 @@ func _ready() -> void:
 	SignalBus.at_base_changed.connect(_on_at_base_changed)
 	SignalBus.interact_prompt_changed.connect(_on_interact_prompt_changed)
 	SignalBus.spell_charge_changed.connect(_on_spell_charge_changed)
+	SignalBus.bow_draw_changed.connect(_on_bow_draw_changed)
 	SignalBus.spell_unlocked.connect(func(_c, _s): _update_hotbar_display(_active_spell_idx))
 	SignalBus.color_path_chosen.connect(func(_c): _update_hotbar_display(_active_spell_idx))
 	# The bar is a LOADOUT now, so it has to follow the loadout: a rank bought or a slot
@@ -326,10 +336,16 @@ func _ready() -> void:
 			_hotbar_cd_labels.append(
 				overlay.get_node_or_null("Label") as Label if overlay != null else null
 			)
+			_hotbar_charge_labels.append(_build_charge_label(slot))
 	_ensure_hotbar_icons()
 	_lay_out_hotbar_slots()
 	_setup_mana_icons()
 	hud_scale = UserSettings.hud_scale
+	# The other players' heads, health rings and down timers, under the mana row.
+	_team_frames = TeamFrames.new()
+	_team_frames.name = "TeamFrames"
+	_team_frames.set_hud_scale(hud_scale)
+	$Control/MarginContainer/VBoxContainer.add_child(_team_frames)
 	minimap_scale = UserSettings.minimap_scale
 	_minimap_preferred_side = MINIMAP_BASE_SIDE * hud_scale * minimap_scale
 	SignalBus.active_spell_changed.connect(_on_active_spell_changed)
@@ -383,6 +399,8 @@ func _process(delta: float) -> void:
 	if InputHint.gamepad != _hotbar_labels_for_pad:
 		_hotbar_labels_for_pad = InputHint.gamepad
 		_update_hotbar_display(_active_spell_idx)
+	if _deadline_end_msec >= 0:
+		_update_deadline()
 	_boss_pulse += delta
 	_boss_scan_timer -= delta
 	if _boss_scan_timer <= 0.0:
@@ -410,11 +428,14 @@ func _process(delta: float) -> void:
 	if _player != null and "spell_cooldown_timers" in _player:
 		var has_slot_lookup: bool = _player.has_method("_get_spell_id_for_slot")
 		var has_blood_lookup: bool = _player.has_method("can_blood_cast")
+		var has_charge_lookup: bool = _player.has_method("spell_charges")
 		for i in range(_hotbar_overlays.size()):
 			var overlay: Control = _hotbar_overlays[i]
 			if overlay == null:
 				continue
 			var spell_id: String = _player._get_spell_id_for_slot(i) if has_slot_lookup else ""
+			if i < _hotbar_charge_labels.size():
+				_show_charges(_hotbar_charge_labels[i], int(_player.spell_charges(spell_id)) if has_charge_lookup and spell_id != "" else -1)
 			var cd: float = _player.spell_cooldown_timers.get(spell_id, 0.0)
 			if cd <= 0.0:
 				# Only when it CHANGES: hide() on an already-hidden node still walks the
@@ -432,6 +453,37 @@ func _process(delta: float) -> void:
 			if label != null:
 				label.text = "%.1fs" % cd
 		_update_xp_bar()
+
+## The little count of charges in a quick-bar slot's top corner (Spell Mastery).
+func _build_charge_label(slot: Control) -> Label:
+	var label := Label.new()
+	label.name = "Charges"
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", Color(0.85, 0.8, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+	label.add_theme_constant_override("outline_size", 4)
+	label.hide()
+	slot.add_child(label)
+	return label
+
+
+## Only touched when it changes, like the cooldown overlay: every frame, per slot.
+func _show_charges(label: Label, charges: int) -> void:
+	if label == null:
+		return
+	if charges < 0:
+		if label.visible:
+			label.hide()
+		return
+	var text: String = "x%d" % charges
+	if label.text != text:
+		label.text = text
+	if not label.visible:
+		label.show()
+
 
 func _update_xp_bar() -> void:
 	if not xp_bar:
@@ -1191,6 +1243,28 @@ func _build_settings_menu() -> void:
 	wave_row.add_child(jump)
 	debug.add_child(wave_row)
 
+	# The class skills arrive with the team level (ClassDatabase), so this is how a class's
+	# whole kit is tried out - free skills only opens the colour tree.
+	var level_row := HBoxContainer.new()
+	var level_label := Label.new()
+	level_label.text = "Team level"
+	level_row.add_child(level_label)
+	var level_spin := SpinBox.new()
+	level_spin.min_value = 1
+	level_spin.max_value = GameSettings.debug_max_team_level
+	level_spin.value = maxi(RunState.team_level, GameSettings.class_skill_levels[-1])
+	level_spin.tooltip_text = "Class skills unlock at levels %s." % ", ".join(GameSettings.class_skill_levels.map(func(l: int) -> String: return str(l)))
+	level_row.add_child(level_spin)
+	var set_level := Button.new()
+	set_level.text = "Set now"
+	# The team's XP is the host's, like the waves.
+	set_level.disabled = not Net.is_server()
+	set_level.tooltip_text = "Puts the team at this level: skill points for the levels gained, and every class skill up to it." if Net.is_server() else "Host only."
+	set_level.pressed.connect(func() -> void:
+		RunState.debug_set_team_level(int(level_spin.value)))
+	level_row.add_child(set_level)
+	debug.add_child(level_row)
+
 
 func _on_user_setting_changed(key: StringName) -> void:
 	match key:
@@ -1236,6 +1310,8 @@ func _on_free_skills_toggled(button_pressed: bool) -> void:
 
 func set_hud_scale(value: float) -> void:
 	hud_scale = value
+	if _team_frames != null:
+		_team_frames.set_hud_scale(value)
 	_minimap_preferred_side = MINIMAP_BASE_SIDE * hud_scale * minimap_scale
 	# Through the strip rather than straight to _apply_minimap_size: a wider minimap takes
 	# room the XP bar and the hotbar were using, and both have to give it up in the same frame.
@@ -1504,6 +1580,14 @@ func _on_spell_charge_changed(current: float, max_c: float, is_charging: bool) -
 		else:
 			interact_label.visible = false
 
+## The archer's draw, in the same place a spell's charge is read out.
+func _on_bow_draw_changed(draw: float, drawing: bool) -> void:
+	if interact_label == null:
+		return
+	interact_label.visible = drawing
+	if drawing:
+		interact_label.text = "FULL DRAW" if draw >= 1.0 else "DRAWING... %d%%" % int(draw * 100.0)
+
 func _build_wave_ui() -> void:
 	var root: Control = $Control
 	var wave_panel: PanelContainer = PanelContainer.new()
@@ -1535,6 +1619,25 @@ func _build_wave_ui() -> void:
 	# Hidden until asked for. _on_wave_state_changed keeps writing to the labels either
 	# way, so the readout is already current the moment it is pulled up.
 	wave_panel.hide()
+
+	# The wave's time limit, for its last seconds only (GameSettings.wave_deadline_warning) -
+	# a clock on screen for the whole wave would rush every fight. Below where the Tab
+	# readout opens, so the two never cover each other.
+	_deadline_panel = PanelContainer.new()
+	_deadline_panel.name = "WaveDeadlinePanel"
+	_deadline_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_deadline_panel.position = Vector2(-300.0, 100.0)
+	_deadline_panel.size = Vector2(280.0, 40.0)
+	_deadline_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_deadline_panel.add_theme_stylebox_override("panel", _make_panel_style(Color(0.06, 0.02, 0.02, 0.92), Color(0.95, 0.35, 0.2, 0.9)))
+	root.add_child(_deadline_panel)
+	_deadline_label = Label.new()
+	_deadline_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_deadline_label.add_theme_font_size_override("font_size", 17)
+	_deadline_label.add_theme_color_override("font_color", Color(1.0, 0.62, 0.45))
+	_deadline_panel.add_child(_deadline_label)
+	_deadline_panel.hide()
+	SignalBus.wave_deadline_changed.connect(_on_wave_deadline_changed)
 
 	_warning_panel = PanelContainer.new()
 	_warning_panel.name = "LaneWarningPanel"
@@ -1865,6 +1968,28 @@ func _make_panel_style(background: Color, border: Color) -> StyleBoxFlat:
 func _on_wave_state_changed(wave_number: int, enemies_remaining: int) -> void:
 	_wave_label.text = "WAVE %d" % wave_number
 	_enemy_count_label.text = "Enemies remaining: %d" % enemies_remaining
+
+
+func _on_wave_deadline_changed(seconds_left: float) -> void:
+	_deadline_end_msec = Time.get_ticks_msec() + int(seconds_left * 1000.0) if seconds_left >= 0.0 else -1
+	_update_deadline()
+
+
+## Shown for the last seconds of the limit only; counted down here from when it was sent, so
+## a client needs no update per second.
+func _update_deadline() -> void:
+	if _deadline_panel == null:
+		return
+	if _deadline_end_msec < 0:
+		_deadline_panel.visible = false
+		return
+	var left: float = float(_deadline_end_msec - Time.get_ticks_msec()) / 1000.0
+	if left <= 0.0 or left > GameSettings.wave_deadline_warning:
+		_deadline_panel.visible = false
+		return
+	var whole: int = int(ceil(left))
+	_deadline_label.text = "The wave storms the crystal in %d:%02d" % [whole / 60, whole % 60]
+	_deadline_panel.visible = true
 
 func _on_lane_warning_requested(_lane_name: String, message: String, lane_color: Color) -> void:
 	if _warning_tween and _warning_tween.is_valid():

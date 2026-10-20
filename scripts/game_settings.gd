@@ -49,6 +49,12 @@ extends Node
 @export var player_base_speed: float = 2.5
 @export var player_sprint_speed_mult: float = 1.5
 @export var player_jump_velocity: float = 4.5
+## The crouch before a jump leaves the ground, real seconds at most (PlayerAnimator.begin_jump):
+## the clip's own run-up is squeezed into this and the body's arc starts on its take-off frame.
+## Short, because it is time between the press and the jump.
+@export var player_jump_runup: float = 0.12
+## How fast the jump clip's own landing plays once the feet are down, x its natural pace.
+@export var player_jump_landing_pace: float = 1.2
 ## Out of the world (Player._is_out_of_world): below this height, or further than this from
 ## the centre along either axis, a player is put back at their seat by the crystal. The
 ## lowest ground is about -10 m and the MapBounds fence stands at 250 m.
@@ -159,6 +165,9 @@ extends Node
 ## the sidestep in walk_left only lifts its trailing foot 3.7 cm, so a lift threshold much
 ## above 2.5 cm misses every other step there. With this pair all six walk and run cycles
 ## land exactly two steps each, on the frame heel or toe touches down.
+##
+## Both are measured above the foot's own floor in the clips playing, not above zero (see
+## PlayerAnimator._gait_foot_floor): the archer's clips set a foot down up to 2.7 cm up.
 @export var player_footstep_plant_height: float = 0.01
 @export var player_footstep_lift_height: float = 0.025
 ## The soonest a footstep may follow the one before it, as a fraction of the current stride
@@ -198,19 +207,6 @@ extends Node
 ## The heavy attack is a full 360 spin (1.22s of usable clip) rather than a single
 ## chop, so it gets its own, longer commitment instead of the light chain's cadence.
 @export var player_heavy_duration: float = 0.9
-## How long the heavy's wind-up can be held before it goes off on its own. The clip's
-## whole discarded lead-in is stretched across this, so a full charge is a slow raise
-## rather than a pose that snapped into place and then froze. Releasing early fires
-## early; the strike that follows is identical either way, so this buys the player
-## nothing but the timing.
-@export var player_heavy_charge_max: float = 1.0
-## How front-loaded the raise is inside that window. The wind-up's playback rate is
-## the derivative of `1 - (1 - t)^this`, so at 3.0 the axe comes up three times faster
-## than a flat rate at the start and has all but settled by two thirds through - which
-## is what a wind-up being HELD should feel like, rather than one steady crawl. 1.0 is
-## exactly the old flat rate; higher snaps harder and holds longer. The raise still
-## finishes exactly as the charge does, whatever this is set to.
-@export var player_heavy_charge_ease: float = 3.0
 @export var player_heavy_damage_mult: float = 2.0
 @export var player_heavy_knockback: float = 12.0
 ## Damage multiplier on the THIRD stage of the light chain, which only exists once
@@ -231,7 +227,7 @@ extends Node
 ## melee move the player can walk through - it plays on the upper body while the legs
 ## keep their walk cycle. A light attack started standing still takes the whole body
 ## and holds the player there instead, as do heavy attacks, kicks and staggers (see
-## Player._advance_light_chain and Player._begin_action).
+## MeleeKit._advance_light_chain and Player._begin_action).
 @export var player_attack_move_mult: float = 1.0
 
 # ============================================================
@@ -327,6 +323,9 @@ extends Node
 ## worth a leap rather than a swing.
 @export var spell_green_leap_damage: float = 90.0
 @export var spell_green_leap_radius: float = 6.0
+## How hard the slam throws, for a caster with player_max_hp; scaled by the caster's actual
+## max HP. Straight up at the centre (12 lifts about 2.4 m against the knockback's own 30 m/s2
+## braking), sideways at the edge (SpellEffects._slam_ground).
 @export var spell_green_leap_knockback: float = 12.0
 ## The hardest shake in the game, and the only one the player lands on themselves:
 ## the slam happens directly under the camera, so it can carry more than a detonation
@@ -371,6 +370,281 @@ extends Node
 @export var player_block_react_duration: float = 0.35
 
 # ============================================================
+# CHARACTER CLASSES - docs/CHARACTER_CLASSES_PLAN.md
+# ============================================================
+## The team levels the four class skills unlock at, shared by every class: a basic-attack
+## passive, then the active (or the defence) the class most needs, a second passive, and a
+## capstone. Derived from the level, never bought or saved.
+@export var class_skill_levels: Array[int] = [3, 6, 10, 14]
+
+# --- Archer: the bow (BowKit) ---
+## The draw from the quiver to the anchor at the cheek. A press released before it ends
+## still shoots - at the end of the draw, as a quick shot - so this is also how long a
+## tap takes to leave the bow.
+@export var archer_draw_time: float = 0.42
+## How long the anchor has to be held on top of the draw to reach a full draw. Damage
+## grows from the quick shot's to the full draw's over it.
+@export var archer_full_draw_time: float = 0.9
+## Arrow damage as multiples of spell_melee_damage, so the bow moves with the axe when the
+## melee number is retuned. A tap is weaker than an axe swing and a full draw much
+## stronger: the archer earns its damage by standing still and holding.
+@export var archer_quick_shot_damage_mult: float = 0.75
+@export var archer_full_draw_damage_mult: float = 2.4
+## How long the release and recoil play, i.e. how soon the next draw can start.
+@export var archer_shoot_duration: float = 0.32
+## Movement while drawing or holding, as a fraction of base speed: the archer can
+## reposition with an arrow nocked, but not run.
+@export var archer_draw_move_mult: float = 0.55
+## The camera zooms in over the draw (BowKit.aim_zoom): its field of view at a full draw, as
+## a fraction of the normal one, and how fast it eases in and back out (per second, higher
+## is snappier). Out is faster than in, so the release lets go with the arrow.
+@export var archer_aim_zoom_fov_mult: float = 0.7
+@export var archer_aim_zoom_in_rate: float = 6.0
+@export var archer_aim_zoom_out_rate: float = 14.0
+## The spine turns the nocked arrow onto the crosshair (BowAim): how fast it turns back out
+## after the shot (full turn per second - it turns in with the draw itself), and the most it will twist sideways and bend up or down,
+## degrees - past those the arrow points as near as it can rather than folding the archer.
+@export var archer_aim_blend_rate: float = 6.0
+@export var archer_aim_max_yaw_degrees: float = 70.0
+@export var archer_aim_max_pitch_degrees: float = 55.0
+## Metres per second. Fast enough to read as an arrow, slow enough to see it fly.
+@export var archer_arrow_speed: float = 55.0
+@export var archer_quick_arrow_speed_mult: float = 0.75
+## A full draw flies flatter; a quick shot drops a little over distance.
+@export var archer_arrow_gravity: float = 2.5
+@export var archer_arrow_range: float = 70.0
+## Knockback of an arrow is a nudge - it is the axe that throws enemies around.
+@export var archer_arrow_knockback: float = 2.0
+## How long a spent arrow stays stuck in the ground or a wall.
+@export var archer_arrow_stuck_lifetime: float = 4.0
+
+# --- Archer: the defence (DodgeRoll) ---
+## The roll is the pack's dodge clip for the way it goes, up to where its hop has landed, and
+## the body follows that hop (DodgeRoll). The clips hop 1.9-2.3 m in 0.85-1.0 s; the distance
+## stretches that (past ~1.4x the feet visibly slide), the pace plays it quicker - at 1.5 a
+## roll takes about 0.6 s. It used to be 4.2 m in 0.42 s at a constant speed, far past
+## anything the clip could show: what played was the run, sped up, under a flicker of dodge.
+@export var archer_dodge_distance: float = 3.0
+@export var archer_dodge_pace: float = 1.5
+## Untouchable for this much of the roll, from its start.
+@export var archer_dodge_invulnerable_time: float = 0.32
+@export var archer_dodge_cooldown: float = 1.1
+
+# --- Archer: class body ---
+## The most fragile class (docs/CHARACTER_CLASSES_PLAN.md): less health than the warrior,
+## clearly quicker on its feet.
+@export var archer_health_mult: float = 0.8
+@export var archer_speed_mult: float = 1.25
+
+# --- Archer: class skills ---
+## Longshot (level 3): a FULL draw passes through this many enemies before it stops.
+@export var archer_longshot_pierce: int = 3
+## Disengage (level 6): a long roll backwards, leaving a snare where you stood. Its
+## cooldown and cast length are on its ClassDatabase row, like a spell's.
+@export var archer_disengage_distance: float = 8.0
+@export var archer_disengage_snare_radius: float = 3.5
+@export var archer_disengage_snare_duration: float = 4.0
+@export var archer_disengage_snare_slow_mult: float = 0.35
+## Arrow Volley Trap (level 10): arrows rain on the aimed-at ground for a few seconds.
+@export var archer_volley_radius: float = 5.0
+@export var archer_volley_duration: float = 3.0
+## Damage per second to everything inside, as a multiple of spell_melee_damage.
+@export var archer_volley_dps_mult: float = 1.6
+@export var archer_volley_range: float = 45.0
+## Deadeye (level 14): an arrow that lands on the top of an enemy's body - its head -
+## deals this much more. The share of the body's height that counts as the head:
+@export var archer_deadeye_damage_mult: float = 2.0
+@export var archer_head_fraction: float = 0.22
+
+# --- Barbarian: the two-hander (GreatswordKit) ---
+## How fast the light chain's cleaves play, as a share of the Great Sword pack's own pace:
+## 1 is exactly as fast as the clip - which is also how far the body walks with each cut, so
+## the feet stay planted at any pace. About a second a cut.
+@export var barbarian_cleave_pace: float = 1.0
+## A cleave's damage as a multiple of spell_melee_damage. Set so the barbarian's light attack
+## deals what the warrior's does PER SECOND on one enemy: the cleaves come about half as often
+## as the axe's cuts, so each one hits about twice as hard (tools/tests/melee_dps.tscn, attack
+## tapped as fast as it chains: warrior 54.5 a second, barbarian 29.8 at 1.5 -> 2.75). Its
+## wider arc and reach are what it gains against a crowd.
+@export var barbarian_cleave_damage_mult: float = 2.75
+## Reach in metres and the arc a swing covers: a hit lands on an enemy when the dot of the
+## facing and the direction to it is above this (spell_melee_cone is the axe's 0.5, about
+## 60 degrees either side; 0.15 is about 80).
+@export var barbarian_reach: float = 4.2
+@export var barbarian_cone: float = 0.15
+## The heavy: holding past player_heavy_hold_time sets off its two swings at once, as the
+## warrior's spin is set off - no charging. The first swing's damage as a multiple of
+## spell_melee_damage, and the second's as a share of the first. Set so held heavies deal what
+## the warrior's spins do a second (tools/tests/melee_dps.tscn: 26.0 at 2.6, warrior 33.3).
+@export var barbarian_heavy_damage_mult: float = 3.3
+@export var barbarian_heavy_second_swing_share: float = 0.6
+## How fast the heavy plays, as a share of the clip's own pace - 1 is exactly as fast as the
+## clip, which is also how far the body steps in with it. At 1.4 the two swings and the lift
+## back to the shoulder take about 2.9 s.
+@export var barbarian_heavy_pace: float = 1.4
+@export var barbarian_heavy_knockback: float = 16.0
+## The whoosh of every barbarian swing is timed to the blade: its loudest moment lands on the
+## measured impact, when the sword is at its fastest. This moves it, in seconds: positive is
+## that much EARLIER than the blade, negative later. 0 is together.
+@export var barbarian_whoosh_lead: float = 0.0
+
+# --- Barbarian: class body ---
+## The heaviest class (docs/CHARACTER_CLASSES_PLAN.md): more health than the warrior,
+## slower on its feet. No block - a heavy swing cannot be interrupted instead.
+@export var barbarian_health_mult: float = 1.3
+@export var barbarian_speed_mult: float = 0.9
+
+# --- Barbarian: class skills ---
+## Brute Force (level 3): the heavy's knockback is multiplied by this, and lands before
+## the blow - so what the blow kills is thrown by it, and thrown hardest.
+@export var barbarian_brute_force_knockback_mult: float = 1.8
+## Whirlwind (level 6): spinning with the sword held out, hitting everything around every
+## hit interval. Its cooldown and length are on its ClassDatabase row, like a spell's.
+@export var barbarian_whirlwind_radius: float = 3.6
+@export var barbarian_whirlwind_hit_interval: float = 0.4
+## Damage per hit, as a multiple of spell_melee_damage.
+@export var barbarian_whirlwind_damage_mult: float = 0.9
+@export var barbarian_whirlwind_knockback: float = 5.0
+## The share of the barbarian's speed left to them while spinning, and how many whole turns
+## the spin makes over its length.
+@export var barbarian_whirlwind_move_mult: float = 0.8
+@export var barbarian_whirlwind_turns: float = 4.0
+## Berserk (level 14): for the duration, swings this much faster and this much harder - and
+## every hit taken this much harder too, the barbarian's version of "no block at all".
+@export var barbarian_berserk_duration: float = 8.0
+@export var barbarian_berserk_attack_speed_mult: float = 1.4
+@export var barbarian_berserk_damage_mult: float = 1.35
+@export var barbarian_berserk_damage_taken_mult: float = 1.25
+
+# --- Warrior: class skills (ClassDatabase, WarriorSkills) ---
+## Bloodthirst (level 3): a kill by the axe heals this share of the warrior's max health, and the
+## chain's next stage plays this many times faster.
+@export var warrior_bloodthirst_heal: float = 0.03
+@export var warrior_bloodthirst_haste: float = 1.3
+## Hurl Axe (level 6): the axe flies this far and this fast, out and back, and hits everything
+## within the radius of it on each leg for this multiple of spell_melee_damage. Its cooldown is
+## on its ClassDatabase row, like a spell's.
+@export var warrior_hurl_axe_range: float = 11.0
+@export var warrior_hurl_axe_speed: float = 20.0
+@export var warrior_hurl_axe_radius: float = 1.5
+@export var warrior_hurl_axe_damage_mult: float = 1.6
+## Battle Frenzy (level 14): for this long, a chain that keeps connecting does not end - past its
+## last stage the finisher comes again (MeleeKit).
+@export var warrior_battle_frenzy_duration: float = 6.0
+
+# --- Knight: sword and shield (KnightKit) ---
+## A light cut's and the heavy's damage, as multiples of spell_melee_damage. The knight is the
+## tank: set so it deals about 85% of what the warrior does a second on one enemy
+## (tools/tests/melee_dps.tscn), paid for by the guard below and the bigger body. A cut of the
+## chain is this times its share of the chain (KnightKit._stage_share) - the quick first cut
+## less, the closing leap and slam more. At 2.3 it dealt 55.0 a second tapping, 38.6 letting
+## each cut play out and 28.6 holding for heavies (2.6), against the warrior's 54.5, 34.8, 33.3;
+## 1.95 brings the first two to 46.7 and 32.7.
+@export var knight_cut_damage_mult: float = 1.95
+@export var knight_heavy_damage_mult: float = 2.6
+## How fast the chain's cuts and the heavy play, as a share of the pack's own pace (1 = the clip's).
+@export var knight_cut_pace: float = 1.0
+@export var knight_heavy_pace: float = 1.0
+## The whoosh of every knight swing is timed to the blade, as the barbarian's is: this moves its
+## loudest moment earlier (positive) or later (negative) than the blade at its fastest.
+@export var knight_whoosh_lead: float = 0.0
+
+# --- Knight: the guard (KnightGuard) ---
+## The shield stops nearly everything: this much of a hit from in front, against the warrior's
+## player_block_damage_reduction - and a boss's too, which goes straight through the axe's guard.
+@export var knight_block_damage_reduction: float = 0.95
+## How far round the shield covers: a hit is blocked when the dot of the facing and the
+## direction to the attacker is at least this (the warrior's player_block_cone is 0.35; 0 is
+## the whole front half).
+@export var knight_block_cone: float = 0.0
+
+# --- Knight: class body ---
+## The tank (docs/CHARACTER_CLASSES_PLAN.md): the most health of any class, a little slower.
+@export var knight_health_mult: float = 1.4
+@export var knight_speed_mult: float = 0.95
+
+# --- Knight: class skills ---
+## First Strike (level 3): after the shield stops a hit, the knight's next swing - if it comes
+## within the window - plays this much faster and hits this much harder: the riposte.
+@export var knight_first_strike_window: float = 1.5
+@export var knight_first_strike_pace_mult: float = 1.6
+@export var knight_first_strike_damage_mult: float = 1.75
+## Shield Bash (level 6): a thrust of the shield into everything in front, within the range and
+## the cone: damage as a multiple of spell_melee_damage, a shove and a stun. Its cooldown and
+## length are on its ClassDatabase row, like a spell's.
+@export var knight_bash_range: float = 3.2
+@export var knight_bash_cone: float = 0.3
+@export var knight_bash_damage_mult: float = 1.2
+@export var knight_bash_knockback: float = 12.0
+@export var knight_bash_stun: float = 1.2
+## Shield Wall (level 10): a hit blocked within this many seconds of the shield coming up is a
+## perfect block, and stuns whoever struck it for the second number.
+@export var knight_perfect_block_window: float = 0.35
+@export var knight_perfect_block_stun: float = 1.5
+## Phalanx (level 14): while the knight holds the shield up, allies and myrs within the radius
+## and BEHIND the knight take this share of their damage, and enemies within the taunt radius
+## turn on the knight (renewed while the guard is up).
+@export var knight_phalanx_radius: float = 6.0
+@export var knight_phalanx_damage_taken_mult: float = 0.6
+@export var knight_phalanx_taunt_radius: float = 8.0
+@export var knight_phalanx_taunt_duration: float = 1.5
+
+# --- Mage: the bolts (MageKit) ---
+## How long one bolt's throw plays, seconds - the cadence of a tap. The three throws are
+## squeezed into it whatever their own length, so a bolt always leaves at the same beat.
+@export var mage_bolt_duration: float = 0.55
+## A bolt's damage as a multiple of spell_melee_damage. Set like the archer's quick shot: a
+## ranged basic attack deals well under the axe a second (the mage's damage is its spells).
+@export var mage_bolt_damage_mult: float = 0.65
+## Metres per second, and how far a bolt flies before it fades. Straight - no drop.
+@export var mage_bolt_speed: float = 42.0
+@export var mage_bolt_range: float = 50.0
+@export var mage_bolt_knockback: float = 1.5
+## Movement while throwing a bolt, as a fraction of base speed: the mage walks while it
+## casts, but does not run.
+@export var mage_bolt_move_mult: float = 0.7
+## The heavy - holding past player_heavy_hold_time - is the Arcane Blast: a slower orb that
+## bursts on whatever it meets, hitting everything in the radius. Rooted, both hands.
+@export var mage_blast_duration: float = 0.95
+@export var mage_blast_damage_mult: float = 1.9
+@export var mage_blast_radius: float = 2.6
+@export var mage_blast_speed: float = 26.0
+@export var mage_blast_knockback: float = 7.0
+
+# --- Mage: the defence (Blink) ---
+## The block button blinks the mage this far the way the stick points (backwards with none),
+## stopping short of anything solid. Untouchable for a moment as it arrives.
+@export var mage_blink_distance: float = 6.0
+@export var mage_blink_invulnerable_time: float = 0.3
+@export var mage_blink_cooldown: float = 2.5
+
+# --- Mage: class body ---
+## The other fragile class (docs/CHARACTER_CLASSES_PLAN.md): the least health of any class,
+## a little quicker than the warrior; the blink is what keeps it alive.
+@export var mage_health_mult: float = 0.75
+@export var mage_speed_mult: float = 1.1
+
+# --- Mage: class skills ---
+## Prowess (level 3): every colour spell cast gives a charge, up to the most below; each bolt
+## or blast spends one and hits this much harder. Charges are lost this many seconds after the
+## last spell, so it rewards weaving spells and bolts rather than banking them.
+@export var mage_prowess_max_charges: int = 3
+@export var mage_prowess_damage_mult: float = 2.0
+@export var mage_prowess_window: float = 10.0
+## Blink of an Eye (level 6): a long blink to the aimed ground, leaving an illusion of the
+## mage where they stood. Enemies within the taunt radius turn on it; it lasts the duration
+## or until its health is spent. Cooldown on its ClassDatabase row, like a spell's.
+@export var mage_blink_of_an_eye_range: float = 14.0
+@export var mage_decoy_duration: float = 5.0
+@export var mage_decoy_health_mult: float = 0.6
+@export var mage_decoy_taunt_radius: float = 9.0
+## Spell Mastery (level 10): every colour spell holds this many charges. Mechanical, not a
+## cooldown cut - blue's affinity is the one place cooldowns get shorter (docs/SKILL_DESIGN.md,
+## "One number, one node"): the spell still recovers one charge per cooldown, it can only be
+## cast again at once.
+@export var mage_spell_mastery_charges: int = 2
+
+# ============================================================
 # PLAYER HIT REACTION
 # ============================================================
 ## A hit only staggers the player when it takes at least this fraction of max HP in
@@ -405,8 +679,7 @@ extends Node
 ##          (it was +10% of a 1 HP/s base - two HP a second at rank 10, which bought nothing)
 ##   blue   faster cooldown recovery                                       8%  .. 40%
 ##   black  lifesteal, from BASIC ATTACKS only - sword swings and the kick;  5%  .. 30%
-##          spells, auras and Green Leap do not count (black has no healing spell; the team's
-##          Exquisite Blood is the lifesteal that works on spells)
+##          spells, auras and Green Leap do not count
 ##   red    total damage                                                   10% .. 50%
 ##   green  maximum HP                                                     10% .. 50%
 ## Roughly a third of the ceiling at rank 5 and nine tenths of it at rank 10.
@@ -1076,6 +1349,31 @@ func rank_level_requirement(rank: int) -> int:
 ## Superseded by upkeep_duration - kept only as the pause before the very first wave.
 @export var wave_rest_period: float = 3.0
 
+# --- Time limit ------------------------------------------------------------------------
+#
+# A wave cannot outlast its time limit. The clock starts when its last battle group has
+# landed; when it runs out, whatever is left of the wave drops everything and storms the
+# crystal, faster and deaf to players, myrs and taunts. After wave_storm_duration seconds
+# Upkeep begins as if the wave had been cleared - but its leftovers are not removed: they
+# stay as stragglers, still storming, still paid for, no longer counted. Without it a wave
+# whose last enemy was stuck somewhere never ended, and a team could keep an early wave alive
+# on purpose, kiting its enemies about while the myrs banked mana.
+
+## The limit at wave 1, how much longer each later wave gets, and the cap, seconds. Generous
+## on purpose: the storm is a backstop for a stalled wave, not a clock to fight every wave on.
+@export var wave_time_limit_base: float = 240.0
+@export var wave_time_limit_per_wave: float = 6.0
+@export var wave_time_limit_max: float = 540.0
+@export var wave_storm_duration: float = 20.0
+@export var wave_storm_speed_mult: float = 1.35
+## The HUD shows the countdown for the last this-many seconds of the limit.
+@export var wave_deadline_warning: float = 30.0
+
+
+## The time limit of wave `wave_number` (1-based), seconds.
+func wave_time_limit(wave_number: int) -> float:
+	return minf(wave_time_limit_base + wave_time_limit_per_wave * float(maxi(wave_number - 1, 0)), wave_time_limit_max)
+
 # --- Battle groups ---------------------------------------------------------------------
 #
 # A wave is a handful of BATTLE GROUPS, not a spawn queue. Each group is a run of adjacent
@@ -1477,6 +1775,9 @@ func rank_level_requirement(rank: int) -> int:
 @export var beast_wedge_margin_degrees: float = 6.0
 ## Random points tried per biome per check before it waits for the next one.
 @export var beast_spawn_attempts: int = 12
+## Milliseconds of home-searching per physics tick. A check runs over as many ticks as it needs,
+## so this bounds what spawning can add to one frame (one try can overrun it by its own queries).
+@export var beast_spawn_budget_ms: float = 2.0
 
 # --- Territory -------------------------------------------------------------------------------
 #
@@ -1809,14 +2110,15 @@ func rank_level_requirement(rank: int) -> int:
 ## swing - and it does nothing at all for a myr walking out empty. Blue defends the cargo;
 ## White (below) defends the creature.
 @export var enchantment_blue_myr_phase: float = 0.5
-## Black - Exquisite Blood: players heal for a share of the damage they deal. Keeps the
-## PLAYERS alive, where white keeps the CRYSTAL alive. Small on purpose: unlike Vampiric
-## Link it heals from EVERY hit, spells and auras included, so an area spell into a full
-## wave pays it out many times over - and the stacks have no cap, only a rising price.
-@export var enchantment_black_lifesteal: float = 0.01
-## The most lifesteal Exquisite Blood gives however many stacks are bought - 1% a stack
-## reaches it at the fifth. Stacks past that still grow the myrs' death blast.
-@export var enchantment_black_lifesteal_cap: float = 0.05
+## Black - Animate Dead: a fallen player is back sooner. Each stack takes this share off
+## the time spent down (multiplayer: until the respawn at the base; solo: the death
+## penalty) AND off a teammate's revive channel. It was Exquisite Blood - team lifesteal -
+## until 2026-10-20: that doubled Vampiric Link, black's own affinity, and healed from every
+## area hit, so a spell into a full wave paid it out many times over.
+@export var enchantment_black_undeath: float = 0.12
+## The most Animate Dead takes off however many stacks are bought - 12% a stack reaches it
+## at the fifth. Stacks past that still grow the myrs' death blast.
+@export var enchantment_black_undeath_cap: float = 0.6
 ## ...and a myr that dies takes the neighbourhood with it. The one myr effect that pays
 ## out when every other one has already failed.
 @export var enchantment_black_myr_blast_damage: float = 35.0
@@ -1872,7 +2174,7 @@ func lane_tint(color: String) -> Color:
 const ENCHANTMENT_NAMES: Dictionary = {
 	"White": "Sphere of Safety",
 	"Blue": "Propaganda",
-	"Black": "Exquisite Blood",
+	"Black": "Animate Dead",
 	"Red": "Furnace of Rath",
 	"Green": "Overgrowth",
 }
@@ -1886,7 +2188,7 @@ const ENCHANTMENT_NAMES: Dictionary = {
 const ENCHANTMENT_DESCRIPTIONS: Dictionary = {
 	"White": "Enemies near the crystal deal %s less damage to it; myrs take %s less damage",
 	"Blue": "Enemies attack and cast %s more slowly; a loaded myr phases out of reach for %s after each hit",
-	"Black": "Players heal for %s of the damage they deal; a dying myr explodes for %s",
+	"Black": "Time spent downed and the revive channel are %s shorter; a dying myr explodes for %s",
 	"Red": "Every player deals %s more damage; myrs move %s faster",
 	"Green": "%s on every well; bosses drop %s more mana",
 }
@@ -1978,6 +2280,9 @@ const ENCHANTMENT_DESCRIPTIONS: Dictionary = {
 ## for the same reason as debug_free_skills - but it does outlive a restart, so testing
 ## wave 15 over and over does not mean setting it again every run.
 @export var debug_start_wave: int = 1
+## Debug: how high the options panel's team level can be set (RunState.debug_set_team_level),
+## for trying a class's skills - they arrive at class_skill_levels - without levelling up.
+@export var debug_max_team_level: int = 30
 ## Set by the main menu on its way into a run, cleared by the map once it has looked: the
 ## intro camera flight plays for a run entered from the menu, never on Restart or in a test
 ## scene that loads the map directly. See IntroTour.

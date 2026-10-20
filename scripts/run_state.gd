@@ -282,6 +282,21 @@ func add_xp(amount: float) -> void:
 		_apply_level(team_xp, team_level, levels_gained)
 
 
+## Debug (the HUD's Debug tab): puts the team straight at `level` as if the XP had been
+## earned - a skill point for every level gained, and the class skills arriving at theirs,
+## on the quick bar - so a class's whole kit can be tried without playing up to it. Going
+## down only moves the level: points already paid out stay. Server only, like the XP.
+func debug_set_team_level(level: int) -> void:
+	if not Net.is_server():
+		return
+	level = maxi(level, 1)
+	var gained: int = maxi(level - team_level, 0)
+	var xp: float = xp_for_level(level)
+	if Net.is_active():
+		_apply_level.rpc(xp, level, gained)
+	_apply_level(xp, level, gained)
+
+
 ## Levels land on every peer at the same moment, which is the whole point of sharing XP:
 ## nobody is ever behind, and a player who died repeatedly still keeps up.
 @rpc("authority", "call_remote", "reliable")
@@ -450,12 +465,12 @@ func enemy_attack_speed_multiplier() -> float:
 	return 1.0 / maxf(1.0 - slow, 0.25)
 
 
-## Black, Exquisite Blood: every player heals for a share of what they deal. Keeps the
-## PLAYERS alive, where white keeps the CRYSTAL alive - so the two defensive colours
-## never compete for the same purchase.
-func lifesteal_bonus() -> float:
-	return minf(GameSettings.enchantment_black_lifesteal * enchantment_stacks("Black"),
-		GameSettings.enchantment_black_lifesteal_cap)
+## Black, Animate Dead: what the time spent downed and a teammate's revive channel are
+## multiplied by. Brings fallen PLAYERS back, where white keeps the CRYSTAL alive - so the
+## two defensive colours never compete for the same purchase.
+func undeath_time_multiplier() -> float:
+	return 1.0 - minf(GameSettings.enchantment_black_undeath * enchantment_stacks("Black"),
+		GameSettings.enchantment_black_undeath_cap)
 
 
 ## White, Sphere of Safety: enemies close to the crystal deal less damage to it.
@@ -515,8 +530,8 @@ func _enchantment_values(color: String, stacks: int) -> Array:
 			]
 		"Black":
 			return [
-				_pct(minf(GameSettings.enchantment_black_lifesteal * stacks,
-					GameSettings.enchantment_black_lifesteal_cap)),
+				_pct(minf(GameSettings.enchantment_black_undeath * stacks,
+					GameSettings.enchantment_black_undeath_cap)),
 				"%d damage" % int(round(GameSettings.enchantment_black_myr_blast_damage * stacks)),
 			]
 		"Red":
@@ -553,7 +568,7 @@ func myr_phase_duration() -> float:
 	return GameSettings.enchantment_blue_myr_phase * enchantment_stacks("Blue")
 
 
-## Black, Exquisite Blood. Damage and radius of a dying myr's blast; 0 damage disables it.
+## Black, Animate Dead. Damage and radius of a dying myr's blast; 0 damage disables it.
 func myr_blast_damage() -> float:
 	return GameSettings.enchantment_black_myr_blast_damage * enchantment_stacks("Black")
 

@@ -13,9 +13,11 @@ extends Node3D
 ## to the hold that produced it.
 ##
 ## Five things escalate together across the hold, because size alone does not read as power:
-## the sphere grows, the colour climbs from ember red through orange to a white-hot core, the
+## the ball grows, the colour climbs from ember red through orange to a white-hot core, the
 ## light gets brighter and reaches further, the embers gather faster, and at full charge the
-## whole thing snaps to white and rings once.
+## whole thing snaps to white and rings once. The ball is the same churning fire the Fireball
+## flies as (SpellFx.energy_orb, Projectile's type 4), spinning and boiling harder as the charge
+## builds, and the air over it shimmers more and more (heat_haze.gdshader).
 ##
 ## The embers move INWARD, which is the part doing most of the work. Particles drawn into the
 ## ball read as something being gathered; particles coming off it read as something already
@@ -50,10 +52,12 @@ const WHITEN_FROM := 0.7
 const LIGHT_ENERGY := Vector2(0.5, 4.2)
 const LIGHT_RANGE := Vector2(1.6, 8.0)
 
-var _core: MeshInstance3D
-var _shell: MeshInstance3D
-var _core_material: StandardMaterial3D
-var _shell_material: StandardMaterial3D
+## The ball (an energy orb of radius 1, scaled to the charge) and the shimmer of hot air over
+## it - an empty node where the renderer draws no shimmer (SpellFx.haze_supported).
+var _core: Node3D
+var _shell: Node3D
+var _core_material: ShaderMaterial
+var _shell_material: ShaderMaterial
 var _gather: GPUParticles3D
 var _gather_process: ParticleProcessMaterial
 var _light: OmniLight3D
@@ -77,55 +81,42 @@ func setup(size_scale: float = 1.0) -> void:
 
 
 func _ready() -> void:
-	_core = MeshInstance3D.new()
+	# Churning fire rather than a lit sphere: a lit emissive sphere is a flat disc at any
+	# distance, and nothing on it moved.
+	_core = SpellFx.energy_orb(1.0, COLD_TINT.darkened(0.6), COLD_TINT, HOT_TINT)
 	_core.name = "Core"
-	var core_mesh := SphereMesh.new()
-	core_mesh.radius = 1.0
-	core_mesh.height = 2.0
-	core_mesh.radial_segments = 24
-	core_mesh.rings = 12
-	_core.mesh = core_mesh
-	_core_material = StandardMaterial3D.new()
-	# Shaded with a strong rim rather than unshaded: an unshaded emissive sphere is a flat
-	# disc at any distance, which is exactly why the Orb of Fire read as placeholder before
-	# it was given a real material.
-	_core_material.albedo_color = Color(0.5, 0.11, 0.02)
-	_core_material.metallic = 0.1
-	_core_material.roughness = 0.5
-	_core_material.emission_enabled = true
-	_core_material.rim_enabled = true
-	_core_material.rim = 0.9
-	_core_material.rim_tint = 0.15
-	_core_material.render_priority = SpellFx.FX_RENDER_PRIORITY
-	_core.material_override = _core_material
+	_core_material = SpellFx.energy_orb_material(_core)
+	_core_material.set_shader_parameter("swirl", 1.4)
+	_core_material.set_shader_parameter("boil_scale", 3.0)
+	_core_material.set_shader_parameter("flicker", 0.35)
 	add_child(_core)
 
-	_shell = MeshInstance3D.new()
+	# The heat coming off it: a quad of bent air twice the ball's size.
+	if SpellFx.haze_supported():
+		var shimmer := MeshInstance3D.new()
+		var air := QuadMesh.new()
+		air.size = Vector2.ONE * 4.0
+		_shell_material = SpellFx.orb_haze_material(0.004)
+		air.surface_set_material(0, _shell_material)
+		shimmer.mesh = air
+		shimmer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_shell = shimmer
+	else:
+		_shell = Node3D.new()
 	_shell.name = "Shell"
-	var shell_mesh := SphereMesh.new()
-	shell_mesh.radius = 1.0
-	shell_mesh.height = 2.0
-	shell_mesh.radial_segments = 20
-	shell_mesh.rings = 10
-	_shell.mesh = shell_mesh
-	_shell_material = StandardMaterial3D.new()
-	_shell_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_shell_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_shell_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_shell_material.emission_enabled = true
-	_shell_material.render_priority = SpellFx.FX_RENDER_PRIORITY
-	_shell.material_override = _shell_material
 	add_child(_shell)
 
 	_gather = GPUParticles3D.new()
 	_gather.name = "Gather"
 	# Fixed at spawn: changing `amount` at runtime restarts the system, and this one is
 	# updated every frame.
-	_gather.amount = 44
+	# Many and small: a few dozen big dots read as confetti round the ball rather than as
+	# sparks being drawn into it.
+	_gather.amount = 150
 	_gather.lifetime = 0.7
 	_gather.preprocess = 0.7
 	_gather.local_coords = true
-	_gather.draw_pass_1 = SpellFx.premul_particle_mesh(0.13, "spark")
+	_gather.draw_pass_1 = SpellFx.premul_particle_mesh(0.05, "spark")
 	_gather_process = ParticleProcessMaterial.new()
 	_gather_process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	_gather_process.emission_sphere_radius = 0.6
@@ -140,7 +131,7 @@ func _ready() -> void:
 	_gather_process.radial_accel_max = -2.5
 	_gather_process.tangential_accel_min = 1.5
 	_gather_process.tangential_accel_max = 3.5
-	_gather_process.scale_min = 0.3
+	_gather_process.scale_min = 0.5
 	_gather_process.scale_max = 0.9
 	_gather_process.color_ramp = SpellFx._premul_ramp(HOT_TINT)
 	_gather.process_material = _gather_process
@@ -159,10 +150,6 @@ func _process(delta: float) -> void:
 		# the ramp instead of overwriting it.
 		var base: float = lerpf(LIGHT_ENERGY.x, LIGHT_ENERGY.y, _progress)
 		_light.light_energy = base * (1.0 + sin(_flicker_phase * 21.0) * 0.09 + sin(_flicker_phase * 7.3) * 0.05)
-	if _core != null:
-		# A slow tumble, so a held orb is never a static ball.
-		_core.rotate_y(delta * 1.4)
-		_shell.rotate_y(-delta * 0.9)
 
 
 ## Drives the whole effect from one number: how far through the charge the player is, 0 to 1.
@@ -172,17 +159,23 @@ func set_progress(charge: float) -> void:
 	var radius: float = lerpf(MIN_RADIUS, MAX_RADIUS, eased) * _size_scale
 
 	_core.scale = Vector3.ONE * radius
-	# The shell leads the core slightly and thins as it grows, so the ball looks like it is
-	# straining against its own surface rather than simply being scaled up.
+	# Built at a radius of 1 and scaled: the depth it thins out over is in metres, so it follows
+	# the ball's real size, not the one it was built at.
+	_core_material.set_shader_parameter("soft_depth", radius * 0.8)
+	# The shimmer reaches further out than the ball and bends harder as it grows.
 	_shell.scale = Vector3.ONE * radius * lerpf(1.6, 1.22, _progress)
+	if _shell_material != null:
+		_shell_material.set_shader_parameter("strength", lerpf(0.004, 0.022, _progress))
 
 	var tint: Color = _heat_tint(_progress)
-	_core_material.emission = tint
-	_core_material.emission_energy_multiplier = lerpf(1.4, 4.0, _progress)
-	_core_material.albedo_color = tint.darkened(0.72)
-	_shell_material.albedo_color = Color(tint.r, tint.g, tint.b, lerpf(0.10, 0.30, _progress))
-	_shell_material.emission = tint
-	_shell_material.emission_energy_multiplier = lerpf(0.5, 2.4, _progress)
+	# The fire heats from its middle out, and spins and boils harder the fuller the charge -
+	# the ball straining against its own surface rather than simply being scaled up.
+	_core_material.set_shader_parameter("edge_color", tint.darkened(0.45))
+	_core_material.set_shader_parameter("body_color", tint)
+	_core_material.set_shader_parameter("core_color", tint.lerp(FULL_TINT, 0.75))
+	_core_material.set_shader_parameter("energy", lerpf(1.0, 2.3, _progress))
+	_core_material.set_shader_parameter("spin", lerpf(1.2, 5.5, _progress))
+	_core_material.set_shader_parameter("boil_speed", lerpf(1.0, 3.4, _progress))
 
 	_light.light_color = tint
 	_light.omni_range = lerpf(LIGHT_RANGE.x, LIGHT_RANGE.y, _progress)
@@ -199,8 +192,8 @@ func set_progress(charge: float) -> void:
 	if bucket != _ramp_bucket:
 		_ramp_bucket = bucket
 		_gather_process.color_ramp = SpellFx._premul_ramp(tint)
-	_gather_process.scale_min = 0.25 + _progress * 0.35
-	_gather_process.scale_max = 0.7 + _progress * 0.8
+	_gather_process.scale_min = 0.5 + _progress * 0.3
+	_gather_process.scale_max = 0.9 + _progress * 0.5
 
 
 ## The moment the charge completes. One frame of white and a ring, so the player can tell it
@@ -217,7 +210,9 @@ func flare() -> void:
 	# lying on the floor plane, which is right for something landing and wrong for something
 	# completing in mid-air: the first version drew a two-metre dinner plate through the
 	# caster's waist.
-	var burst: GPUParticles3D = SpellFx.sparks(FULL_TINT, MAX_RADIUS * _size_scale * 2.0, 20, 3.2)
+	var burst: GPUParticles3D = SpellFx.sparks(FULL_TINT, MAX_RADIUS * _size_scale * 2.0, 70, 3.2)
+	# Fine sparks, like the gathering ones: SpellFx.sparks draws its points 22 cm across.
+	burst.draw_pass_1 = SpellFx.premul_particle_mesh(0.07, "spark")
 	burst.one_shot = true
 	burst.explosiveness = 1.0
 	add_child(burst)
@@ -237,8 +232,7 @@ func release() -> void:
 	tween.set_parallel(true)
 	tween.tween_property(_core, "scale", _core.scale * 1.35, 0.08).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(_shell, "scale", _shell.scale * 1.6, 0.12)
-	tween.tween_property(_shell_material, "albedo_color:a", 0.0, 0.12)
-	tween.tween_property(_core_material, "emission_energy_multiplier", 0.0, 0.12)
+	tween.tween_method(func(value: float) -> void: _core_material.set_shader_parameter("fade", value), 1.0, 0.0, 0.12)
 	tween.tween_property(_light, "light_energy", 0.0, 0.1)
 	tween.chain().tween_callback(queue_free)
 

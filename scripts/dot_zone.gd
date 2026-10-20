@@ -1,7 +1,9 @@
 extends Area3D
 class_name DoTZone
 
-## fire_rain, fire_patch, toxic_deluge, holy_trail, fog.
+## fire_rain, fire_patch, toxic_deluge, holy_trail, fog - and the archer's two class skills,
+## arrow_volley (Arrow Volley Trap: arrows falling into it, damage like the others) and snare
+## (Disengage: slows whatever walks in and deals nothing, the way fog does).
 ##
 ## `fog` is the odd one and the reason this comment exists: it is the only zone that does
 ## not deal or restore anything. Green's green_3 puts down ground where enemies deal NO
@@ -29,6 +31,9 @@ var _heat: Node3D
 var _light: OmniLight3D
 var _flicker_phase: float = 0.0
 var _fog: GPUParticles3D
+## arrow_volley's falling arrows, and how long until the next arrow is heard landing.
+var _volley: GPUParticles3D
+var _volley_sound_timer: float = 0.0
 ## Seconds the ground takes to come up and to go.
 const FADE_IN := 0.25
 const FADE_OUT := 0.6
@@ -40,6 +45,8 @@ const GROUND_LOOKS: Dictionary = {
 	"toxic_deluge": [1, Color(0.08, 0.14, 0.04), Color(0.55, 0.95, 0.2)],
 	"holy_trail": [2, Color(0.0, 0.0, 0.0), Color(1.0, 0.78, 0.36)],
 	"fog": [3, Color(0.09, 0.13, 0.1), Color(0.7, 0.85, 0.75)],
+	"arrow_volley": [3, Color(0.12, 0.1, 0.07), Color(0.85, 0.78, 0.6)],
+	"snare": [1, Color(0.06, 0.1, 0.04), Color(0.45, 0.75, 0.3)],
 }
 
 func setup(p_type: String, p_radius: float, p_dps: float, p_duration: float, p_caster: Node3D = null) -> void:
@@ -90,6 +97,8 @@ func _ready() -> void:
 		_build_fire_patch()
 	elif zone_type == "fog":
 		_build_fog()
+	elif zone_type == "arrow_volley":
+		_build_volley()
 	_life_timer = duration
 
 
@@ -181,6 +190,34 @@ func _build_fog() -> void:
 	add_child(_fog)
 
 
+## Arrow Volley Trap: arrows dropping out of the sky into the whole disc, steep and fast,
+## each pointing along its fall. The particle is the same arrow the bow shoots.
+func _build_volley() -> void:
+	_volley = GPUParticles3D.new()
+	_volley.amount = clampi(int(radius * radius * 2.2), 24, 90)
+	_volley.lifetime = 0.55
+	_volley.preprocess = 0.0
+	_volley.local_coords = false
+	_volley.draw_pass_1 = PlayerArrow.arrow_mesh(true)
+	_volley.visibility_aabb = AABB(Vector3(-radius, -2.0, -radius), Vector3(radius * 2.0, 16.0, radius * 2.0))
+	var process := ParticleProcessMaterial.new()
+	process.particle_flag_align_y = true
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+	process.emission_ring_axis = Vector3.UP
+	process.emission_ring_radius = radius * 0.95
+	process.emission_ring_inner_radius = 0.0
+	process.emission_ring_height = 0.5
+	# Not quite straight down: a volley comes in on an arc from where it was loosed.
+	process.direction = Vector3(0.15, -1.0, 0.1)
+	process.spread = 6.0
+	process.initial_velocity_min = 20.0
+	process.initial_velocity_max = 24.0
+	process.gravity = Vector3(0.0, -9.8, 0.0)
+	_volley.process_material = process
+	_volley.position = Vector3(0.0, 11.0, 0.0)
+	add_child(_volley)
+
+
 func _build_ground_material() -> ShaderMaterial:
 	var look: Array = GROUND_LOOKS.get(zone_type, GROUND_LOOKS["fire_patch"])
 	var material := ShaderMaterial.new()
@@ -236,6 +273,16 @@ func _process(delta: float) -> void:
 	_ground_material.set_shader_parameter("fade", clampf(shown, 0.0, 1.0))
 	if _life_timer < FADE_OUT and _fog != null:
 		_fog.emitting = false
+	if _volley != null:
+		# The last arrows still in the air land before the zone goes.
+		if _life_timer < _volley.lifetime:
+			_volley.emitting = false
+		elif SoundBank != null:
+			_volley_sound_timer -= delta
+			if _volley_sound_timer <= 0.0:
+				_volley_sound_timer = randf_range(0.08, 0.18)
+				var spot := Vector2(randf_range(-radius, radius), randf_range(-radius, radius)).limit_length(radius)
+				SoundBank.play_at(&"arrow_hit", global_position + Vector3(spot.x, 0.2, spot.y))
 
 	if _light != null:
 		_flicker_phase += delta
@@ -286,6 +333,12 @@ func _apply_ticks() -> void:
 				# both halves lapse together.
 				if b.has_method("apply_slow"):
 					b.apply_slow(tick_interval * 2.0, GameSettings.spell_green_fog_slow_mult)
+			continue
+
+		if zone_type == "snare":
+			# Refreshed every tick like fog's, so stepping out lets go within a tick.
+			if b.is_in_group("enemies") and b.has_method("apply_slow"):
+				b.apply_slow(tick_interval * 2.0, GameSettings.archer_disengage_snare_slow_mult)
 			continue
 
 		if zone_type == "holy_trail":

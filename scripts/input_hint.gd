@@ -51,12 +51,14 @@ const KEYBOARD: Dictionary = {
 	"equipment": "I",
 	"accept": "Click",
 	"next_slot": "E",
+	"block": "RMB",
 }
 const GAMEPAD: Dictionary = {
 	"interact": "D-pad up",
 	"equipment": "L3 wheel",
 	"accept": "bottom",
 	"next_slot": "left",
+	"block": "lt",
 }
 
 

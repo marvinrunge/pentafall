@@ -220,8 +220,8 @@ func _fill_controls_table() -> void:
 		["Jump", "Space", InputHint.pad("lb")],
 		# On a pad sprint is the default: a full push of the stick sprints, a gentle one walks.
 		["Sprint", "Shift", "Push the stick fully"],
-		["Attack", "Left mouse button", InputHint.pad("rt")],
-		["Block", "Right mouse button", InputHint.pad("lt")],
+		["Attack (hold: heavy; archer: draw)", "Left mouse button", InputHint.pad("rt")],
+		["Block (knight: shield; archer: dodge roll; barbarian: none)", "Right mouse button", InputHint.pad("lt")],
 		["Cast selected spell", "Q", "-"],
 		["Spells 1 - 4", "1 - 4", " ".join(PackedStringArray([
 			InputHint.pad("bottom"), InputHint.pad("right"), InputHint.pad("left"), InputHint.pad("top")]))],

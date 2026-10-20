@@ -18,6 +18,12 @@ var _pages: Dictionary = {}
 var _status_label: Label
 
 var _name_field: LineEdit
+## The class, its role under it, and the name: under the figure on the right, as a caption
+## the player can change.
+var _class_picker: OptionButton
+var _class_role: Label
+## The picked class standing to the right of the menu.
+var _class_preview: ClassPreview
 var _server_name_field: LineEdit
 var _host_port_field: LineEdit
 var _host_password_field: LineEdit
@@ -61,9 +67,21 @@ static var _splash_shown: bool = false
 ## The logo's height in the menu column, between these - see _fit_logo.
 const LOGO_HEIGHT_MAX := 240.0
 const LOGO_HEIGHT_MIN := 110.0
+## The column down the left: as wide as the logo at its biggest. The buttons and fields of a
+## page are narrower, centred under it - PAGE_WIDTH, wider for the pages with lists.
+const COLUMN_WIDTH := 560.0
+const PAGE_WIDTH: Dictionary = {Page.MAIN: 320.0, Page.HOST: 360.0, Page.BROWSE: 400.0, Page.LOBBY: 380.0}
+## The figure's caption under it on the right - class, role and name - and how far into the
+## room under the figure's feet it reaches (the preview's view runs a little below the ground).
+const IDENTITY_HEIGHT := 150.0
+const IDENTITY_OVERLAP := 30.0
+## Worn metal, after the logo's lettering: the rim of the buttons and the class's name.
+const METAL := Color(0.62, 0.52, 0.38)
+const METAL_LIGHT := Color(0.9, 0.8, 0.6)
 var _column: VBoxContainer
 var _logo: TextureRect
-var _panel: PanelContainer
+## The open page - what the logo makes room for, with the status line under it.
+var _body: MarginContainer
 var _settings_overlay: Control
 var _settings_menu: VBoxContainer
 
@@ -187,6 +205,15 @@ func _on_solo_pressed() -> void:
 	PlayerRegistry.clear_saved_build()
 	GameSettings.player_count = 1
 	_enter_map()
+
+
+## Remembered for the next run, and - in a lobby - told to the host, who tells everyone.
+func _on_class_selected(index: int) -> void:
+	var class_id: String = String(_class_picker.get_item_metadata(index))
+	UserSettings.set_value(&"character_class", class_id)
+	_class_role.text = String(ClassDatabase.get_class_data(class_id)["role"])
+	_class_preview.show_class(class_id)
+	Net.set_local_class(class_id)
 
 
 func _on_create_pressed() -> void:
@@ -489,10 +516,11 @@ func _show_page(page: Page) -> void:
 ## Sizes the logo to the room the open page leaves in the column: full size on a short page
 ## or a tall window, smaller when the Join page has to fit a 720p one.
 func _fit_logo() -> void:
-	if _logo == null or _panel == null or _column == null:
+	if _logo == null or _body == null or _column == null:
 		return
 	var separation: float = float(_column.get_theme_constant("separation"))
-	var room: float = _column.size.y - _panel.get_combined_minimum_size().y - separation
+	var below: float = _body.get_combined_minimum_size().y + _status_label.get_combined_minimum_size().y
+	var room: float = _column.size.y - below - separation * 2.0
 	_logo.custom_minimum_size.y = clampf(room, LOGO_HEIGHT_MIN, LOGO_HEIGHT_MAX)
 
 
@@ -536,8 +564,9 @@ func _refresh_lobby() -> void:
 		var peer_id: int = int(id)
 		var tag: String = " (you)" if peer_id == Net.local_id() else ""
 		var host_tag: String = " - host" if peer_id == 1 else ""
-		_peer_list.add_child(ReadyStyle.row("%d. %s%s%s" % [
+		_peer_list.add_child(ReadyStyle.row("%d. %s%s%s - %s" % [
 			Net.seat_of(peer_id) + 1, Net.display_name(peer_id), tag, host_tag,
+			ClassDatabase.display_name(Net.class_of(peer_id)),
 		], Net.is_ready(peer_id)))
 
 
@@ -546,87 +575,189 @@ func _refresh_lobby() -> void:
 func _build_ui() -> void:
 	_build_backdrop()
 
+	# The picked class, standing on the right of the painting - between the crystal and the
+	# right-hand stone, clear of the menu column on the left (`figure_column`). The preview
+	# itself spans the whole screen, so a weapon held high or swung out to the side - the
+	# barbarian's 1.9 m greatsword - is never cut off by a frame; added before the menu, so the
+	# buttons stay on top of anything that reaches across them. It stops above its caption
+	# (_build_identity), which stands in the room the figure's feet leave.
+	_class_preview = ClassPreview.new()
+	_class_preview.figure_column = Vector2(0.52, 1.0)
+	_class_preview.anchor_left = 0.0
+	_class_preview.anchor_right = 1.0
+	_class_preview.anchor_top = 0.0
+	_class_preview.anchor_bottom = 1.0
+	_class_preview.offset_bottom = -(IDENTITY_HEIGHT - IDENTITY_OVERLAP)
+	add_child(_class_preview)
+	_class_preview.show_class(Net.local_class())
+
 	# The logo and the menu share one column down the left, over the shaded side of the
-	# painting. The panel is as tall as the page it shows and hangs under the logo, which
-	# is as big as the room the page leaves allows - see _fit_logo.
+	# painting - the buttons straight on it, no panel round them, centred under the logo. The
+	# open page hangs under the logo, which is as big as the room the page leaves allows - see
+	# _fit_logo - so the longest page still fits a 720p window.
 	var column := VBoxContainer.new()
 	_column = column
 	column.anchor_bottom = 1.0
 	column.offset_left = 64.0
-	column.offset_right = 64.0 + 600.0
+	column.offset_right = 64.0 + COLUMN_WIDTH
 	column.offset_top = 28.0
-	column.offset_bottom = -36.0
+	column.offset_bottom = -28.0
 	column.add_theme_constant_override("separation", 14)
+	column.theme = _menu_theme()
 	add_child(column)
 
 	var logo := TextureRect.new()
 	logo.texture = LOGO
 	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	# Drawn at a sixth to a third of its 1600 px: without mipmaps (on in its import) that
+	# shrink skips pixels and the lettering's edges come out jagged and over-sharp.
+	logo.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	logo.custom_minimum_size = Vector2(0.0, LOGO_HEIGHT_MAX)
 	column.add_child(logo)
 	_logo = logo
-
-	var panel := PanelContainer.new()
-	_panel = panel
 	get_viewport().size_changed.connect(_fit_logo)
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.02, 0.022, 0.03, 0.82)
-	# Worn metal, after the lettering above it.
-	style.border_color = Color(0.62, 0.52, 0.38, 0.85)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
-	panel.add_theme_stylebox_override("panel", style)
-	column.add_child(panel)
 
-	var margin := MarginContainer.new()
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 22)
-	panel.add_child(margin)
+	_body = MarginContainer.new()
+	_body.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(_body)
+	_pages[Page.MAIN] = _build_main_page()
+	_pages[Page.HOST] = _build_host_page()
+	_pages[Page.BROWSE] = _build_browse_page()
+	_pages[Page.LOBBY] = _build_lobby_page()
+	for key in _pages:
+		(_pages[key] as Control).custom_minimum_size.x = float(PAGE_WIDTH[key])
+		_body.add_child(_pages[key])
 
-	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 10)
-	margin.add_child(rows)
+	_status_label = Label.new()
+	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_status_label.add_theme_font_size_override("font_size", 13)
+	_status_label.add_theme_color_override("font_color", Color(0.8, 0.75, 0.5))
+	column.add_child(_status_label)
 
-	# One name field for the whole menu: the player types it once and it is used by
-	# whichever page they end up on - and remembered for the next time the game starts.
+	_build_identity()
+	_build_settings_overlay()
+
+
+## Under the figure on the right: the class's name - which is the picker, opened by clicking
+## it - its role, and the player's name. Both are the player's whichever page they go on to -
+## solo, hosting or joining - and in the lobby the class can still be changed.
+func _build_identity() -> void:
+	var identity := VBoxContainer.new()
+	identity.name = "Identity"
+	identity.anchor_left = _class_preview.figure_column.x
+	identity.anchor_right = _class_preview.figure_column.y
+	identity.anchor_top = 1.0
+	identity.anchor_bottom = 1.0
+	identity.offset_left = 24.0
+	identity.offset_right = -24.0
+	identity.offset_top = -IDENTITY_HEIGHT
+	identity.offset_bottom = -22.0
+	identity.alignment = BoxContainer.ALIGNMENT_END
+	identity.add_theme_constant_override("separation", 4)
+	add_child(identity)
+
+	_class_picker = OptionButton.new()
+	_class_picker.flat = true
+	# As wide as the name it shows, so its arrow stands right beside it.
+	_class_picker.fit_to_longest_item = false
+	_class_picker.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_class_picker.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_class_picker.tooltip_text = "Pick your class"
+	_class_picker.add_theme_font_size_override("font_size", 30)
+	_class_picker.add_theme_color_override("font_color", METAL_LIGHT)
+	for state: String in ["font_hover_color", "font_focus_color", "font_pressed_color", "font_hover_pressed_color"]:
+		_class_picker.add_theme_color_override(state, Color(1.0, 0.92, 0.74))
+	_class_picker.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+	_class_picker.add_theme_constant_override("outline_size", 4)
+	_class_picker.get_popup().add_theme_font_size_override("font_size", 18)
+	for class_id: String in ClassDatabase.ORDER:
+		_class_picker.add_item(ClassDatabase.display_name(class_id).to_upper())
+		_class_picker.set_item_metadata(_class_picker.item_count - 1, class_id)
+		_class_picker.set_item_tooltip(_class_picker.item_count - 1, String(ClassDatabase.get_class_data(class_id)["role"]))
+	_class_picker.select(maxi(ClassDatabase.ORDER.find(Net.local_class()), 0))
+	_class_picker.item_selected.connect(_on_class_selected)
+	identity.add_child(_class_picker)
+
+	_class_role = Label.new()
+	_class_role.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_class_role.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_class_role.add_theme_font_size_override("font_size", 14)
+	_class_role.add_theme_color_override("font_color", Color(0.82, 0.8, 0.74))
+	_class_role.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.85))
+	_class_role.add_theme_constant_override("shadow_offset_y", 1)
+	_class_role.text = String(ClassDatabase.get_class_data(Net.local_class())["role"])
+	identity.add_child(_class_role)
+
+	# The name, typed once and used by whichever page the player ends up on - and remembered
+	# for the next time the game starts.
 	var name_row := HBoxContainer.new()
+	name_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	name_row.add_theme_constant_override("separation", 8)
 	var name_label := Label.new()
 	name_label.text = "Name"
+	name_label.add_theme_color_override("font_color", Color(0.82, 0.8, 0.74))
+	name_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.85))
+	name_label.add_theme_constant_override("shadow_offset_y", 1)
 	name_row.add_child(name_label)
 	_name_field = LineEdit.new()
 	var saved_name: String = UserSettings.player_name.strip_edges()
 	_name_field.text = saved_name if saved_name != "" else "Player"
 	_name_field.placeholder_text = "Your name"
 	_name_field.max_length = 24
-	_name_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_name_field.custom_minimum_size = Vector2(240.0, 0.0)
+	_name_field.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	# text_changed fires for typing only, never for the autostart flags setting the field,
 	# so a "Host" or "Client" test window can never overwrite the name the player chose.
 	_name_field.text_changed.connect(func(new_text: String) -> void:
 		UserSettings.set_value(&"player_name", new_text.strip_edges()))
 	name_row.add_child(_name_field)
-	rows.add_child(name_row)
+	identity.add_child(name_row)
 
-	rows.add_child(HSeparator.new())
 
-	var body := MarginContainer.new()
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	rows.add_child(body)
-	_pages[Page.MAIN] = _build_main_page()
-	_pages[Page.HOST] = _build_host_page()
-	_pages[Page.BROWSE] = _build_browse_page()
-	_pages[Page.LOBBY] = _build_lobby_page()
-	for key in _pages:
-		body.add_child(_pages[key])
-
-	_status_label = Label.new()
-	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status_label.add_theme_font_size_override("font_size", 13)
-	_status_label.add_theme_color_override("font_color", Color(0.8, 0.75, 0.5))
-	rows.add_child(_status_label)
-
-	_build_settings_overlay()
+## The menu's buttons stand straight on the painting now, with no panel under them: dark glass
+## with a rim of the logo's worn metal, brightening under the pointer and the gamepad's focus.
+## Set on the column, so every plain button in it wears it - the ready button keeps its own
+## colours (ReadyStyle), and the switches keep the default look.
+static func _menu_theme() -> Theme:
+	var theme := Theme.new()
+	var looks: Dictionary = {
+		"normal": [Color(0.02, 0.022, 0.03, 0.74), Color(METAL, 0.4), 1],
+		"hover": [Color(0.07, 0.06, 0.05, 0.86), Color(METAL, 0.95), 1],
+		"pressed": [Color(0.12, 0.1, 0.07, 0.92), METAL_LIGHT, 1],
+		"disabled": [Color(0.02, 0.022, 0.03, 0.5), Color(METAL, 0.15), 1],
+		"focus": [Color(0.0, 0.0, 0.0, 0.0), METAL_LIGHT, 2],
+	}
+	for state: String in looks:
+		var look: Array = looks[state]
+		var box := StyleBoxFlat.new()
+		box.bg_color = look[0]
+		box.draw_center = state != "focus"
+		box.border_color = look[1]
+		box.set_border_width_all(int(look[2]))
+		box.set_corner_radius_all(4)
+		box.content_margin_left = 14.0
+		box.content_margin_right = 14.0
+		box.content_margin_top = 6.0
+		box.content_margin_bottom = 6.0
+		theme.set_stylebox(state, "Button", box)
+	theme.set_color("font_color", "Button", Color(0.9, 0.86, 0.78))
+	for state: String in ["font_hover_color", "font_focus_color", "font_pressed_color", "font_hover_pressed_color"]:
+		theme.set_color(state, "Button", Color(1.0, 0.94, 0.82))
+	theme.set_color("font_disabled_color", "Button", Color(0.55, 0.52, 0.47))
+	# The switches inherit from Button but are a label and a toggle, not a box: they keep
+	# their own look rather than taking the buttons'.
+	var none := StyleBoxEmpty.new()
+	none.content_margin_left = 6.0
+	none.content_margin_right = 6.0
+	for state: String in ["normal", "hover", "pressed", "disabled", "hover_pressed"]:
+		theme.set_stylebox(state, "CheckButton", none)
+	# The labels beside the fields, the headings and the status line, over the painting: a
+	# shadow under them, as there is no panel behind them any more.
+	theme.set_color("font_shadow_color", "Label", Color(0.0, 0.0, 0.0, 0.85))
+	theme.set_constant("shadow_offset_y", "Label", 1)
+	return theme
 
 
 ## The painting behind the menu, a shade down the left so the panel reads over it, and - the

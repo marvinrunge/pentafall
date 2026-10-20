@@ -6,13 +6,18 @@ shader_type spatial;
 //
 // Two shapes:
 //   * billboard = true: a particle quad, masked to a soft disc and faded by the particle's
-//     own colour alpha (its colour ramp), so a system of them reads as one rising column
+//     own colour alpha (its colour ramp), so a system of them reads as one rising column.
+//     `disc_fade` is where the disc fades, out of the quad's half-width, and `alpha_gain` how
+//     soon it covers in full
 //   * billboard = false: an arc wall from SpellFx._arc_wall_mesh, masked to a band up its
 //     height and faded at the ends of a partial arc
 //
 // Drawn BEFORE the rest of the effect layer (a low render_priority): the screen texture is
 // copied once, before transparent things are drawn, so haze drawn after a flame would paint
-// the flame over with the undistorted ground behind it.
+// the flame over with the undistorted ground behind it. The other side of that: what it draws
+// IS that copy, so anything see-through behind it that was drawn first - water, a lower-priority
+// effect - is painted out wherever it covers in full. The shimmer over an energy orb is kept
+// to a soft ring that never covers in full (SpellFx.energy_orb), so it cannot cut a round hole.
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
 
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap;
@@ -28,6 +33,10 @@ uniform float fade = 1.0;
 uniform bool billboard = true;
 // Partial arcs only (billboard = false): 1 for a full circle.
 uniform float arc_fraction = 1.0;
+// Billboards only: the disc fades from the first to the second, out of the quad's half-width,
+// and covers in full where its mask times this reaches 1.
+uniform vec2 disc_fade = vec2(0.15, 1.0);
+uniform float alpha_gain = 3.0;
 
 varying float seed;
 
@@ -51,7 +60,7 @@ void fragment() {
 	float mask;
 	if (billboard) {
 		float r = length(UV - 0.5) * 2.0;
-		mask = (1.0 - smoothstep(0.15, 1.0, r)) * COLOR.a;
+		mask = (1.0 - smoothstep(disc_fade.x, disc_fade.y, r)) * COLOR.a;
 	} else {
 		float band = sin(clamp(UV.y, 0.0, 1.0) * 3.14159265);
 		float ends = arc_fraction >= 0.999 ? 1.0 : smoothstep(0.0, 0.15, UV.x) * smoothstep(1.0, 0.85, UV.x);
@@ -67,5 +76,5 @@ void fragment() {
 	float near = clamp(4.0 / max(-VERTEX.z, 0.5), 0.15, 1.6);
 	vec2 shift = n * 2.0 * strength * near * mask;
 	ALBEDO = textureLod(screen_texture, SCREEN_UV + shift, 0.0).rgb;
-	ALPHA = clamp(mask * 3.0, 0.0, 1.0);
+	ALPHA = clamp(mask * alpha_gain, 0.0, 1.0);
 }

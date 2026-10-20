@@ -125,7 +125,8 @@ func _refresh() -> void:
 		var row := Label.new()
 		var tag: String = " (you)" if int(id) == Net.local_id() else ""
 		var host_tag: String = " - host" if int(id) == 1 else ""
-		row.text = "%d. %s%s%s" % [Net.seat_of(int(id)) + 1, Net.display_name(int(id)), tag, host_tag]
+		row.text = "%d. %s%s%s - %s" % [Net.seat_of(int(id)) + 1, Net.display_name(int(id)), tag, host_tag,
+			ClassDatabase.display_name(Net.class_of(int(id)))]
 		_peer_list.add_child(row)
 
 

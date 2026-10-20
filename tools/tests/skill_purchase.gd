@@ -10,6 +10,8 @@ extends Node
 ## Run with:  godot --headless --path . res://tools/tests/skill_purchase.tscn
 ## Prints "TEST RESULT: PASS" or a FAIL listing what did not happen.
 
+const InputHint := preload("res://scripts/input_hint.gd")
+
 var _frames: int = 0
 var _done: bool = false
 
@@ -22,6 +24,8 @@ func _process(_delta: float) -> void:
 		return
 	_done = true
 	_run()
+	if has_meta("player_class") and UserSettings.character_class != String(get_meta("player_class")):
+		UserSettings.set_value(&"character_class", String(get_meta("player_class")))
 	get_tree().quit()
 
 
@@ -168,6 +172,7 @@ func _run() -> void:
 	_check_connectivity(st, player, failures)
 	_check_layout(st, failures)
 	_check_details(st, failures)
+	_check_class_ring(st, player, failures)
 
 	# --- every kind of owned node says how far in it is --------------------------
 	#
@@ -292,6 +297,67 @@ func _check_connectivity(st: Node, player: Node, failures: Array[String]) -> voi
 	print("TEST V unreachable detail title='%s' body='%s'" % [title, body])
 	if title.contains(String(_record(st, "blue", 5)["info"]["name"])) or body != "":
 		failures.append("an unreachable node revealed its name or description")
+
+	# A guild node is joined to an outer node of each of its colours: found from either one,
+	# bought only once both colours have guild_investment_requirement in them. It used to be
+	# joined to nothing, and outside debug mode the board showed no way to it.
+	var gruul: Dictionary = _record(st, "red", SkillTree.GUILD_BRANCH)
+	var gruul_info: Dictionary = gruul["info"]
+	player.affinity_ranks["red"] = 0
+	player.affinity_ranks["green"] = 0
+	player.aura_ranks.clear()
+	player.guild_ranks.erase("guild_gruul")
+	var hidden_before: bool = not st._node_reachable(player, "red", SkillTree.GUILD_BRANCH, gruul_info)
+	player.aura_ranks["aura_lightning_orb"] = 1
+	var found: bool = st._node_reachable(player, "red", SkillTree.GUILD_BRANCH, gruul_info)
+	st._on_node_pressed("red", SkillTree.GUILD_BRANCH, gruul_info)
+	var refused: bool = player.get_guild_rank("guild_gruul") == 0
+	player.affinity_ranks["red"] = GameSettings.guild_investment_requirement
+	player.affinity_ranks["green"] = GameSettings.guild_investment_requirement
+	st._on_node_pressed("red", SkillTree.GUILD_BRANCH, gruul_info)
+	var bought: bool = player.get_guild_rank("guild_gruul") > 0
+	var drawn: bool = (st._guild_lines["guild_gruul"] as Array).all(func(line: Line2D) -> bool: return line.points.size() == 2)
+	print("TEST X guild: hidden %s, found from its red neighbour %s, refused under-invested %s, bought %s, lines %s" % [
+		hidden_before, found, refused, bought, drawn])
+	if not (hidden_before and found and refused and bought and drawn):
+		failures.append("a guild node was not joined to its colours, found from a neighbour and bought with both invested")
+	player.aura_ranks.clear()
+	player.guild_ranks.erase("guild_gruul")
+
+
+## The hub's class ring (the warrior's here): its defence first, there from level 1 and on the
+## block button, then the class skills at their levels - a skill not reached yet says which
+## level it waits for. All five shown, all on the board.
+func _check_class_ring(st: Node, player: Node, failures: Array[String]) -> void:
+	var level_before: int = RunState.team_level
+	var dance_level: int = GameSettings.class_skill_levels[2]
+	RunState.team_level = 1
+	st.update_ui()
+	var slots: Array = st._class_slots
+	if slots.size() != 5:
+		failures.append("the class ring has %d slots, not five" % slots.size())
+		return
+	var defence: Dictionary = slots[0]
+	var dance: Dictionary = slots[3]
+	var defence_ok: bool = String(defence["id"]) == "defence_block" and (defence["button"] as Control).visible \
+		and (defence["label"] as Label).text == "" and (defence["badge"] as Label).text == InputHint.key("block")
+	var waits: String = (dance["label"] as Label).text
+	var all_shown: bool = slots.all(func(slot: Dictionary) -> bool: return (slot["button"] as Control).visible)
+	RunState.team_level = dance_level
+	st.update_ui()
+	var reached: bool = String(dance["id"]) == "warrior_blade_dance" and (dance["label"] as Label).text == ""
+	var board: Rect2 = Rect2(Vector2.ZERO, (st._board as Control).size)
+	var on_board: bool = true
+	for slot: Dictionary in slots:
+		var button: Control = slot["button"]
+		if button.visible and not board.encloses(Rect2(button.position, button.size)):
+			on_board = false
+	print("TEST Y class ring: defence %s, blade dance waits '%s', reached %s, all five shown %s, on board %s" % [
+		defence_ok, waits, reached, all_shown, on_board])
+	if not defence_ok or waits != "Lv %d" % dance_level or not reached or not all_shown or not on_board:
+		failures.append("the class ring did not show the defence at level 1 and the class skills at their levels")
+	RunState.team_level = level_before
+	st.update_ui()
 
 
 ## Myrs are capped, nameable and levellable, and all three are rules a player only finds

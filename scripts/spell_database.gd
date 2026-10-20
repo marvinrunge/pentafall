@@ -54,6 +54,46 @@ const ICON_FILES: Dictionary = {
 	"guild_azorius": "guild-azorius.png", "guild_dimir": "guild-dimir.png",
 	"guild_rakdos": "guild-rakdos.png", "guild_gruul": "guild-gruul.png",
 	"guild_selesnya": "guild-selesnya.png",
+	# Class skills (ClassDatabase.SKILLS): a dedicated icon first, once drawn, and until then
+	# the closest existing one.
+	"warrior_blade_dance": "blade-dance.png",
+	"warrior_bloodthirst": ["bloodthirst.png", "grave-pact.png"],
+	"warrior_hurl_axe": ["hurl-axe.png", "fire-dash.png"],
+	"warrior_battle_frenzy": ["battle-frenzy.png", "doublestrike.png"],
+	"archer_longshot": ["longshot.png", "vigilance.png"],
+	"archer_disengage": ["disengage.png", "haste.png"],
+	"archer_volley": ["arrow-volley-trap.png", "rain-of-ember.png"],
+	"archer_deadeye": ["deadeye.png", "doublestrike.png"],
+	"knight_first_strike": ["first-strike.png", "exalted-strike.png"],
+	"knight_shield_bash": ["shield-bash.png", "unsummon.png"],
+	"knight_shield_wall": ["shield-wall.png", "circle-of-protection.png"],
+	"knight_phalanx": ["phalanx.png", "glorious anthem.png"],
+	"barbarian_brute_force": ["brute-force.png", "trample.png"],
+	"barbarian_whirlwind": ["whirlwind.png", "fire-dash.png"],
+	"barbarian_indomitable": ["indomitable.png", "ironbark.png"],
+	"barbarian_berserk": ["berserk.png", "fervor.png"],
+	"mage_prowess": ["prowess.png", "lightning-orb.png"],
+	"mage_blink_of_an_eye": ["blink-of-an-eye.png", "phantasmal-decoy.png"],
+	"mage_spell_mastery": ["spell-mastery.png", "sylvan-library.png"],
+	"mage_mana_surge": ["mana-surge.png", "frost-globe.png"],
+	# Each class's defence, the first slot of the skill tree's class ring (ClassDatabase.DEFENCES).
+	# Until they are drawn, the old keyword icons stand in: none of them is on the board any more.
+	"defence_block": ["defence-block.png", "vigilance.png"],
+	"defence_shield": ["defence-shield.png", "vigilance.png"],
+	"defence_roll": ["defence-roll.png", "haste.png"],
+	"defence_blink": ["defence-blink.png", "flying.png"],
+	"defence_unstoppable": ["defence-unstoppable.png", "trample.png"],
+	# The Upkeep shop's tiles (UpkeepPanel): a myr, a skill point, the crystal's repair and the
+	# five enchantments. Until they are drawn, the nearest existing icon - for an enchantment its
+	# colour's mana symbol.
+	"upkeep_myr": ["upkeep-myr.png", "kodamas-reach.png"],
+	"upkeep_skill_point": ["upkeep-skill-point.png", "sylvan-library.png"],
+	"upkeep_repair": ["upkeep-repair.png", "healing-orb.png"],
+	"enchantment_white": ["enchantment-sphere-of-safety.png", "white.png"],
+	"enchantment_blue": ["enchantment-propaganda.png", "blue.jpg"],
+	"enchantment_black": ["enchantment-animate-dead.png", "black.png"],
+	"enchantment_red": ["enchantment-furnace-of-rath.png", "red.png"],
+	"enchantment_green": ["enchantment-overgrowth.png", "green.png"],
 }
 
 ## Per-spell definition.
@@ -382,21 +422,25 @@ static func has_spell(spell_id: String) -> bool:
 	return SPELLS.has(spell_id)
 
 
+## Falls back to the class skills (ClassDatabase.SKILLS): an active class skill sits on the
+## quick bar and is cast like a spell, so every accessor the bar and the cast path use
+## answers for it too. has_spell() and get_color() deliberately do NOT - they are what keeps
+## the colour sweeps (the tree, the cooldown refunds) to the twenty-five colour spells.
 static func get_spell(spell_id: String) -> Dictionary:
-	return SPELLS.get(spell_id, {})
+	return SPELLS.get(spell_id, ClassDatabase.get_skill(spell_id))
 
 
 ## Not `get_name()`: this extends Node, which already has one.
 static func get_display_name(spell_id: String) -> String:
-	return String(SPELLS.get(spell_id, {}).get("name", "Locked Spell"))
+	return String(get_spell(spell_id).get("name", "Locked Spell"))
 
 
 static func get_description(spell_id: String) -> String:
-	return String(SPELLS.get(spell_id, {}).get("desc", ""))
+	return String(get_spell(spell_id).get("desc", ""))
 
 
 static func get_cooldown(spell_id: String) -> float:
-	return float(SPELLS.get(spell_id, {}).get("cooldown", DEFAULT_COOLDOWN))
+	return float(get_spell(spell_id).get("cooldown", DEFAULT_COOLDOWN))
 
 
 static func is_chargeable(spell_id: String) -> bool:

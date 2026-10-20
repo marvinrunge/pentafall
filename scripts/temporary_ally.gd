@@ -3,8 +3,9 @@ class_name TemporaryAlly
 ## Something on the player's side for a while and then gone.
 ##
 ## Two skills need one and they need almost the same thing, which is why this is one
-## class rather than two: black's **Zombify** raises corpses as ghouls, and blue's
-## **Phantasmal Decoy** drops an illusion that enemies attack instead of the player.
+## class rather than two: black's **Zombify** raises corpses as ghouls, and the mage's
+## **Blink of an Eye** (MageSkills) leaves an illusion that enemies attack instead of the
+## player - the decoy blue's Phantasmal Decoy used to drop.
 ##
 ## A ghoul FIGHTS, and only up close. It sprints at the nearest enemy and trades blows with
 ## it, swinging with a melee rig's `attack` clip, until its time runs out or something kills
@@ -62,6 +63,11 @@ var visual_source: EnemyData = null
 ## is set, which is the single-player and server-side path.
 var visual_color: String = ""
 var visual_class: String = ""
+## For a decoy: the PLAYER class it is an illusion of (ClassDatabase), drawn with that class's
+## own visual in its idle - the mage who blinked away. Empty for the old faceless decoy.
+var visual_player_class: String = ""
+## What an illusion glows in - the colour of the path of the mage who left it.
+var decoy_tint: Color = DECOY_TINT
 
 var _life_timer: float = 0.0
 var _target: Node3D = null
@@ -173,6 +179,21 @@ func _build_visual() -> void:
 	if kind == "undead":
 		enemy_class = "Melee"
 	var scene: PackedScene = null
+	if visual_player_class != "":
+		# A player's visual is built at its real size and already faces -Z, the way the player
+		# it copies faces (PlayerCharacterBuilder); it idles by itself on its autoplay clip.
+		var player_scene: PackedScene = load(ClassDatabase.visual_scene(visual_player_class)) as PackedScene
+		if player_scene != null:
+			_visual = player_scene.instantiate()
+			add_child(_visual)
+			_apply_tint()
+			# The mage holds its orb even as an illusion, in the illusion's colour.
+			var skeleton: Skeleton3D = _visual.find_child("Skeleton3D", true, false) as Skeleton3D
+			if ClassDatabase.has_hand_orb(visual_player_class) and skeleton != null:
+				var orb := MageHandOrb.new()
+				orb.setup(skeleton, null, decoy_tint)
+				_visual.add_child(orb)
+			return
 	if color != "":
 		if enemy_class == "Ranged" and EnemyBase.RANGED_VISUAL_SCENES.has(color):
 			scene = EnemyBase.RANGED_VISUAL_SCENES[color]
@@ -208,7 +229,7 @@ func _build_visual() -> void:
 ## next to it are the same model, so without a colour telling them apart the player
 ## cannot see what their own spell did.
 func _apply_tint() -> void:
-	var tint: Color = UNDEAD_TINT if kind == "undead" else DECOY_TINT
+	var tint: Color = _tint()
 	if kind == "undead":
 		# Dead flesh split by black furrows with violet glowing up out of them - see
 		# undead_overlay.gdshader. The green wash it replaced made a ghoul look poisoned,
@@ -242,6 +263,10 @@ func _apply_tint() -> void:
 	add_child(glow)
 
 
+func _tint() -> Color:
+	return UNDEAD_TINT if kind == "undead" else decoy_tint
+
+
 ## `material_overlay` rather than `material_override`: the overlay draws ON TOP of the
 ## model's own materials, so the character keeps its shape and detail and only gains the
 ## colour. An override would flatten it into a silhouette.
@@ -250,7 +275,7 @@ func _tint_recursive(node: Node, overlay: Material) -> void:
 		(node as MeshInstance3D).material_overlay = overlay
 	elif node is CSGBox3D:
 		# The stand-in box when no model could be found: flat colour, no cracks to lay.
-		var tint: Color = UNDEAD_TINT if kind == "undead" else DECOY_TINT
+		var tint: Color = _tint()
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = tint
 		mat.emission_enabled = true
@@ -269,7 +294,7 @@ func _build_health_bar() -> void:
 	quad.size = Vector2(1.0, 0.12)
 	bar.mesh = quad
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = UNDEAD_TINT if kind == "undead" else DECOY_TINT
+	mat.albedo_color = _tint()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -456,6 +481,8 @@ func take_damage(amount: float, _source: Node3D = null, _is_melee: bool = false)
 		return
 	# A white teammate's Glorious Anthem shelters summons too.
 	amount *= Player.anthem_damage_taken_mult(self)
+	# A knight's Phalanx too, held up between them and the fight.
+	amount *= Player.phalanx_damage_taken_mult(self)
 	health -= amount
 	NetFx.damage_number(
 		global_position + Vector3(0.0, 1.6, 0.0), amount, Color(0.8, 0.9, 1.0), ""
@@ -476,6 +503,10 @@ func _expire() -> void:
 	if kind == "undead":
 		_explode()
 		return
+	# An illusion goes out in a puff of its own light, so it reads as the spell ending rather
+	# than as a model vanishing mid-frame.
+	if Net.is_server():
+		NetFx.impact(global_position + Vector3(0.0, 1.0, 0.0), _tint(), 0.8)
 	queue_free()
 
 

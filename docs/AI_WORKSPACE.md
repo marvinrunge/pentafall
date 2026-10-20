@@ -69,7 +69,7 @@ After generation:
 - `scripts/wave_manager.gd`: wave composition, spawn timing, lane selection
 - `scripts/enemy_database.gd` and enemy data resources: enemy definitions
 - `scripts/projectile_pool.gd`: reusable projectile lifetime management
-- `scripts/player_animator.gd`: which player clip plays and how fast; owns `scenes/misc/player_visual.tscn`
+- `scripts/player_animator.gd`: which player clip plays and how fast; owns the class visual (`scenes/characters/<class>/visual.tscn`)
 - `scripts/spell_database.gd`: the one definition of every player spell (cooldown, charge, cast clip/duration, rooting, commit)
 - `docs/SKILL_DESIGN.md`: the planned skill roster, skill tree and guild camps
 - `docs/ECONOMY.md`: where mana comes from, how it is collected and what it competes for
@@ -97,7 +97,7 @@ After generation:
 - `docs/NATURE_ASSETS.md`: plan for the biome plants, stones, mana crystals and fungus; `tools/nature/nature_assets.json` is its manifest and `tools/nature/nature_pipeline.py` the Gemini -> Meshy -> TerraBrush pipeline (`tools/build_nature_cards.gd`, `tools/build_nature_terrabrush.gd`)
 - `tools/alpha_key.gd`: the white-backdrop keying shared by the grass billboards and the nature cards
 - `tools/animation_impact.gd`: measures the frame an attack clip connects on; used by the enemy and boss builders
-- `tools/player_character_builder.gd`: builds the player visual + `assets/animations/player/lib_player.tres` from `assets/player/`
+- `tools/player_character_builder.gd`: builds each class visual + its `assets/animations/player/<class>/lib_<class>.tres` from `assets/player/<class>/`
 - `scenes/main.tscn`: pentagonal map, five ordered lanes, navigation region, HUD
 
 The lane order is a contract: White, Blue, Black, Red, Green. Node paths, mana identity, and spawn indices depend on it.

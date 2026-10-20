@@ -320,7 +320,8 @@ func _build_lightning_body() -> void:
 	crackle.lifetime = 0.12
 	crackle.preprocess = 0.2
 	crackle.local_coords = true
-	crackle.draw_pass_1 = SpellFx.premul_particle_mesh(0.34, "arc")
+	# A size larger than the plain arc was drawn at: the taper eats its ends.
+	crackle.draw_pass_1 = SpellFx.premul_particle_mesh(0.44, "arc_tapered")
 	var jitter := ParticleProcessMaterial.new()
 	jitter.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	jitter.emission_sphere_radius = 0.12

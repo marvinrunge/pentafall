@@ -88,7 +88,7 @@ exactly where the old passives stood.
     A ghoul Dimir raised explodes too, if its raiser also owns Rakdos - the two nodes
     compose for free.
   - **Gruul** - `Player._start_rampage()` (called from the two charge-in spells' launch
-    half) arms `_rampage_hits_left`; `_apply_melee_damage` spends one per impact FRAME,
+    half) arms `_rampage_hits_left`; `MeleeKit.apply_hit` spends one per impact FRAME,
     not per enemy a cleave connects with - the same unit Exalted Strike's own charge
     spends, for the same reason.
   - **Selesnya** - `Player._share_self_heal_with_myrs(amount)`, called after the two

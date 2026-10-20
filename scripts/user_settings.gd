@@ -31,6 +31,7 @@ const SILENT_BELOW := 0.005
 ## typo at a call site fails loudly instead of quietly saving a key nothing ever reads.
 const SECTIONS: Dictionary = {
 	&"player_name": "player",
+	&"character_class": "player",
 	&"master_volume": "audio",
 	&"music_volume": "audio",
 	&"sfx_volume": "audio",
@@ -52,6 +53,9 @@ const SECTIONS: Dictionary = {
 
 ## Empty until the player has typed one; the main menu shows "Player" in its place.
 var player_name: String = ""
+## The class picked in the menu (ClassDatabase), kept for the next run. What a match is
+## actually played as is what the lobby has in Net.peers - this is only the default for it.
+var character_class: String = "warrior"
 ## 0..1, linear. The slider position IS this number; the bus gets linear_to_db of it.
 var master_volume: float = 1.0
 var music_volume: float = 0.8

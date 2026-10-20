@@ -17,7 +17,7 @@ const SHOTS := [
 	["res://scenes/mage/zombie_mage.tscn", "attack", 0.5, 1.0],
 	["res://scenes/ranged/elf_ranged.tscn", "walk", 0.25, 1.0],
 	["res://scenes/myrs/gold_myr.tscn", "walk_loaded", 0.25, 0.6],
-	["res://scenes/misc/player_visual.tscn", "cast_white", 0.5, 1.1],
+	["res://scenes/characters/warrior/visual.tscn", "cast_white", 0.5, 1.1],
 ]
 
 

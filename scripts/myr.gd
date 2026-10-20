@@ -266,6 +266,8 @@ func take_damage(amount: float, _source: Node3D = null, _is_melee: bool = false)
 	if is_dying or _phase_left > 0.0:
 		return
 	amount *= 1.0 - RunState.myr_damage_reduction()
+	# A knight's Phalanx shelters the myrs behind it as it shelters the team.
+	amount *= Player.phalanx_damage_taken_mult(self)
 	if _carrying:
 		var phase: float = RunState.myr_phase_duration()
 		if phase > 0.0:
@@ -312,7 +314,7 @@ func die() -> void:
 	else:
 		queue_free()
 
-## Black, Exquisite Blood: a myr that dies takes the neighbourhood with it.
+## Black, Animate Dead: a myr that dies takes the neighbourhood with it.
 ##
 ## Server-only. Myr._physics_process has no authority guard and every peer runs its own
 ## copy of the state machine, so an unguarded blast would be dealt once per peer - and the

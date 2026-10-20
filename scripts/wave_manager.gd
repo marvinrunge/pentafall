@@ -68,6 +68,10 @@ var active_enemies: int = 0
 ## True from the moment a wave ends until Upkeep closes. Nothing may start the next
 ## wave while it is set - the Upkeep panel owns that transition.
 var in_upkeep: bool = false
+## The wave's time limit (GameSettings' Time limit block): seconds until what is left of it
+## storms the crystal, and then seconds the storm has left. -1 while neither is running.
+var deadline_left: float = -1.0
+var storm_left: float = -1.0
 
 var main_controller: Node3D
 
@@ -104,6 +108,7 @@ func _process(delta: float) -> void:
 	if not Net.is_server():
 		return
 	_pump_spawn_queue()
+	_tick_time_limit(delta)
 	if not is_spawning:
 		return
 
@@ -147,6 +152,73 @@ func _finish_spawning() -> void:
 	# If somehow everything died before the last group landed, move straight on.
 	if active_enemies <= 0 and _spawn_queue.is_empty():
 		_trigger_next_wave()
+		return
+	# The whole wave is on the map: from here it has its time limit to be dealt with.
+	_set_deadline(GameSettings.wave_time_limit(current_wave + 1))
+
+
+# ============================================================
+# TIME LIMIT
+# ============================================================
+
+## The clock, then the storm. Server only, like everything about a wave.
+func _tick_time_limit(delta: float) -> void:
+	if in_upkeep:
+		return
+	if deadline_left >= 0.0:
+		deadline_left -= delta
+		if deadline_left <= 0.0:
+			_set_deadline(-1.0)
+			_begin_storm()
+	elif storm_left >= 0.0:
+		storm_left -= delta
+		if storm_left <= 0.0:
+			storm_left = -1.0
+			_end_storm()
+
+
+## Time's up: every enemy of the wave still standing drops what it was doing and goes for the
+## crystal. Beasts are no part of a wave and carry on.
+func _begin_storm() -> void:
+	_disband_squads()
+	var stormers: int = 0
+	for enemy: Node in get_tree().get_nodes_in_group("enemies"):
+		if enemy.has_method("begin_storm") and not (enemy.has_method("is_beast") and enemy.is_beast()):
+			enemy.begin_storm(GameSettings.wave_storm_duration)
+			stormers += 1
+	if stormers == 0:
+		_end_storm()
+		return
+	storm_left = GameSettings.wave_storm_duration
+	_announce("", "TIME'S UP - THE WAVE STORMS THE CRYSTAL")
+
+
+## The storm is over and the wave counts as done. What is left of it stays on the map as
+## stragglers, still storming the crystal and still paid for when killed, but no longer
+## counted: the wave is closed without them, and their deaths must not count off the next.
+func _end_storm() -> void:
+	for enemy: Node in get_tree().get_nodes_in_group("enemies"):
+		if enemy.has_method("become_straggler") and not (enemy.has_method("is_beast") and enemy.is_beast()):
+			enemy.become_straggler()
+	_spawn_queue.clear()
+	pending_enemies = 0
+	active_enemies = 0
+	_emit_wave_state()
+	_trigger_next_wave()
+
+
+## Starts (seconds >= 0) or clears (-1) the clock, here and on every client's HUD.
+func _set_deadline(seconds: float) -> void:
+	deadline_left = seconds
+	SignalBus.wave_deadline_changed.emit(seconds)
+	if Net.is_active() and Net.is_server():
+		_net_deadline.rpc(seconds)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _net_deadline(seconds: float) -> void:
+	deadline_left = seconds
+	SignalBus.wave_deadline_changed.emit(seconds)
 
 
 ## Spawns one colour's whole contingent in formation and hands it to an EnemySquad.
@@ -639,6 +711,9 @@ func _trigger_next_wave() -> void:
 	if in_upkeep:
 		return
 	print("Wave ", current_wave + 1, " Completed!")
+	if deadline_left >= 0.0:
+		_set_deadline(-1.0)
+	storm_left = -1.0
 	_disband_squads()
 	wave_completed.emit(current_wave + 1)
 	SignalBus.wave_completed.emit(current_wave + 1)
@@ -663,6 +738,9 @@ func debug_jump_to_wave(wave_number: int) -> void:
 	_spawn_queue.clear()
 	pending_enemies = 0
 	is_spawning = false
+	if deadline_left >= 0.0:
+		_set_deadline(-1.0)
+	storm_left = -1.0
 	_disband_squads()
 	for enemy: Node in get_tree().get_nodes_in_group("enemies"):
 		enemy.queue_free()

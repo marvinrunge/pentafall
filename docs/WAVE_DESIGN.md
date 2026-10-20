@@ -201,6 +201,32 @@ It is not driven off an animation clip length the way a boss's is: the ordinary 
 Mage rigs were never built with a dedicated cast clip to time against, so the windup is a
 fixed, tunable duration (`wave_miniboss_special_windup`) instead.
 
+## The time limit
+
+A wave cannot outlast its time limit (`GameSettings`' Time limit block). The clock starts when
+the wave's last battle group has landed: `wave_time_limit_base` (4 min) at wave 1, plus
+`wave_time_limit_per_wave` (6 s) for each later wave, capped at `wave_time_limit_max` (9 min).
+It is meant as a backstop for a stalled wave, not a clock every wave is fought against.
+When it runs out, every enemy of the wave still standing **storms the crystal**
+(`EnemyBase.begin_storm`) for `wave_storm_duration` (20 s): out of its formation, deaf to
+players, myrs, taunts, pacifying and fear, and `wave_storm_speed_mult` faster. Kills during the
+storm pay as usual. When the storm ends the wave counts as done and Upkeep begins as if it had
+been cleared - but whatever is left of it **stays on the map** as stragglers
+(`EnemyBase.become_straggler`): still storming the crystal, for good now, and paid for when
+killed, but no longer counted by `SignalBus.enemy_died`, so their deaths cannot count off the
+next wave. Anything a straggler brings onto the field (a revive, a raised corpse, a sapling)
+is a straggler too.
+
+It exists for two reasons. A wave whose last enemy was stuck somewhere on the map never ended.
+And a team could keep an early wave alive on purpose - kiting its enemies about while the myrs
+banked mana - and never let the run escalate. Wild beasts (`docs/BEASTS_PLAN.md`) are no part
+of a wave and are left alone.
+
+The HUD shows the countdown for the last `wave_deadline_warning` (30) seconds only, top right
+(`WaveDeadlinePanel`): the server sends the limit once when it starts and `-1` when it clears
+(`SignalBus.wave_deadline_changed`, `WaveManager._net_deadline`), and every HUD counts down
+on its own. Test: `tools/tests/wave_time_limit.tscn`.
+
 ## Where to change things
 
 | I want to change | Look in |
@@ -216,6 +242,7 @@ fixed, tunable duration (`wave_miniboss_special_windup`) instead.
 | which colour/class gets picked as the miniboss | `WaveManager._roll_miniboss` / `_assign_miniboss` |
 | the glow, or a Mage miniboss's special | `EnemyBase.apply_miniboss` / `_perform_miniboss_special` |
 | the wave bosses themselves - attacks, phases, modifiers | see `docs/BOSS_DESIGN.md` |
+| how long a wave may last, and the storm at the end of it | `GameSettings`' Time limit block; `WaveManager._tick_time_limit` |
 
 ## Multiplayer
 

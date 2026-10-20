@@ -119,9 +119,10 @@ var _board: Control
 ##
 ## Red reads as: affinity, then Fireball and Fire Dash, then Rain of Ember, Fire Cone and
 ## Lightning Bolt. The wedge is 72 degrees wide, so the widest pair at 26 degrees still
-## leaves a clear gap to the neighbouring colour.
+## leaves a clear gap to the neighbouring colour. The affinity sits a little way out from the
+## hub, far enough for the class ring to fit between them (_layout_class_ring).
 const BRANCH_LAYOUT: Dictionary = {
-	0: Vector2(0.0, 0.12),
+	0: Vector2(0.0, 0.15),
 	1: Vector2(-14.0, 0.58),
 	2: Vector2(14.0, 0.58),
 	3: Vector2(-26.0, 1.0),
@@ -149,6 +150,8 @@ const BRANCH_EDGES: Array = [
 const BRANCH_DIAMETERS: Dictionary = {0: 48.0, 1: 44.0, 2: 44.0, 3: 40.0, 4: 40.0, 5: 40.0}
 
 var _branch_lines: Dictionary = {}
+## Guild id -> its two lines, to its first colour and to its second.
+var _guild_lines: Dictionary = {}
 var _button_records: Array[Dictionary] = []
 var _texture_cache: Dictionary = {}
 var _detail_panel: PanelContainer
@@ -168,6 +171,15 @@ var _skill_points_label: Label
 ## the one number the whole board is measured against, so it belongs at the centre of it.
 var _level_badge: Panel
 var _level_label: Label
+## The class ring round the hub: the local player's class's five - its defence, then the four
+## class skills - one in each gap between the colours' spokes (_build_class_ring). Each slot is
+## {"button", "rim", "label", "badge"} plus, once a player is known, "id", "level", "kind".
+var _class_slots: Array[Dictionary] = []
+## Which of them the pointer is on, or -1. Kept apart from _hovered_record, which is a
+## colour node's and is read back as one.
+var _hovered_class_slot: int = -1
+## The team's way to the next level, drawn round the hub.
+var _xp_arc: Control
 
 # --- Gamepad/keyboard radial navigation (mouse hover still works independently) ---
 var _selection_ring: Control
@@ -371,10 +383,23 @@ func _build_ui() -> void:
 			_board.add_child(branch_line)
 			edges.append(branch_line)
 		_branch_lines[color] = edges
+	# Two lines per guild node, one to the colour on either side of it (_guild_anchor), each
+	# in that colour - the node joined to both, as docs/GUILD_PLAN.md drew it.
+	for guild_data: Dictionary in GUILD_NODES:
+		var guild_edges: Array[Line2D] = []
+		for guild_color: String in guild_data["colors"]:
+			var guild_line := Line2D.new()
+			guild_line.width = 3.0
+			guild_line.default_color = COLOR_HEX[guild_color] * Color(1.0, 1.0, 1.0, 0.46)
+			guild_line.antialiased = true
+			_board.add_child(guild_line)
+			guild_edges.append(guild_line)
+		_guild_lines[String(guild_data["id"])] = guild_edges
 
 	var center_info: Dictionary = CENTER_INFO.duplicate()
 	center_info["cost"] = GameSettings.melee_combo_unlock_cost
 	_create_icon_node(CENTER_KEY, CENTER_BRANCH, center_info)
+	_build_class_ring()
 
 	for color: String in COLOR_NAMES:
 		var affinity_info: Dictionary = AFFINITY_DATA[color].duplicate()
@@ -430,6 +455,207 @@ func _build_ui() -> void:
 	_build_detail_panel()
 	_board.resized.connect(_layout_nodes)
 	call_deferred("_layout_nodes")
+
+# --- the class ring ----------------------------------------------------------
+#
+# The middle of the board is the CLASS's (docs/CHARACTER_CLASSES_PLAN.md): the hub reads the
+# team level every class skill is measured against, an arc round it the way to the next one,
+# and in the five gaps between the colours' spokes sit the class's five - its defence, there
+# from level 1, then the four class skills at GameSettings.class_skill_levels. Nothing here is
+# bought: they arrive with the level. A slot whose skill a class does not have yet stays empty.
+
+## How far out the ring sits, as a share of the affinity nodes' distance from the hub.
+const CLASS_RING_REACH: float = 0.72
+## A slot's diameter at 720p, and the arc's radius and width there.
+const CLASS_SLOT_SIZE: float = 26.0
+const XP_ARC_RADIUS: float = 33.0
+const XP_ARC_WIDTH: float = 3.0
+const CLASS_GOLD := Color(0.9, 0.75, 0.36)
+
+
+func _build_class_ring() -> void:
+	_xp_arc = Control.new()
+	_xp_arc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_xp_arc.z_index = 1
+	_xp_arc.draw.connect(_draw_xp_arc)
+	_board.add_child(_xp_arc)
+	for index: int in range(COLOR_NAMES.size()):
+		var rim := Panel.new()
+		rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_board.add_child(rim)
+		var button := TextureButton.new()
+		button.ignore_texture_size = true
+		button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+		button.focus_mode = Control.FOCUS_NONE
+		button.mouse_entered.connect(_show_class_details.bind(index))
+		button.mouse_exited.connect(_hide_details)
+		_board.add_child(button)
+		# "Lv 10" over a slot not reached yet - what it is waiting for, read at a glance.
+		var label := Label.new()
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.add_theme_font_size_override("font_size", 12)
+		label.add_theme_color_override("font_color", Color(0.95, 0.92, 0.84))
+		label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+		label.add_theme_constant_override("outline_size", 4)
+		_board.add_child(label)
+		# The key it is on, under it: a quick slot's number, or the block button's.
+		var badge := Label.new()
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		badge.add_theme_font_size_override("font_size", 12)
+		badge.add_theme_color_override("font_color", Color(1.0, 0.88, 0.55))
+		badge.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		badge.add_theme_constant_override("outline_size", 4)
+		_board.add_child(badge)
+		_class_slots.append({"button": button, "rim": rim, "label": label, "badge": badge})
+
+
+## The five slots, in the gaps between the spokes - clockwise from the upper-left gap, so the
+## defence comes first and the capstone last - between the hub and the affinity nodes.
+func _layout_class_ring(center: Vector2, affinity_radius: float, icon_scale: float) -> void:
+	var radius: float = affinity_radius * CLASS_RING_REACH
+	var size: Vector2 = Vector2.ONE * CLASS_SLOT_SIZE * icon_scale
+	var count: int = COLOR_NAMES.size()
+	for index: int in range(_class_slots.size()):
+		var slot: Dictionary = _class_slots[index]
+		# The spokes run out at -90 degrees and every fifth of a turn after; the gaps sit half
+		# way between. Starting one gap back from the top puts the first slot upper left.
+		var angle: float = -PI * 0.5 + TAU * (float(index) - 0.5) / float(count)
+		var point: Vector2 = center + Vector2(cos(angle), sin(angle)) * radius
+		var button: TextureButton = slot["button"]
+		button.size = size
+		button.position = point - size * 0.5
+		var rim: Panel = slot["rim"]
+		rim.size = size + Vector2(6.0, 6.0)
+		rim.position = point - rim.size * 0.5
+		var label: Label = slot["label"]
+		label.size = size + Vector2(16.0, 0.0)
+		label.position = point - label.size * 0.5
+		var badge: Label = slot["badge"]
+		badge.size = Vector2(size.x + 40.0, 16.0)
+		badge.position = Vector2(point.x - badge.size.x * 0.5, point.y + size.y * 0.5 + 1.0)
+	if is_instance_valid(_xp_arc):
+		var arc_size: Vector2 = Vector2.ONE * (XP_ARC_RADIUS + XP_ARC_WIDTH) * 2.0 * icon_scale
+		_xp_arc.size = arc_size
+		_xp_arc.position = center - arc_size * 0.5
+		_xp_arc.set_meta("radius", XP_ARC_RADIUS * icon_scale)
+		_xp_arc.queue_redraw()
+
+
+## Fills the slots for the local player's class: what is in each, whether the team level has
+## reached it, and which key it is on.
+func _refresh_class_ring(player: Node) -> void:
+	var class_id: String = String(player.get("character_class")) if player.get("character_class") != null else ClassDatabase.DEFAULT_CLASS
+	var defence: Dictionary = ClassDatabase.defence_of(class_id)
+	var skills: Array = ClassDatabase.skills_of(class_id)
+	for index: int in range(_class_slots.size()):
+		var slot: Dictionary = _class_slots[index]
+		var id: String = String(defence["id"]) if index == 0 else (String(skills[index - 1]) if index - 1 < skills.size() else "")
+		var level: int = 1 if index == 0 else int(GameSettings.class_skill_levels[mini(index - 1, GameSettings.class_skill_levels.size() - 1)])
+		var kind: String = "defence" if index == 0 else (String(ClassDatabase.get_skill(id).get("kind", "passive")) if id != "" else "")
+		slot["id"] = id
+		slot["level"] = level
+		slot["kind"] = kind
+		slot["name"] = String(defence["name"]) if index == 0 else (String(ClassDatabase.get_skill(id).get("name", "")) if id != "" else "")
+		slot["desc"] = String(defence["desc"]) if index == 0 else (String(ClassDatabase.get_skill(id).get("desc", "")) if id != "" else "")
+		var button: TextureButton = slot["button"]
+		var rim: Panel = slot["rim"]
+		var label: Label = slot["label"]
+		var badge: Label = slot["badge"]
+		var present: bool = id != ""
+		for node: CanvasItem in [button, rim, label, badge]:
+			node.visible = present
+		if not present:
+			continue
+		var reached: bool = RunState.team_level >= level
+		# Square for what goes on the quick bar, round for what is always on - the board's
+		# own rule (_node_material). The defence is on its own button, so it is round.
+		var active: bool = kind == "active"
+		button.material = IconStyle.rounded_material(reached) if active else IconStyle.circle_material(reached)
+		button.texture_normal = SpellDatabase.get_icon(id)
+		button.texture_hover = button.texture_normal
+		button.modulate = _icon_modulate("unlocked" if reached else "locked")
+		rim.add_theme_stylebox_override("panel", _rim_style(reached, active))
+		label.text = "" if reached else "Lv %d" % level
+		var key: String = ""
+		if reached and index == 0 and bool(defence.get("on_block_button", false)):
+			key = InputHint.key("block")
+		elif reached and active:
+			var slot_number: int = _slot_of(player, id)
+			key = "[%d]" % slot_number if slot_number > 0 else ""
+		badge.text = key
+	if is_instance_valid(_xp_arc):
+		_xp_arc.queue_redraw()
+
+
+## A slot's rim: gold once reached, grey before; round, or a rounded square for an active.
+## Made once each - update_ui runs on every kill while the board is open.
+var _rim_styles: Dictionary = {}
+
+
+func _rim_style(reached: bool, active: bool) -> StyleBoxFlat:
+	var key: String = "%s|%s" % [reached, active]
+	if not _rim_styles.has(key):
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0, 0, 0, 0)
+		style.border_color = CLASS_GOLD if reached else Color(0.42, 0.4, 0.36, 0.9)
+		style.set_border_width_all(2)
+		style.set_corner_radius_all(9 if active else 1000)
+		_rim_styles[key] = style
+	return _rim_styles[key]
+
+
+## How far the team is from the level it has to the next, 0 to 1.
+func _level_progress() -> float:
+	var from: float = RunState.xp_for_level(RunState.team_level)
+	var to: float = RunState.xp_for_level(RunState.team_level + 1)
+	if to <= from:
+		return 0.0
+	return clampf((RunState.team_xp - from) / (to - from), 0.0, 1.0)
+
+
+func _draw_xp_arc() -> void:
+	var radius: float = float(_xp_arc.get_meta("radius", XP_ARC_RADIUS))
+	var middle: Vector2 = _xp_arc.size * 0.5
+	var width: float = XP_ARC_WIDTH * radius / XP_ARC_RADIUS
+	_xp_arc.draw_arc(middle, radius, 0.0, TAU, 64, Color(1, 1, 1, 0.08), width, true)
+	var progress: float = _level_progress()
+	if progress > 0.0:
+		_xp_arc.draw_arc(middle, radius, -PI * 0.5, -PI * 0.5 + TAU * progress, maxi(int(64 * progress), 2), CLASS_GOLD, width, true)
+
+
+func _show_class_details(index: int) -> void:
+	if index < 0 or index >= _class_slots.size():
+		return
+	var slot: Dictionary = _class_slots[index]
+	if String(slot.get("id", "")) == "":
+		return
+	var player = PlayerRegistry.get_local()
+	if player == null:
+		return
+	_hovered_record.clear()
+	_hovered_class_slot = index
+	_detail_panel.show()
+	_position_detail_panel(slot["button"])
+	var class_id: String = String(player.get("character_class")) if player.get("character_class") != null else ClassDatabase.DEFAULT_CLASS
+	var level: int = int(slot["level"])
+	var kind: String = String(slot["kind"])
+	_detail_title.text = "%s - %s" % [ClassDatabase.display_name(class_id), slot["name"]]
+	_detail_title.add_theme_color_override("font_color", CLASS_GOLD)
+	var what: String = "Defence, from level 1" if kind == "defence" else "%s class skill, level %d" % [kind.capitalize(), level]
+	if RunState.team_level < level:
+		_detail_status.text = "%s  |  Arrives at team level %d (now %d)" % [what, level, RunState.team_level]
+	elif kind == "defence":
+		_detail_status.text = "%s  |  %s" % [what, "On %s" % InputHint.key("block") if bool(ClassDatabase.defence_of(class_id).get("on_block_button", false)) else "Always on"]
+	elif kind == "active":
+		var slot_number: int = _slot_of(player, String(slot["id"]))
+		_detail_status.text = "%s  |  %s" % [what, "On quick slot %d" % slot_number if slot_number > 0 else "Not on the quick bar"]
+	else:
+		_detail_status.text = "%s  |  Always on" % what
+	_detail_body.text = String(slot["desc"])
+
 
 func _build_selection_ring() -> void:
 	_selection_ring = Panel.new()
@@ -583,6 +809,7 @@ func _layout_nodes() -> void:
 	if is_instance_valid(_level_badge):
 		_level_badge.size = Vector2(58.0, 58.0) * icon_scale
 		_level_badge.position = center - _level_badge.size * 0.5
+	_layout_class_ring(center, lerpf(inner_radius, branch_radius, BRANCH_LAYOUT[0].y), icon_scale)
 
 	for color_index: int in range(COLOR_NAMES.size()):
 		var color: String = COLOR_NAMES[color_index]
@@ -622,6 +849,7 @@ func _layout_nodes() -> void:
 			if fork_record.is_empty():
 				continue
 			points[AURA_BRANCHES[half]] = fork_point
+			node_centers["%s_%d" % [color, AURA_BRANCHES[half]]] = fork_point
 			var fork_button: TextureButton = fork_record["button"]
 			fork_button.size = Vector2(44.0, 44.0) * icon_scale
 			fork_button.position = fork_point - fork_button.size * 0.5
@@ -656,6 +884,11 @@ func _layout_nodes() -> void:
 		guild_button.size = Vector2(44.0, 44.0) * icon_scale
 		guild_button.position = guild_point - guild_button.size * 0.5
 		_place_badge(guild_record, guild_button)
+		var guild_edges: Array = _guild_lines.get(String(guild_data["id"]), [])
+		for side: int in range(mini(colors.size(), guild_edges.size())):
+			var anchor_key: String = "%s_%d" % [colors[side], _guild_anchor(String(colors[side]), side == 0)]
+			var guild_line: Line2D = guild_edges[side]
+			guild_line.points = PackedVector2Array([guild_point, node_centers[anchor_key]]) if node_centers.has(anchor_key) else PackedVector2Array()
 
 	if not _hovered_record.is_empty():
 		var hovered_layout: Dictionary = _find_record(
@@ -754,8 +987,11 @@ func update_ui() -> void:
 		button.texture_hover = button.texture_normal
 		button.material = _node_material(info, state == "unlocked")
 		button.modulate = _icon_modulate(state)
+	_refresh_class_ring(player)
 
-	if not _hovered_record.is_empty():
+	if _hovered_class_slot >= 0:
+		_show_class_details(_hovered_class_slot)
+	elif not _hovered_record.is_empty():
 		_show_details(_hovered_record["color"], _hovered_record["branch_index"], _hovered_record["info"])
 
 # --- what one node is worth, whatever kind it is -----------------------------
@@ -830,10 +1066,11 @@ func _node_gate_met(player: Node, color: String, branch_index: int, info: Dictio
 	match _node_kind(info):
 		KIND_AURA:
 			return _gate_met(player, color, info)
-		KIND_AFFINITY, KIND_GUILD:
-			# Both colours' investment is already what makes a guild node REACHABLE
-			# (see _guild_reachable) - once it is, the price is the only thing left.
+		KIND_AFFINITY:
 			return true
+		KIND_GUILD:
+			# Found from either colour, bought with both (_guild_reachable).
+			return _guild_investment_met(player, info)
 		_:
 			return _investment_met(player, color, branch_index)
 
@@ -944,16 +1181,33 @@ func _show_details(color: String, branch_index: int, info: Dictionary) -> void:
 		return
 	var mana_pool: Dictionary = RunState.mana_pool
 	_hovered_record = {"color": color, "branch_index": branch_index, "info": info}
+	_hovered_class_slot = -1
 	_detail_panel.show()
 	var detail_record: Dictionary = _find_record(color, branch_index)
 	if not detail_record.is_empty():
 		_position_detail_panel(detail_record["button"])
 
 	if bool(info.get("is_center", false)):
+		# The centre is the CLASS TRACK (docs/CHARACTER_CLASSES_PLAN.md): read-only, each
+		# class skill with the team level it arrives at. Nothing here is bought.
+		var class_id: String = String(player.get("character_class")) if player.get("character_class") != null else ClassDatabase.DEFAULT_CLASS
 		_detail_title.text = "Team Level %d" % RunState.team_level
 		_detail_title.add_theme_color_override("font_color", Color(0.86, 0.84, 0.72))
-		_detail_status.text = "Blade Dance is granted at level 10" if not bool(player.melee_combo_extended) else "Blade Dance unlocked"
-		_detail_body.text = "Every colour's ladder is measured against this number."
+		var progress: float = _level_progress()
+		_detail_status.text = "%s class skills  |  %d%% of the way to level %d" % [
+			ClassDatabase.display_name(class_id), int(round(progress * 100.0)), RunState.team_level + 1]
+		var lines: PackedStringArray = []
+		var defence: Dictionary = ClassDatabase.defence_of(class_id)
+		lines.append("%s (defence, level 1) - %s" % [defence["name"], defence["desc"]])
+		for skill_id: String in ClassDatabase.skills_of(class_id):
+			if skill_id == "":
+				continue
+			var skill: Dictionary = ClassDatabase.get_skill(skill_id)
+			var at: int = ClassDatabase.unlock_level(skill_id)
+			var state: String = "unlocked" if RunState.team_level >= at else "level %d" % at
+			lines.append("%s (%s, %s) - %s" % [skill["name"], skill["kind"], state, skill["desc"]])
+		lines.append("Every colour's ladder is measured against the team level.")
+		_detail_body.text = "\n".join(lines)
 		return
 
 	# Withheld, not dimmed. A node with no owned neighbour shows its colour's mana symbol on
@@ -983,10 +1237,16 @@ func _show_details(color: String, branch_index: int, info: Dictionary) -> void:
 		# Gold, same read as a maxed node - "visibly neither colour" per docs/GUILD_PLAN.md.
 		_detail_title.add_theme_color_override("font_color", Color(0.85, 0.72, 0.4))
 		var guild_rank: int = player.get_guild_rank(String(info["id"]))
-		_detail_status.text = (
-			"Unlocked" if guild_rank > 0
-			else "Unlock for %d point  |  Points %d" % [GameSettings.spell_rank_point_cost, _skill_points(player)]
-		)
+		if guild_rank > 0:
+			_detail_status.text = "Unlocked"
+		elif not _guild_investment_met(player, info) and guild_colors.size() == 2:
+			_detail_status.text = "Needs %d invested in %s and %s (now %d and %d)  |  Points %d" % [
+				GameSettings.guild_investment_requirement,
+				COLOR_DISPLAY[String(guild_colors[0])], COLOR_DISPLAY[String(guild_colors[1])],
+				player.color_investment(String(guild_colors[0])), player.color_investment(String(guild_colors[1])),
+				_skill_points(player)]
+		else:
+			_detail_status.text = "Unlock for %d point  |  Points %d" % [GameSettings.spell_rank_point_cost, _skill_points(player)]
 		_detail_body.text = info["desc"]
 		return
 
@@ -1044,6 +1304,7 @@ func _show_details(color: String, branch_index: int, info: Dictionary) -> void:
 
 func _hide_details() -> void:
 	_hovered_record.clear()
+	_hovered_class_slot = -1
 	if is_instance_valid(_detail_panel):
 		_detail_panel.hide()
 
@@ -1064,7 +1325,7 @@ func _on_node_pressed(color: String, branch_index: int, info: Dictionary) -> voi
 		var guild_id: String = String(info["id"])
 		if player.get_guild_rank(guild_id) > 0:
 			return
-		if not _guild_reachable(player, info):
+		if not _guild_reachable(player, info) or not _guild_investment_met(player, info):
 			return
 		if _pay(player, GameSettings.spell_rank_point_cost) and player.has_method("grant_guild_rank"):
 			player.grant_guild_rank(guild_id)
@@ -1181,10 +1442,28 @@ func _is_reachable(player: Node, color: String, branch_index: int) -> bool:
 	return false
 
 
-## A guild node asks BOTH its colours, not one neighbour on the graph - "a guild is a
-## two-colour reward" (docs/GUILD_PLAN.md Stage 1), so investment in just one of the pair
-## must not open it.
+## A guild node is joined to one node of each of its two colours (_guild_anchor) and is found
+## like any other node, from an owned neighbour - either one. Buying it then asks BOTH colours
+## (_guild_investment_met): "a guild is a two-colour reward" (docs/GUILD_PLAN.md Stage 1), so
+## investment in just one of the pair must not open it. It used to ask only for the investment
+## and draw no line to anything, so the board offered no way in and the node looked buyable in
+## debug mode alone. A pair already invested in finds it without the neighbour.
 func _guild_reachable(player: Node, info: Dictionary) -> bool:
+	if GameSettings.debug_free_skills:
+		return true
+	var colors: Array = info.get("colors", [])
+	if colors.size() != 2:
+		return false
+	if _guild_investment_met(player, info):
+		return true
+	for side: int in range(2):
+		if _branch_owned(player, String(colors[side]), _guild_anchor(String(colors[side]), side == 0)):
+			return true
+	return false
+
+
+## Both of a guild's colours have guild_investment_requirement put into them.
+func _guild_investment_met(player: Node, info: Dictionary) -> bool:
 	if GameSettings.debug_free_skills:
 		return true
 	var colors: Array = info.get("colors", [])
@@ -1194,6 +1473,18 @@ func _guild_reachable(player: Node, info: Dictionary) -> bool:
 		player.color_investment(String(colors[0])) >= GameSettings.guild_investment_requirement
 		and player.color_investment(String(colors[1])) >= GameSettings.guild_investment_requirement
 	)
+
+
+## The node of `color` a guild node hangs off: the outer one on the guild's side of it. Each
+## pair in GUILD_NODES is in lane order, so the guild sits past its first colour's axis and
+## short of its second's - the fork splayed forwards for the first (red's Lightning Orb,
+## further round still, where it has one) and the one splayed back for the second.
+func _guild_anchor(color: String, first: bool) -> int:
+	if not first:
+		return AURA_BRANCHES[0]
+	if not _find_record(color, AURA_BRANCHES[2]).is_empty():
+		return AURA_BRANCHES[2]
+	return AURA_BRANCHES[1]
 
 
 ## Whether the player already holds the node at `branch_index` of `color`. The hub counts as

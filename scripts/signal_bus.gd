@@ -38,6 +38,8 @@ signal equipment_changed(player: Node)
 signal equipment_unlocked_changed(item_id: String)
 signal quick_slots_changed()
 signal spell_charge_changed(current_charge: float, max_charge: float, is_charging: bool)
+## The archer's draw (BowKit): 0 at the anchor, 1 at a full draw. `drawing` false when it ends.
+signal bow_draw_changed(draw: float, drawing: bool)
 signal status_effect_applied(target: Node3D, effect_type: String, duration: float)
 signal active_spell_changed(spell_name: String)
 signal player_auras_changed()
@@ -45,6 +47,9 @@ signal at_base_changed(is_at_base: bool)
 signal wave_started(wave_number: int)
 signal wave_completed(wave_number: int)
 signal wave_state_changed(wave_number: int, enemies_remaining: int)
+## The wave's time limit (WaveManager): seconds until what is left of it storms the crystal,
+## sent when the clock starts and again with -1 when there is none any more.
+signal wave_deadline_changed(seconds_left: float)
 signal lane_warning_requested(lane_name: String, message: String, color: Color)
 ## The build phase between waves. `upkeep_finished` is what actually starts the next
 ## wave, so nothing else may emit it.

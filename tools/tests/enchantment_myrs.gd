@@ -211,6 +211,40 @@ func _test_black() -> void:
 	inside.free()
 	outside.free()
 
+	# The player half, Animate Dead: less time down and a quicker revive channel, per stack,
+	# up to the cap - and no lifesteal any more (that was Exquisite Blood, which doubled
+	# black's own affinity).
+	_set_all(0)
+	_check("Animate Dead does nothing at zero stacks",
+		is_equal_approx(RunState.undeath_time_multiplier(), 1.0))
+	var times: Array[float] = []
+	for stacks: int in [1, 3, 5, 20]:
+		RunState.enchantments["Black"] = stacks
+		times.append(RunState.undeath_time_multiplier())
+	_check("Animate Dead shortens with every stack up to its cap",
+		times[0] < 1.0 and times[1] < times[0] and times[2] < times[1],
+		"1/3/5 = %.2f / %.2f / %.2f" % [times[0], times[1], times[2]])
+	_check("and stops at the cap",
+		is_equal_approx(times[3], 1.0 - GameSettings.enchantment_black_undeath_cap), "%.2f" % times[3])
+	var player: Player = PlayerRegistry.get_local() as Player
+	if player != null:
+		RunState.enchantments["Black"] = 3
+		var health_before: float = player.hp
+		player.hp = player.max_hp * 0.5
+		player.on_damage_dealt(500.0, false)
+		_check("a spell hit no longer heals the player", is_equal_approx(player.hp, player.max_hp * 0.5),
+			"%.1f" % player.hp)
+		player.hp = health_before
+		player.die()
+		var expected: float = GameSettings.player_downed_solo_duration * RunState.undeath_time_multiplier()
+		_check("a solo player is down for the shortened time", player.is_downed
+			and is_equal_approx(player.down_timer, expected),
+			"%.2f, expected %.2f" % [player.down_timer, expected])
+		player.revive()
+	else:
+		_check("a local player to test the downed time on", false)
+	_set_all(0)
+
 
 func _test_red_and_green() -> void:
 	_set_all(0)

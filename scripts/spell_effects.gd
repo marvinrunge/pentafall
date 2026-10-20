@@ -97,8 +97,10 @@ static func cast_green_titanic_leap(caster: Player) -> void:
 	caster._play_sound(&"blade_heavy_swing", caster.global_position)
 
 
-## The landing. Everything within reach takes the hit and is thrown outwards from the
-## point of impact, so the slam reads as a shockwave rather than as a melee swing.
+## The landing. Everything within reach takes the hit and is thrown by it, so the slam reads as
+## a shockwave rather than as a melee swing: straight up at the point of impact, more and more
+## outwards further from it, and sideways at the edge. How hard is green's - the caster's health
+## pool against a standard body's - so a bigger body throws further. A boss is only pushed back.
 static func _slam_ground(caster: Player) -> void:
 	caster._leap_timer = 0.0
 	caster._play_sound(&"heavy_landing", caster.global_position)
@@ -111,6 +113,7 @@ static func _slam_ground(caster: Player) -> void:
 	# The landing had no effect at all - only a sound and a shake - so the biggest hit green
 	# has looked like the character simply arriving. Cracks, thrown rock and dust now.
 	caster._spawn_spell_fx("green_1", caster.global_position, radius)
+	var strength: float = GameSettings.spell_green_leap_knockback * caster.max_hp / maxf(GameSettings.player_max_hp, 1.0)
 	for enemy: Node3D in caster.get_tree().get_nodes_in_group("enemies"):
 		if not is_instance_valid(enemy):
 			continue
@@ -120,9 +123,13 @@ static func _slam_ground(caster: Player) -> void:
 		caster._deal_damage(enemy, damage, true)
 		if enemy.has_method("apply_knockback"):
 			offset.y = 0.0
+			var from_centre: float = clampf(offset.length() / maxf(radius, 0.01), 0.0, 1.0)
 			if offset.length_squared() < 0.01:
 				offset = -caster.transform.basis.z
-			enemy.apply_knockback(offset.normalized() * GameSettings.spell_green_leap_knockback)
+			var throw: Vector3 = offset.normalized()
+			if not (enemy.has_method("is_boss") and enemy.is_boss()):
+				throw = Vector3.UP.lerp(throw, from_centre).normalized()
+			enemy.apply_knockback(throw * strength)
 			if enemy.has_method("apply_control_weaken"):
 				enemy.apply_control_weaken(caster)
 
@@ -145,7 +152,7 @@ static func cast_red_rain_ember(caster: Player) -> void:
 
 
 ## white_1. Charges the NEXT melee hit rather than dealing damage itself - see
-## _apply_melee_damage, which spends the charge and exiles anything the hit kills.
+## MeleeKit.apply_hit, which spends the charge and exiles anything the hit kills.
 static func cast_white_exalted_strike(caster: Player) -> void:
 	caster.exalted_charges = GameSettings.rank_count(
 		GameSettings.spell_white_exalted_charges, GameSettings.spell_white_exalted_charges_max, caster._casting_rank

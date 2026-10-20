@@ -1,13 +1,13 @@
 """Cut a generated sheet of skill icons into the separate files the game loads.
 
-The sheet is what the one-image prompt in docs/ICON_PROMPTS.md asks for: a 3 x 3 grid of
-square icons, in the order listed in NAMES below (row by row). Image generators never lay a
-grid out exactly, so the cuts are not taken at thirds blindly: each one is moved to the
-plainest line (the gutter) within a band around the third, and every cell is then trimmed
-to its icon and squared.
+The sheet is what one of the one-image prompts in docs/ICON_PROMPTS.md asks for: a square
+grid of icons, in the order listed in SETS below (row by row) - the 3 x 3 "guilds" sheet, or
+the 4 x 4 "classes" sheet of the class skills. Image generators never lay a grid out exactly,
+so the cuts are not taken at the even divisions blindly: each one is moved to the plainest line
+(the gutter) within a band around it, and every cell is then trimmed to its icon and squared.
 
 Usage:
-    python tools/slice_icon_sheet.py <sheet.png> [out_dir] [--size 256] [--force]
+    python tools/slice_icon_sheet.py <sheet.png> [out_dir] [--set classes] [--size 256] [--force]
 
 out_dir defaults to assets/icons. Existing files are left alone unless --force is given.
 Needs Pillow (pip install pillow).
@@ -19,13 +19,30 @@ import sys
 
 from PIL import Image, ImageChops, ImageStat
 
-# Row by row, as the prompt numbers them.
-NAMES = [
-    "wall-of-frost", "contagion", "kodamas-reach",
-    "guild-azorius", "guild-dimir", "guild-rakdos",
-    "guild-gruul", "guild-selesnya", "displace",
-]
-GRID = 3
+# Row by row, as each prompt numbers them. The grid is the square root of the count.
+SETS = {
+    "guilds": [
+        "wall-of-frost", "contagion", "kodamas-reach",
+        "guild-azorius", "guild-dimir", "guild-rakdos",
+        "guild-gruul", "guild-selesnya", "displace",
+    ],
+    # The class skills (ClassDatabase.SKILLS), one class a row in unlock order - the files
+    # SpellDatabase.ICON_FILES tries before each skill's borrowed stand-in.
+    "classes": [
+        "first-strike", "shield-bash", "shield-wall", "phalanx",
+        "brute-force", "whirlwind", "indomitable", "berserk",
+        "longshot", "disengage", "arrow-volley-trap", "deadeye",
+        "prowess", "blink-of-an-eye", "spell-mastery", "mana-surge",
+    ],
+    # The Upkeep shop's tiles (UpkeepPanel), the warrior's three new class skills and the five
+    # classes' defences (the class ring's level-1 slot) - all named in SpellDatabase.ICON_FILES.
+    "upkeep": [
+        "upkeep-myr", "upkeep-skill-point", "upkeep-repair", "enchantment-sphere-of-safety",
+        "enchantment-propaganda", "enchantment-animate-dead", "enchantment-furnace-of-rath", "enchantment-overgrowth",
+        "bloodthirst", "hurl-axe", "battle-frenzy", "defence-block",
+        "defence-shield", "defence-unstoppable", "defence-roll", "defence-blink",
+    ],
+}
 # How far either side of a third the gutter is looked for, as a share of the sheet.
 SEARCH = 0.06
 
@@ -38,12 +55,12 @@ def _line_score(image: Image.Image, position: int, vertical: bool) -> float:
     return sum(stat.stddev)
 
 
-def _cuts(image: Image.Image, vertical: bool) -> list[int]:
+def _cuts(image: Image.Image, vertical: bool, grid: int) -> list[int]:
     length = image.size[0] if vertical else image.size[1]
     grey = image.convert("L")
     cuts = [0]
-    for k in range(1, GRID):
-        guess = int(length * k / GRID)
+    for k in range(1, grid):
+        guess = int(length * k / grid)
         reach = int(length * SEARCH)
         lo, hi = max(1, guess - reach), min(length - 2, guess + reach)
         cuts.append(min(range(lo, hi + 1), key=lambda p: _line_score(grey, p, vertical)))
@@ -75,16 +92,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("sheet")
     parser.add_argument("out_dir", nargs="?", default=os.path.join("assets", "icons"))
+    parser.add_argument("--set", choices=sorted(SETS), default="guilds")
     parser.add_argument("--size", type=int, default=256)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
+    names = SETS[args.set]
+    grid = round(len(names) ** 0.5)
     sheet = Image.open(args.sheet).convert("RGBA")
-    xs, ys = _cuts(sheet, True), _cuts(sheet, False)
+    xs, ys = _cuts(sheet, True, grid), _cuts(sheet, False, grid)
     os.makedirs(args.out_dir, exist_ok=True)
-    for row in range(GRID):
-        for column in range(GRID):
-            name = NAMES[row * GRID + column]
+    for row in range(grid):
+        for column in range(grid):
+            name = names[row * grid + column]
             path = os.path.join(args.out_dir, name + ".png")
             if os.path.exists(path) and not args.force:
                 print(f"skip  {path} (exists; --force to overwrite)")

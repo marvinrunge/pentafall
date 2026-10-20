@@ -26,6 +26,15 @@ const SHOCKWAVE_GROUND_SHADER := "res://assets/shaders/shockwave_ground.gdshader
 const SHOCKWAVE_WALL_SHADER := "res://assets/shaders/shockwave_wall.gdshader"
 const BEAM_SHADER := "res://assets/shaders/energy_beam.gdshader"
 const HEAT_HAZE_SHADER := "res://assets/shaders/heat_haze.gdshader"
+const ENERGY_ORB_SHADER := "res://assets/shaders/energy_orb.gdshader"
+## How much of an energy orb's quad the ball fills (energy_orb.gdshader's `ball_size`); the rest
+## is its halo. energy_orb() sizes the quad from it, so `radius` is the ball's own.
+const ORB_BALL_SIZE := 0.62
+## A fireball's three colours, out to in: the deep red of its rim, the orange of its body, the
+## white-hot middle (energy_orb.gdshader).
+const FIRE_ORB_EDGE := Color(0.7, 0.12, 0.02)
+const FIRE_ORB_BODY := Color(1.0, 0.45, 0.08)
+const FIRE_ORB_CORE := Color(1.0, 0.92, 0.66)
 
 ## Drawn AFTER Sky3D's fog, which is the single reason spell effects looked washed out
 ## against the sky and worst of all along the horizon.
@@ -80,6 +89,11 @@ const TEXTURES := {
 	"trail": "res://assets/vfx/trail_trace.png",
 	# Kenney's spark_05: one jagged arc of lightning, top to bottom.
 	"arc": "res://assets/vfx/lightning_arc.png",
+	# The same arc thinning out towards its ends (its alpha faded from 0.45 to 0.95 of the
+	# half-width, out from the middle). For crackle round a ball: arcs that run to the edge of
+	# their quad all stop at the same distance from it, and a handful of them spinning round
+	# one centre drew a hard circle.
+	"arc_tapered": "res://assets/vfx/lightning_arc_tapered.png",
 	# Kenney's twirl_03: a curl of wind, bright along its leading edge. Suction's vortex.
 	"twirl": "res://assets/vfx/swirl_twirl.png",
 	# Kenney's dirt_01 / dirt_02: a scatter of earth clods. Pigment, tinted dark - see
@@ -1019,3 +1033,70 @@ static func cast_glow(tint: Color, radius: float) -> Node3D:
 		tween.tween_interval(0.4)
 		tween.tween_callback(root.queue_free), CONNECT_ONE_SHOT)
 	return root
+
+
+## A ball of living energy (energy_orb.gdshader): one camera-facing quad that swirls, boils and
+## flickers, in three colours out to in - `edge`, `body`, `core`. `radius` is the ball's own,
+## metres; the quad reaches past it for the halo. With `haze` above 0 a shimmer of bent air
+## (heat_haze.gdshader) twice as wide lies over it, that strong - a soft ring hugging the ball
+## that never covers in full (orb_haze_material), so nothing see-through behind the orb is
+## painted out in a circle. Where the ball meets something solid it thins out over most of its
+## radius (the shader's `soft_depth`) instead of being sliced by it.
+##
+## The ball is the child "Ball" and its material is per orb (each has its own `seed`, so two in
+## flight never churn in step) - energy_orb_material() hands it back for anything that changes
+## the orb as it lives, like a charge heating up.
+static func energy_orb(radius: float, edge: Color, body: Color, core: Color, haze: float = 0.0) -> Node3D:
+	var root := Node3D.new()
+	root.name = "EnergyOrb"
+	var ball := MeshInstance3D.new()
+	ball.name = "Ball"
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE * radius * 2.0 / ORB_BALL_SIZE
+	ball.mesh = quad
+	ball.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var material := ShaderMaterial.new()
+	material.shader = load(ENERGY_ORB_SHADER) as Shader
+	material.render_priority = FX_RENDER_PRIORITY
+	material.set_shader_parameter("edge_color", edge)
+	material.set_shader_parameter("body_color", body)
+	material.set_shader_parameter("core_color", core)
+	material.set_shader_parameter("ball_size", ORB_BALL_SIZE)
+	material.set_shader_parameter("soft_depth", radius * 0.8)
+	material.set_shader_parameter("seed", randf() * 100.0)
+	ball.material_override = material
+	root.add_child(ball)
+	if haze > 0.0 and haze_supported():
+		var shimmer := MeshInstance3D.new()
+		shimmer.name = "Shimmer"
+		var air := QuadMesh.new()
+		air.size = Vector2.ONE * radius * 4.0
+		air.surface_set_material(0, orb_haze_material(haze))
+		shimmer.mesh = air
+		shimmer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(shimmer)
+	return root
+
+
+## The shimmer over an energy orb, `strength` strong: fine and fast, streaming back off the
+## ball the way air does off something hot. On a quad twice the ball's width it bends the air
+## strongest over the ball's rim and is gone by half a radius out, and never covers in full -
+## the haze draws the screen as it was before anything see-through, and covering in full
+## painted water, smoke or another effect behind the orb out in a hard-edged disc.
+static func orb_haze_material(strength: float) -> ShaderMaterial:
+	var material := haze_material(strength, true, 6.0, 2.2, Vector2(0.35, 1.0))
+	material.set_shader_parameter("disc_fade", Vector2(0.3, 0.75))
+	material.set_shader_parameter("alpha_gain", 1.0)
+	return material
+
+
+## An energy orb in one tint: the tint's dark rim, the tint, and a middle that has nearly
+## gone white. The mage's bolts, in the colour of their path.
+static func energy_orb_tinted(radius: float, tint: Color, haze: float = 0.0) -> Node3D:
+	return energy_orb(radius, tint.darkened(0.4), tint, tint.lerp(Color.WHITE, 0.8), haze)
+
+
+## The material of an orb energy_orb() built.
+static func energy_orb_material(orb: Node3D) -> ShaderMaterial:
+	var ball: MeshInstance3D = orb.get_node_or_null("Ball") as MeshInstance3D
+	return ball.material_override as ShaderMaterial if ball != null else null
