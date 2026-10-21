@@ -13,7 +13,7 @@
   <img alt="Players" src="https://img.shields.io/badge/co--op-1%E2%80%935%20players-c9a227?style=for-the-badge">
 </p>
 
-![The crystal at the heart of the pentagon](site/images/splash.jpg)
+![Every colour's warband storms the crystal at the heart of the pentagon](site/images/screenshots/siege_wide.jpg)
 
 ## The game
 
@@ -28,7 +28,7 @@ Everyone in the party levels at the same time. Between waves the team spends its
 mana at Upkeep. If the crystal falls, the run is over.
 
 <p align="center">
-  <img src="site/images/menu.jpg" alt="The crystal under siege" width="100%">
+  <img src="site/images/screenshots/heroes_line.jpg" alt="The five hero classes hold the crystal while every lane fights around it" width="100%">
 </p>
 
 ## Features
@@ -54,26 +54,54 @@ mana at Upkeep. If the crystal falls, the run is over.
 
 ## The five colours
 
-Each colour has its own biome, its own warband and its own boss. The loading screen
-shows whichever one is coming.
+Each colour has its own biome, its own warband and its own boss.
 
 <table>
   <tr>
-    <td width="50%"><img src="site/images/loading_white.jpg" alt="White"><br><b>White</b>: golden groves, a holy host and the Paladin.</td>
-    <td width="50%"><img src="site/images/loading_blue.jpg" alt="Blue"><br><b>Blue</b>: mangrove coasts, the tide's soldiers and the Frost Giant.</td>
+    <td width="50%"><img src="site/images/screenshots/warband_white.jpg" alt="White"><br><b>White</b>: golden groves, a holy host and the Paladin.</td>
+    <td width="50%"><img src="site/images/screenshots/warband_blue.jpg" alt="Blue"><br><b>Blue</b>: mangrove coasts, the tide's soldiers and the Frost Giant.</td>
   </tr>
   <tr>
-    <td><img src="site/images/loading_black.jpg" alt="Black"><br><b>Black</b>: drowned willow swamps, the restless dead and the Zombie Lord.</td>
-    <td><img src="site/images/loading_red.jpg" alt="Red"><br><b>Red</b>: volcanic slopes, goblin hordes and the Fire Giant.</td>
+    <td><img src="site/images/screenshots/warband_black.jpg" alt="Black"><br><b>Black</b>: drowned willow swamps, the restless dead and the Zombie Lord.</td>
+    <td><img src="site/images/screenshots/warband_red.jpg" alt="Red"><br><b>Red</b>: volcanic slopes, goblin hordes and the Fire Giant.</td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><img src="site/images/loading_green.jpg" alt="Green" width="50%"><br><b>Green</b>: old-growth forest, its wild beasts and the Treant.</td>
+    <td colspan="2" align="center"><img src="site/images/screenshots/warband_green.jpg" alt="Green" width="50%"><br><b>Green</b>: old-growth forest, its elves and the Treant.</td>
   </tr>
 </table>
 
 ## In game
 
-![Boot splash, main menu, loading screen and defeat screen](site/images/screens_in_game.jpg)
+<table>
+  <tr>
+    <td width="50%"><img src="site/images/screenshots/siege_front.jpg" alt="The knight holds the White lane against the holy host and the Paladin"></td>
+    <td width="50%"><img src="site/images/screenshots/siege_barbarian.jpg" alt="The barbarian swings his greatsword into the restless dead"></td>
+  </tr>
+  <tr>
+    <td><img src="site/images/screenshots/siege_mage.jpg" alt="The mage casts into the tide's soldiers"></td>
+    <td><img src="site/images/screenshots/siege_dusk.jpg" alt="The crystal glows over the fight at dusk"></td>
+  </tr>
+</table>
+
+## Wild beasts
+
+Away from the lanes, every biome keeps its own beasts, whatever the waves are doing.
+
+![The knight and the archer take on a Spineback Terror](site/images/screenshots/beast_hunt.jpg)
+
+<table>
+  <tr>
+    <td width="50%"><img src="site/images/screenshots/beasts_white.jpg" alt="Ashen Spinebacks"><br><b>White</b>: Ashen Spineback</td>
+    <td width="50%"><img src="site/images/screenshots/beasts_blue.jpg" alt="Blisterback Ravagers"><br><b>Blue</b>: Blisterback Ravager</td>
+  </tr>
+  <tr>
+    <td><img src="site/images/screenshots/beasts_black.jpg" alt="Gloomhide Ravagers"><br><b>Black</b>: Gloomhide Ravager</td>
+    <td><img src="site/images/screenshots/beasts_red.jpg" alt="Spineback Terrors"><br><b>Red</b>: Spineback Terror</td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="site/images/screenshots/beasts_green.jpg" alt="Thornhide Ravagers" width="50%"><br><b>Green</b>: Thornhide Ravager</td>
+  </tr>
+</table>
 
 ## Controls
 
