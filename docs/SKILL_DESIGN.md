@@ -780,6 +780,10 @@ second roster.
 The **Gap** column is the point of the list: it says what the game currently *cannot
 do*, which is the only reason to add a skill rather than rank up an existing one.
 
+> **Round two** (*Idea backlog — round two*, below) took Blood Frenzy, Powder Keg, Goblin
+> Sharpshooter, Call of the Herd and Tanglevine (as Entangling Vines) from this list, reworked
+> to fit every class, and dropped Death Mark.
+
 ## Blue — control
 
 Blue's gap is **space and time**. It can push, pull and freeze, but it cannot
@@ -864,3 +868,149 @@ because each one makes the map itself part of the fight:
 Several also unlock unused engine state for free: `root_timer` (Tanglevine) and
 `blind_timer` (still unclaimed) are already ticked down every frame by `EnemyBase` and
 set by nothing.
+
+---
+
+# Idea backlog — round two: variety inside each colour (2026-10-21)
+
+Collected with the user to give every colour more variation of its own, with something in
+each for melee, ranged and mage players. **Ideas only — none of this is built**, and the
+tree has no room for it yet: `SpellDatabase.SPELLS_PER_COLOR` is 5, and taking these on
+means a new ring layout and new gates, which is its own design pass.
+
+## The rules this round follows
+
+- **Nothing is class-locked.** The class rule in `docs/CHARACTER_CLASSES_PLAN.md` holds: a
+  class is the weapon, a colour is the magic, and every skill below works for every class.
+  Each one simply reads best for one style — ⚔️ melee, 🏹 ranged, 🪄 mage. In the tree that is
+  a small hint icon, never a gate.
+- **Most of them ride on the next attack.** Every class has a light attack (tap) and a heavy
+  one (hold), so a skill can say which it charges, and the effect lands wherever that attack
+  hits - on the blade, the arrow or the bolt:
+
+  | Class | Light (tap) | Heavy (hold) |
+  |---|---|---|
+  | Warrior | axe chain | spin |
+  | Knight | sword cut | `heavy_slash` |
+  | Barbarian | cleave | `heavy_combo` |
+  | Archer | quick shot | full draw |
+  | Mage | bolt | Arcane Blast |
+
+  **Shared machinery:** Exalted Strike already charges the next hits, but only in
+  `MeleeKit.apply_hit`. That becomes one class-neutral "next attack charged" mechanism for
+  melee, `BowKit` and `MageKit` alike, and every skill marked *next light / next heavy / next
+  attack* below is built on it - Exalted Strike included, which then works with a bow and a
+  bolt too.
+- **Charges stack (proposed).** Several next-attack buffs may ride on the same attack, each
+  consumed once - Deathtouch on a Become Immense swing is a build, not a bug. Deathtouch's
+  target limit keeps the top end in check.
+- **One number, one node** still applies (see above): no idea here is a plain percentage.
+  Drain Life and Wurmcoil Vigor stayed out because lifesteal is black's affinity.
+- Names are real Magic cards or keywords; *(working title)* marks the ones still looking for
+  one.
+
+## White
+
+| Skill | Trigger | Effect | Notes |
+|---|---|---|---|
+| **Glorious Charge** ⚔️ | Spell | A charge behind a raised shield: enemies in the way are carried along and pinned, allies on the path get a short shield. | White has no gap-closer. |
+| **Smite the Monstrous** ⚔️ | Next heavy | A much harder hit. Landing on a boss while one of its specials is telegraphed **interrupts the special**. | Nothing can stop a boss special today. Rewards standing in front of the boss. |
+| **Sunlance** 🏹 | Next light | The hit becomes a beam of light carrying on in a line; everything in it is **blinded** for 2s and cannot attack. | Claims `blind_timer`, which nothing sets. |
+| **Mark of Sanctity** *(working title)* 🏹 | Next light | Marks the target: every ally who hits it gets a short shield. | Was "Divine Arrow" - too bow-specific a name. A shield rather than a heal, because healing on hit is lifesteal for the team and lifesteal is black's. |
+| **Worship** 🪄 | Spell, zone | Allies inside cannot drop below 1 HP. | Prevents the down instead of undoing it like Rally the Fallen. |
+| **Banishing Light** 🪄 | Spell, area | **Every enemy in a small circle** is sealed in light for a few seconds - out of the fight, then back. Ranks: radius, duration. Bosses immune. | An area on purpose: one enemy at a time is nothing in a late-game wave. |
+| **Sanctum Ward** *(working title)* | Tower | No damage. Pulses a shield onto allies and myrs in range. Sturdy. | See *Towers* below. |
+
+## Blue
+
+| Skill | Trigger | Effect | Notes |
+|---|---|---|---|
+| **Mirror Image** ⚔️ | Spell | Copies fight beside you and mirror your attacks at half damage - arrows and bolts included. Enemies target them. **1 → 3 copies** with rank. | Unlike the mage's Blink of an Eye decoy, these fight. |
+| **Crippling Chill** ⚔️ | Next 3 light | Each hit stacks chill, the third freezes. | ⚠️ Close to Icy Manipulator's freeze chance - this one is certain and a combo. |
+| **Ice Cage** 🏹 | Next light | The target is encased in ice and becomes an obstacle others must walk round. | Turns an enemy into terrain. |
+| **Time Ebb** 🏹 | Next heavy | Every enemy hit is sent back to the start of its lane. Bosses are only slowed. | Ranged and selective, where Unsummon is a close cone. |
+| **Counterspell** 🪄 | Spell | Cast while a boss special is telegraphed: the special fizzles. | ⚠️ Neighbour of Rule of Law above (area silence); this one is reactive and single. |
+| **Curse of the Swine** 🪄 | Spell, area | Up to X enemies in an area become harmless animals for a few seconds; X grows with rank. Bosses immune. | Replaced Turn to Frog - one enemy was too little against a horde. Needs a small animal model. |
+| **Frost Spire** *(working title)* | Tower | Fires ice that slows; every fourth shot freezes. Medium health. | |
+
+## Black
+
+| Skill | Trigger | Effect | Notes |
+|---|---|---|---|
+| **Deathtouch** | Next attack (light or heavy, within 8s) | Every non-boss it hits dies outright, elites included; bosses and minibosses only below the execute threshold (25% → 35%). Up to **3 → 7** targets, in hit order. The dead leave corpses. | **Open: rework Kill into this, or keep both?** Recommended: rework Kill - otherwise black has two executes plus Executioner's Capsule. Keeps Kill's cooldown exception (40s → 24s). Loses Kill's 45 m reach for melee classes; the many-target hit is the trade. |
+| **Unholy Strength** | Self-buff, 8s | Every hit costs 2% of maximum health and deals a multiple of the life paid as extra damage. Stops charging at 1 HP, never lethal. | Life as currency: Vampiric Link wins part of it back. Blood Frenzy (red) rewards *having* little life; this *spends* it. Chosen over a soul-stack version, which would have competed with Grave Pact for souls. |
+| **Bone Splinters** ⚔️ | Next heavy | Consumes every corpse within 5 m of the impact; each sends a bone splinter at the nearest enemy. With no corpses it is an ordinary heavy attack. | Corpses as ammunition. Competes with Zombify for the same corpses, on purpose. |
+| **Undying** ⚔️ | Passive, once per wave | When you would go down, you get straight back up, with 3s of invulnerability and a wave of dread that knocks enemies back. Ranks: health on rising, invulnerability length - not more triggers (cooldowns stay flat). | Rewritten from "turn into a ghost before dying": it really brings you back, and it is rare enough not to spam. |
+| **Animate Dead** 🪄 | Spell | Raises one elite or boss corpse as a strong ally until the wave ends. | One strong servant, where Zombify raises many. |
+| **Gravewalk** *(working title)* 🪄 | Spell | Teleport to a corpse within 25 m; it bursts on arrival and damages everything round you. | Black's first movement, and it runs on corpses. |
+| **Demonic Pact** 🪄 | Spell | Resets every black cooldown at once, Deathtouch excepted. The demon wants **10 kills within 15s**; miss it and you lose **50% of maximum health with no floor** - below half, that kills you. Ranks: window 15s → 20s, debt 50% → 35%; the kill demand stays. | A debt that has to be worked off. It is **life loss, not damage**: shields, block, Reprisal Ward and Worship do not stop it. Undying does catch it, at the cost of its one trigger; Rally the Fallen revives as usual. |
+| **Bontu's Monument** | Tower | Does not attack. Every death nearby charges it; when full it raises a ghoul. | |
+
+**Dropped this round:** Death Mark, Morbid and Pestilence - the first two did not read, and
+paying life to cast felt wrong for a mage on top of Phyrexian Arena.
+
+## Red
+
+| Skill | Trigger | Effect | Notes |
+|---|---|---|---|
+| **Fling** ⚔️ | Spell | Grabs an enemy (not a boss) and throws it at the aimed point, where it explodes in fire. | Built for the ragdolls - and the barbarian. |
+| **Blood Frenzy** ⚔️ | Self-buff | Damage rises the less health you have. | From the MOBA backlog. |
+| **Powder Keg** 🏹 | Next light | Sticks a bomb to the target: it goes off after 3s, at once if the target dies first. | From the MOBA backlog, no longer arrow-only. |
+| **Grapeshot** 🪄 | Spell | A small bolt that fires once more for every spell cast in the last 5s. | Rewards spell chains, fits Prowess. ⚠️ Related to Jeskai in `docs/GUILD_PLAN.md`. |
+| **Fork** 🪄 | Spell | The next spell, of any colour, is cast twice: at the target and at the nearest other one. | A meta-spell that lifts every colour. |
+| **Goblin Sharpshooter** | Tower | Arrows and darts, no flames: very fast, very high damage, and it barely survives a hit. | From the MOBA backlog, now one of the five towers. |
+
+## Green
+
+| Skill | Trigger | Effect | Notes |
+|---|---|---|---|
+| **Become Immense** ⚔️🏹🪄 | Next attack (light or heavy) | Giant Growth for one attack: a bigger swing, arrow or bolt, more damage, more area. | Replaced Prey Upon. Its area is the skill's own effect, not Kodama's Reach's stat. |
+| **Entangling Vines** 🏹 | Next light | Vines sprout where it hits and root every enemy in a small radius: they can still attack, but not advance. | Was Tanglevine, no longer arrow-only. Claims `root_timer` - ⚠️ which Golgari (`docs/GUILD_PLAN.md`, stage 2) also wants. |
+| **Kraul Harpooner** 🏹 | Spell | A vine harpoon from the weapon hand: an enemy hit is pulled to you; a tree or stone hit pulls you to it. | Movement beyond a roll or a blink. |
+| **Awaken** 🪄 | Spell | Aimed at a tree: it rises as a **treant** in the green boss's style, tinted by its biome. Aimed at a standing stone in the ring: a **stone golem**. | The treant can reuse the boss model and the beasts' tint shader (`BeastDatabase.TINT_SHADER`). The golem needs a new model - a Meshy generation, so it waits for the user's approval and an approved reference image. |
+| **Overrun** ⚔️ | Spell | 3s of unstoppable charge that throws enemies aside and clears a path. | ⚠️ Moves like Fire Dash and Titanic Brawl, but deals no damage - it only opens the way. |
+| **Call of the Herd** 🪄 | Spell | Summons a beast you hunted before - see below. | From the MOBA backlog, now tied to the wild beasts. |
+| **Hornet Nest** | Tower | Very sturdy and draws attacks; every hit on it sends hornets out to sting the attacker. | |
+
+**Dropped this round:** Prey Upon (a duel ring with one enemy - did not fit).
+
+## Call of the Herd — hunt first, call later
+
+Built on the wild beasts (`docs/BEASTS_PLAN.md`): one species per biome, sized 1x-5x, ALPHA
+from 3x.
+
+1. A slain beast drops a glowing **trophy** in its biome's colour, picked up by walking over
+   it. It only drops while at least one player in the team owns Call of the Herd, so the
+   ground does not fill with them.
+2. The trophy remembers the beast: **species, biome tint and size**. Hunt a 4x alpha, call a
+   4x alpha.
+3. Casting **uses up one trophy**. The beast fights until it dies or the wave ends. With no
+   trophy the skill is greyed out and says a beast has to be hunted first.
+4. Ranks: how many trophies can be carried (1 → 3), the beast's health and damage.
+
+Spent rather than unlocked for good, because a permanent unlock would make one early hunt
+enough, and the wilderness would stop mattering after it.
+
+⚠️ **Not to be confused with Nim Deathmantle** (beast equipment): that raises a beast you
+just killed as a ghoul for 25s. Call of the Herd is the living beast, kept for later and
+fighting to the end - the tooltips have to tell the two apart.
+
+## Towers — one per colour
+
+| Colour | Tower | Role |
+|---|---|---|
+| White | **Sanctum Ward** *(working title)* | Shields allies and myrs in range |
+| Blue | **Frost Spire** *(working title)* | Slows, every fourth shot freezes |
+| Black | **Bontu's Monument** | Charges on deaths, raises a ghoul |
+| Red | **Goblin Sharpshooter** | Huge damage, almost no health |
+| Green | **Hornet Nest** | Tank that stings whoever hits it |
+
+- Placed on an aimed ground point, the way Rain of Ember is.
+- **The rank sets how many of that type stand at once: 1 / 2 / 2 / 3 / 3**
+  (`GameSettings.rank_count(1, 3, rank)`, the same curve as Exalted Strike's charges). Health
+  and effect grow with rank as on any skill.
+- Placing one past the limit **replaces the oldest**; nothing has to be torn down first.
+- A tower stands until it is destroyed; a new one can be placed once the cooldown is over.
+- Enemies may attack it the way they attack myrs (the `decoys` group).
+- Upper bound: 15 towers for one player with all five maxed, 75 in a full team of five -
+  worth checking against the 300-enemy performance target before building.
