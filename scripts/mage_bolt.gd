@@ -36,7 +36,8 @@ var velocity: Vector3 = Vector3.ZERO
 var shooter: Player = null
 ## Damage per enemy struck. Zero on every copy but the thrower's.
 var authority_damage: float = 0.0
-var exile_on_kill: bool = false
+## What the throw is charged with (AttackLoad), on the thrower's copy only; null for a plain one.
+var load: RefCounted = null
 var knockback: float = 0.0
 var blast_radius: float = 0.0
 ## How big it is drawn: 1 a bolt, more for the blast and for a bolt Prowess empowered.
@@ -189,7 +190,14 @@ func _burst(at: Vector3, struck: Node3D) -> void:
 	if authority_damage > 0.0 and is_instance_valid(shooter):
 		var struck_any: bool = false
 		if blast_radius > 0.0:
-			for enemy: Node3D in shooter._enemies_in_radius(at, blast_radius):
+			# Nearest first, so a charge with a target limit (Deathtouch) takes the heart of
+			# the blast before its edge.
+			var caught: Array[Node3D] = shooter._enemies_in_radius(at, blast_radius)
+			caught.sort_custom(func(a: Node3D, b: Node3D) -> bool:
+				return a.global_position.distance_squared_to(at) < b.global_position.distance_squared_to(at))
+			if struck != null and is_instance_valid(struck) and not caught.has(struck):
+				caught.push_front(struck)
+			for enemy: Node3D in caught:
 				_strike(enemy)
 				struck_any = true
 		elif struck != null:
@@ -199,6 +207,7 @@ func _burst(at: Vector3, struck: Node3D) -> void:
 		# once per bolt, not per enemy a blast catches (MeleeKit.land_due_hits says why).
 		if struck_any:
 			shooter._reduce_spell_cooldowns(GameSettings.melee_hit_cooldown_reduction)
+		shooter.resolve_charged_impact(load, at, velocity.normalized())
 	queue_free()
 
 
@@ -236,5 +245,5 @@ func _release_wake(holder: Node) -> void:
 func _strike(enemy: Node3D) -> void:
 	if not is_instance_valid(enemy):
 		return
-	shooter._basic_strike(enemy, authority_damage, exile_on_kill, false)
+	shooter._basic_strike(enemy, authority_damage, load != null and load.exile, false, load)
 	shooter._apply_basic_attack_knockback(enemy, knockback)

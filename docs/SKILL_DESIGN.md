@@ -176,7 +176,7 @@ outright. Reworked 2026-09-30 - see *The black rework* below for what changed an
 |---|---|---|---|---|
 | **Doom Blade** ✅ | Line | A black blade travels straight ahead, passing **through** enemies. High damage, but only what the blade actually touches is hit. | Damage, **reach** (20m -> 36m), width (barely) | Thin `Area3D` sweep along a ray |
 | **Contagion** 🆕✅ | Spreading curse | A plague on the enemy in the sights: damage over time, and every second it **jumps to the nearest uninfected enemy** within 4.5m. One cast reaches 8 enemies (16 at rank 5). | Damage, duration, jump radius, victims | `EnemyBase.apply_contagion`, shared `outbreak` record |
-| **Kill** ✅ | Targeted | **Instantly kills** one non-boss enemy. Bosses are executed only **below 33% health**. | Cooldown (40s -> 24s), boss execute threshold | Direct `die()`; boss HP check |
+| **Deathtouch** ✅ (was Kill) | Next attack, 8 s | The next attack, light or heavy, **kills every non-boss it hits**, up to 3 -> 7. Bosses and minibosses only **below 25% -> 35% health**. Corpses stay. | Targets, cooldown (40s -> 24s), boss execute threshold | `ChargedHits.executes` in `EnemyBase.take_damage` |
 | **Wall of Souls** ✅ | Placed | Enemies that pass through take **double damage from every source** while marked - black's one damage amplifier. | Wall length, mark duration, damage multiplier | `curse_timer` / `curse_mult` |
 | **Zombify** 🆕✅ | Summon | Raises the corpses lying nearby as **ghouls that sprint at the nearest enemy and fight it** with their model's attack clip, until their time runs out or something kills them. With **Mayhem Devil** (black+red guild node) that end is a burst; what it kills leaves an ordinary corpse. | Ghouls raised (3 -> 7), hit and burst damage, duration | `TemporaryAlly`, corpse registry |
 | **Aura: Grave Pact** 🆕✅ | Aura | A **Soul Orb** in the player's halo. Every enemy dying within 12m gives it a soul (up to 6); it throws them one at a time at the nearest enemy. A raised ghoul's burst releases no soul. | Soul damage, range | `OrbitingOrb.Mode.SOUL`, `SignalBus.enemy_died_at` |
@@ -874,9 +874,9 @@ set by nothing.
 # Idea backlog — round two: variety inside each colour (2026-10-21)
 
 Collected with the user to give every colour more variation of its own, with something in
-each for melee, ranged and mage players. **Ideas only — none of this is built**, and the
-tree has no room for it yet: `SpellDatabase.SPELLS_PER_COLOR` is 5, and taking these on
-means a new ring layout and new gates, which is its own design pass.
+each for melee, ranged and mage players. **Built (2026-10-22)** - every skill below is in the
+game, `colour_6` to `colour_12` (red to 11), with Kill rebuilt as Deathtouch. *Implementation*
+at the end of this section says where each piece lives and what is still a placeholder.
 
 ## The rules this round follows
 
@@ -1014,3 +1014,44 @@ fighting to the end - the tooltips have to tell the two apart.
 - Enemies may attack it the way they attack myrs (the `decoys` group).
 - Upper bound: 15 towers for one player with all five maxed, 75 in a full team of five -
   worth checking against the 300-enemy performance target before building.
+
+## Implementation (2026-10-22)
+
+| Piece | Where |
+|---|---|
+| The 34 rows, rings and ids (`colour_6`-`colour_12`, append-only) | `SpellDatabase.SPELLS`, `RINGS`, `spells_of`, `get_ring`, `next_attack`, `tower_of`, `is_passive` |
+| Every number | `GameSettings`, *ROUND TWO* block (towers at its end) |
+| "Next attack" charges, class-neutral | `scripts/attack_charges.gd` (held on the attacker's machine), `attack_load.gd` (what one attack carries), `charged_hits.gd` (profiles and the server-side payloads) |
+| Where the kits spend them | `MeleeKit.land_due_hits`/`apply_hit`, `BowKit._loose` + `PlayerArrow`, `MageKit._loose` + `MageBolt` |
+| The spells that are neither a charge nor a tower | `scripts/round_two_spells.gd` |
+| Towers | `scripts/tower.gd`, placed by `Player.place_tower` |
+| Enemy states (banish, swine, ice cage, Time Ebb, Fling, Powder Keg, Sanctity, interrupt) | `EnemyBase`, *ROUND TWO* block; looks from the replicated `round_two_state` |
+| Fighting summons (mirror, raised, beast, treant, golem) | `TemporaryAlly` kinds, built by `MainController.build_effect` |
+| Beast trophies | `scripts/beast_trophy.gd`, dropped from `RunState._drop_beast_trophy` |
+| Undying, Demonic Pact, Worship, Fork, Grapeshot | `RoundTwoSpells.try_undying` (from `Player.die`), `tick_pact`, `protects` (from `Player`/`Myr.take_damage`), `fork_copy`, `_cast_log` |
+| Tests | `tools/tests/skill_roster.gd` *round_two* section (one check per skill), `skill_purchase.gd` (rings, gates), `net_effects.gd` (a client's charge reaches it) |
+
+**The tree has three rings now.** Ring 1 opens at 1 invested in the colour, ring 2 at 4, ring 3
+at 9 (`GameSettings.color_ring_investment`); the rank ladder `[1, 2, 5, 7, 10]` still gates every
+rank after. A node is revealed by an owned neighbour OR by the colour having its ring's
+investment, so no skill is ever another's prerequisite. The lines are generated from the rings
+(`SkillTree._build_edges`), and the auras sit in the gaps of the outer ring (branch indices
+20-22; guilds 30), so a spell's branch index is its N again. The first purchase used to skip the
+investment gate entirely; it is checked now (`Player.spell_gate_blocker`).
+
+**Exalted Strike works for clients now.** Its charges lived on the server's copy of the player,
+which never attacks; every charge is armed on the attacker's own machine (`Player.arm_next_attack`).
+A charge is spent once per ATTACK, not per impact frame - the barbarian's two-swing heavy spends
+one Exalted charge, not two.
+
+**Still placeholders, waiting on the user:**
+- **Icons** for all 34 - each borrows the nearest existing one (`ICON_FILES` lists its own file
+  first, so dropping it in is the whole change).
+- **Tower meshes** - `scenes/towers/<tower_id>.tscn` is used when it exists (ivory_tower,
+  glacial_fortress, bontus_monument, goblin_sharpshooter, hornet_nest); until then a stone column
+  with a crown in the colour's light.
+- **Boar** (Curse of the Swine) - `GameSettings.spell_blue_swine_scene`; until it exists the green
+  beast at 0.4. **Golem** (Awaken on a stone) - the treant tinted stone grey. Both are Meshy
+  meshes that need an approved reference image and the spend approved first.
+- **Sounds** - every round-two event borrows the nearest recording (`SoundBank`, one line each).
+- **Awaken leaves its tree or stone standing** - the treant or golem rises beside it.

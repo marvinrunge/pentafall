@@ -155,6 +155,23 @@ func try_drop_equipment(boss_color: String, at: Vector3 = Vector3.INF) -> String
 	return dropped
 
 
+## Call of the Herd (green_11): a slain beast leaves a trophy that remembers it - only while
+## somebody on the team can use one, so the ground does not fill with them. Server only.
+func _drop_beast_trophy(beast_color: String, size: float, at: Vector3) -> void:
+	if not Net.is_server() or not at.is_finite():
+		return
+	var wanted: bool = false
+	for player: Node in get_tree().get_nodes_in_group("player"):
+		if player.has_method("get_spell_rank") and int(player.get_spell_rank("green_11")) > 0:
+			wanted = true
+			break
+	if not wanted:
+		return
+	var scene: Node = get_tree().current_scene
+	if scene != null and scene.has_method("request_effect"):
+		scene.request_effect({"kind": "beast_trophy", "position": at, "color": beast_color, "size": size, "caster": 0})
+
+
 ## A wild beast died: maybe it carried its biome's piece (EquipmentDatabase.BEAST_ITEMS).
 ## The bigger it was, the likelier - equipment_beast_drop_chance per 1x of size. Server only.
 func try_drop_beast_equipment(beast_color: String, size: float, at: Vector3 = Vector3.INF) -> String:
@@ -241,6 +258,7 @@ func on_enemy_killed(data: EnemyData, is_elite: bool, at: Vector3 = Vector3.INF)
 		try_drop_equipment(data.color_identity, at)
 	elif is_beast:
 		try_drop_beast_equipment(data.color_identity, maxf(data.model_scale, 1.0), at)
+		_drop_beast_trophy(data.color_identity, maxf(data.model_scale, 1.0), at)
 	if mana <= 0:
 		return
 	if is_boss:

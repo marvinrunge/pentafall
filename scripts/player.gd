@@ -10,6 +10,9 @@ class_name Player
 const CHARGE_ORB_SCRIPT := preload("res://scripts/charge_orb.gd")
 const InputHint := preload("res://scripts/input_hint.gd")
 const IntroTour := preload("res://scripts/intro_tour.gd")
+const AttackCharges := preload("res://scripts/attack_charges.gd")
+const ChargedHits := preload("res://scripts/charged_hits.gd")
+const RoundTwoSpells := preload("res://scripts/round_two_spells.gd")
 ## How far in front of the caster the charged ball floats. See _update_charge_orb.
 const CHARGE_ORB_REACH := 0.42
 ## How far the left stick has to be pushed before a gamepad player sprints, which on a pad is
@@ -99,19 +102,39 @@ var _casting_rank: int = 1
 ## The team level that grants Blade Dance, the light attack's third stage. It is no longer
 ## purchasable - see _on_team_level_changed.
 const BLADE_DANCE_LEVEL: int = 10
-## Exalted Strike and Fire Dash both outlive the cast that started them - the first waits
-## for a melee hit, the second keeps dropping fire for a third of a second - so both
-## resolve their numbers AT CAST TIME rather than reading _casting_rank later, when
-## another spell may have moved it.
-var _exalted_damage_mult: float = 1.0
-var _exalted_reach_bonus: float = 0.0
+## Fire Dash outlives the cast that started it - it keeps dropping fire for a third of a
+## second - so it resolves its numbers AT CAST TIME rather than reading _casting_rank later,
+## when another spell may have moved it.
 var _dash_trail_dps: float = 0.0
 var _dash_trail_duration: float = 0.0
 var _dash_trail_radius: float = 0.0
-## Rubblebelt Rioters (red+green guild node): set by _start_rampage after Titanic Brawl or
-## Fire Dash, consumed one per melee impact frame in MeleeKit.apply_hit - see there for
-## why that is "a hit" rather than per enemy a cleave connects with.
-var _rampage_hits_left: int = 0
+## What this player's next attacks are charged with (AttackCharges): Exalted Strike, Deathtouch
+## and the rest of the "next attack" skills, and Rubblebelt Rioters' three hits. Kept and spent
+## on the machine that plays this player - see AttackCharges for why.
+var attack_charges: RefCounted = AttackCharges.new(self)
+## AttackCharges.armed_bits, published by the owner with the rest of what they do, so every
+## screen can draw the weapon carrying a charge (StatusFx).
+var armed_charge_bits: int = 0
+## Round two (docs/SKILL_DESIGN.md), all of it the server's but _overrun_timer, which both ends
+## keep: the charge's own machine moves the body, the server is where control lands on it.
+## Overrun: nothing stops or stuns the player while it runs.
+var _overrun_timer: float = 0.0
+## Demonic Pact: the seconds left to pay, the kills still owed, and the share of maximum health
+## the demon takes if they are not.
+var _pact_timer: float = 0.0
+var _pact_kills_left: int = 0
+var _pact_debt: float = 0.0
+## Undying's one rise a wave, spent.
+var _undying_used: bool = false
+## Fork: the next aimed spell is cast twice.
+var _fork_armed: bool = false
+## When this player's recent spells were cast, for Grapeshot (seconds, server clock).
+var _cast_log: Array[float] = []
+## Call of the Herd: the trophies carried, each {"color", "size"}, last taken last. Kept on the
+## server, where they are picked up and spent; the owner gets a copy to show.
+var beast_trophies: Array = []
+## The towers this player has standing, by tower id, oldest first (server).
+var _towers: Dictionary = {}
 var aura_ranks: Dictionary = {}
 ## Guild nodes bought from the gaps between the colours (docs/GUILD_PLAN.md Stage 1),
 ## keyed by id. Binary rather than a ladder like spell/aura ranks - a guild node is one
@@ -177,9 +200,6 @@ var base_scale: Vector3 = Vector3.ONE
 var slow_timer: float = 0.0
 
 # --- Skill roster state (docs/SKILL_DESIGN.md) ---
-## Exalted Strike (white_1). Spent by melee HITS rather than by time, so the buff cannot
-## be wasted by walking around with it.
-var exalted_charges: int = 0
 ## Circle of Protection (white_2). A third shield pool beside the two aura ones, kept
 ## separate so a aura re-sync cannot wipe a shield the player just cast.
 var protection_shield: float = 0.0
@@ -238,6 +258,9 @@ func display_name() -> String:
 ## attack (`basic_attack`).
 func on_enemy_killed_by_me(basic_attack: bool = false) -> void:
 	add_stat("kills")
+	# Demonic Pact: every kill pays the demon one.
+	if _pact_timer > 0.0 and _pact_kills_left > 0:
+		_pact_kills_left -= 1
 	_on_kill_for_equipment()
 	if basic_attack and has_class_skill("warrior_bloodthirst"):
 		_bloodthirst()
@@ -509,6 +532,8 @@ func _ready() -> void:
 		SignalBus.spell_unlocked.connect(_on_spell_unlocked)
 		SignalBus.melee_combo_unlocked.connect(_on_melee_combo_unlocked)
 	SignalBus.team_level_changed.connect(_on_team_level_changed)
+	# Undying rises once a wave: a new wave gives it back.
+	SignalBus.wave_started.connect(func(_wave: int) -> void: _undying_used = false)
 
 	# A build kept from a match this player was dropped out of. Applied here rather than
 	# by whoever spawned the avatar, because the spawn runs on every peer and a build
@@ -730,6 +755,10 @@ func _build_synchronizer() -> void:
 			NodePath(property), SceneReplicationConfig.REPLICATION_MODE_ALWAYS
 		)
 
+	# Changes a few times a fight, so only when it does.
+	owned.add_property(NodePath(":armed_charge_bits"))
+	owned.property_set_replication_mode(NodePath(":armed_charge_bits"), SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
+
 	var sync := MultiplayerSynchronizer.new()
 	sync.name = "Sync"
 	sync.replication_config = owned
@@ -821,15 +850,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				var target_color = chosen_color_path if chosen_color_path != "" else "red"
 				chosen_color_path = target_color
 				affinity_ranks[target_color] = 25
-				for i in range(1, 6):
-					var sid = target_color + "_" + str(i)
+				for sid: String in SpellDatabase.spells_of(target_color):
 					if not unlocked_spells_in_path.has(sid):
 						unlocked_spells_in_path.append(sid)
 					# Straight to max: the point of the key is to try a colour out, and a
 					# rank-1 version of it is not the thing being tried.
 					spell_ranks[sid] = GameSettings.spell_max_rank
 					var free_slot: int = first_free_quick_slot()
-					if free_slot >= 0:
+					if free_slot >= 0 and not SpellDatabase.is_passive(sid):
 						assign_quick_slot(free_slot, sid)
 				_applied_green_affinity_rank = -1
 				_sync_auras()
@@ -1123,15 +1151,15 @@ func _grant_class_skills(announce: bool) -> void:
 
 
 ## Everything this player has put into one colour, counted in ranks: the colour's affinity
-## plus every rank held in its five spells.
+## plus every rank held in its spells.
 ##
 ## Derived rather than stored. A running total kept alongside the purchases would be one
 ## more thing to keep in step - and one more thing to migrate when an old save is loaded -
-## for a sum over ten small numbers.
+## for a sum over a dozen small numbers.
 func color_investment(color: String) -> int:
 	var total: int = get_affinity_rank(color)
-	for index: int in range(1, 6):
-		total += get_spell_rank("%s_%d" % [color, index])
+	for spell_id: String in SpellDatabase.spells_of(color):
+		total += get_spell_rank(spell_id)
 	return total
 
 
@@ -1162,19 +1190,40 @@ func path_color() -> String:
 ## Returns an empty string when it is buyable, otherwise the reason to show the player -
 ## the tree prints it verbatim, so "cannot" is never silent.
 func spell_rank_blocker(spell_id: String) -> String:
-	var rank: int = get_spell_rank(spell_id)
-	if rank >= GameSettings.spell_max_rank:
-		return "Maximum rank"
-	# The same ladder that decides which tier is reachable decides how deep a spell can go.
-	# Rank 5 therefore costs a real commitment to the colour rather than waiting for the
-	# team's clock to catch up - and a player who wants it can go and earn it now.
-	var color: String = spell_color(spell_id)
-	var required: int = GameSettings.color_investment_requirement(rank + 1)
-	if color != "" and color_investment(color) < required:
-		return "Needs %d invested in %s" % [required, color.capitalize()]
+	var gate: String = spell_gate_blocker(spell_id)
+	if gate != "":
+		return gate
 	if not GameSettings.debug_free_skills and skill_points < GameSettings.spell_rank_point_cost:
 		return "Needs %d skill point" % GameSettings.spell_rank_point_cost
 	return ""
+
+
+## The colour half of spell_rank_blocker: everything but the points. The spell's ring sets a
+## floor for its FIRST rank (GameSettings.color_ring_investment), and the same ladder as ever
+## decides how deep it can go - rank 5 is a real commitment to the colour rather than a wait
+## for the team's clock, and a player who wants it can go and earn it now. A spell takes the
+## higher of the two.
+##
+## Its own function because the tree draws a node "locked" off exactly this, and the click
+## used to check something else: the first rank of an under-invested spell was bought anyway.
+func spell_gate_blocker(spell_id: String) -> String:
+	var rank: int = get_spell_rank(spell_id)
+	if rank >= GameSettings.spell_max_rank:
+		return "Maximum rank"
+	if GameSettings.debug_free_skills:
+		return ""
+	var color: String = spell_color(spell_id)
+	if color == "":
+		return ""
+	var invested: int = color_investment(color)
+	var ring: int = SpellDatabase.get_ring(spell_id)
+	var ring_needs: int = GameSettings.ring_investment_requirement(ring) if rank == 0 else 0
+	var required: int = maxi(ring_needs, GameSettings.color_investment_requirement(rank + 1))
+	if invested >= required:
+		return ""
+	if ring_needs >= required and ring > 1:
+		return "Ring %d - needs %d invested in %s (now %d)" % [ring, required, color.capitalize(), invested]
+	return "Needs %d invested in %s" % [required, color.capitalize()]
 
 
 ## The rank curves for the spell being cast. Named for what they scale rather than for
@@ -1307,9 +1356,10 @@ func grant_spell_rank(spell_id: String) -> bool:
 		if not unlocked_spells_in_path.has(spell_id):
 			unlocked_spells_in_path.append(spell_id)
 		# Newly bought spells land on the bar by themselves. A spell you own and cannot
-		# cast because every slot is full is a bug report waiting to happen.
+		# cast because every slot is full is a bug report waiting to happen. A passive one
+		# (Undying) is never cast, so it never takes a slot.
 		var free_slot: int = first_free_quick_slot()
-		if free_slot >= 0:
+		if free_slot >= 0 and not SpellDatabase.is_passive(spell_id):
 			assign_quick_slot(free_slot, spell_id)
 	SignalBus.spell_rank_changed.emit(spell_id, get_spell_rank(spell_id))
 	return true
@@ -1342,11 +1392,6 @@ func get_affinity_rank(color: String) -> int:
 ## share of something different per colour; see GameSettings.affinity_cap.
 func get_affinity_bonus(color: String) -> float:
 	return GameSettings.affinity_bonus(color, get_affinity_rank(color))
-
-func get_spell_rank_requirement(slot_idx: int) -> int:
-	if slot_idx < 0 or slot_idx >= GameSettings.affinity_spell_rank_requirements.size():
-		return 999999
-	return GameSettings.affinity_spell_rank_requirements[slot_idx]
 
 ## `basic_attack`: the hit was a sword swing or the kick (see _melee_strike), not a spell,
 ## an aura or Green Leap - which all count as melee for everything else.
@@ -1403,7 +1448,7 @@ func _get_spell_cooldown(spell_id: String) -> float:
 	var cooldown: float = SpellDatabase.get_cooldown(spell_id)
 	if spell_id == "black_3":
 		cooldown *= GameSettings.rank_fraction(
-			1.0, GameSettings.spell_black_kill_cooldown_max_rank_mult, get_spell_rank(spell_id)
+			1.0, GameSettings.spell_black_deathtouch_cooldown_max_rank_mult, get_spell_rank(spell_id)
 		)
 	return cooldown
 
@@ -1796,6 +1841,7 @@ func _begin_cast(spell_id: String, charge_pct: float, windup_progress: float = -
 	match spell_id:
 		"green_1": SpellEffects.cast_green_titanic_leap(self)
 		"red_2": SpellEffects.cast_red_fire_dash(self)
+		"white_6", "green_10": RoundTwoSpells.launch(self, spell_id)
 		"archer_disengage": ArcherSkills.begin_disengage(self, duration)
 		"barbarian_whirlwind": BarbarianSkills.begin_whirlwind(self, duration)
 		"warrior_battle_frenzy": WarriorSkills.begin_battle_frenzy(self)
@@ -1869,6 +1915,9 @@ func execute_spell(spell_id: String, charge_pct: float = 1.0) -> void:
 	# resolves here, before a client's cast goes on to the server.
 	if spell_id == "mage_mana_surge":
 		MageSkills.surge(self)
+	# Demonic Pact's gift is the same kind of thing: cooldowns, which only exist here.
+	if spell_id == "black_11":
+		RoundTwoSpells.pact_clear_cooldowns(self)
 	# Whether the caster is still HOLDING the button, read on the machine that owns the
 	# keyboard. Only Fire Cone uses it - a channel ends when the button comes up - and the
 	# server has no way to find it out for itself: asking Input there answers for the HOST,
@@ -1942,15 +1991,23 @@ func pay_life(amount: float) -> void:
 	NetFx.ring(global_position, Color(0.5, 0.08, 0.2), 1.4)
 
 
-func _run_spell_effect(spell_id: String, charge_pct: float, held: bool = false) -> void:
+##
+## `forked` is Fork's second casting (RoundTwoSpells.fork_copy): the same effect again at another
+## target, which banks nothing and is not itself forked or logged.
+func _run_spell_effect(spell_id: String, charge_pct: float, held: bool = false, forked: bool = false) -> void:
 	# A spell cast by a CLIENT arrives here on the server, where _begin_cast never ran -
 	# so the rank is resolved again rather than assumed to be left over from the cast.
 	_casting_rank = maxi(get_spell_rank(spell_id), 1)
+	if not forked and SpellDatabase.has_spell(spell_id):
+		var now: float = Time.get_ticks_msec() / 1000.0
+		_cast_log.append(now)
+		while not _cast_log.is_empty() and now - _cast_log[0] > GameSettings.spell_red_grapeshot_window:
+			_cast_log.remove_at(0)
 	ErrorReporter.breadcrumb("%s casts %s rank %d" % [name, spell_id, _casting_rank])
 	
 	# Rhystic Study: every cast banks shield, up to a cap. (When it breaks, it freezes what
 	# broke it - see _rhystic_shatter.)
-	if has_aura("aura_rhystic_study"):
+	if has_aura("aura_rhystic_study") and not forked:
 		var study_rank: int = get_aura_rank("aura_rhystic_study")
 		rhystic_shield = minf(
 			rhystic_shield + GameSettings.rank_fraction(
@@ -1976,7 +2033,7 @@ func _run_spell_effect(spell_id: String, charge_pct: float, held: bool = false) 
 		# --- BLACK ---
 		"black_1": SpellEffects.cast_black_doom_blade(self)
 		"black_2": SpellEffects.cast_black_contagion(self)
-		"black_3": SpellEffects.cast_black_kill(self)
+		"black_3": SpellEffects.cast_black_deathtouch(self)
 		"black_4": SpellEffects.cast_black_wall_of_souls(self)
 		"black_5": SpellEffects.cast_black_zombify(self)
 		# --- RED ---
@@ -2003,8 +2060,18 @@ func _run_spell_effect(spell_id: String, charge_pct: float, held: bool = false) 
 		"mage_blink_of_an_eye": MageSkills.cast_blink_of_an_eye(self)
 		"warrior_hurl_axe": WarriorSkills.cast_hurl_axe(self)
 		"warrior_battle_frenzy": WarriorSkills.cast_battle_frenzy(self)
+		_:
+			# Round two: a charge for the next attack, a tower, or one of the rest.
+			if SpellDatabase.next_attack(spell_id) != "":
+				SpellEffects.cast_next_attack(self, spell_id)
+			elif SpellDatabase.tower_of(spell_id) != "":
+				place_tower(spell_id)
+			elif SpellDatabase.has_spell(spell_id):
+				RoundTwoSpells.cast(self, spell_id)
 
 	last_spell_cast_time = Time.get_ticks_msec() / 1000.0
+	if not forked and spell_id != "red_10":
+		RoundTwoSpells.fork_copy(self, spell_id, charge_pct)
 
 # --- RPG Logic ---
 func _on_skill_unlocked(color: String) -> void:
@@ -2098,6 +2165,9 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false) -
 	# like the ones being hit hardest.
 	add_stat("damage_taken", remaining_damage)
 	hp -= remaining_damage
+	# Worship (white_10): on hallowed ground nothing takes the last point of health.
+	if hp < 1.0 and RoundTwoSpells.protects(global_position):
+		hp = 1.0
 	_emit_health_changed()
 	var spawn_pos = global_position + Vector3(randf_range(-0.2, 0.2), 1.6, randf_range(-0.2, 0.2))
 	NetFx.damage_number(spawn_pos, remaining_damage, Color(1.0, 0.25, 0.25), "")
@@ -2665,6 +2735,9 @@ func die() -> void:
 		_spawn_ring(global_position, Color(1.0, 1.0, 0.85), 2.4)
 		_play_sound(&"aura_grave_pact", global_position)
 		return
+	# Undying (black_8): once a wave, straight back up instead.
+	if RoundTwoSpells.try_undying(self):
+		return
 	add_stat("downs")
 
 	var total_players = get_tree().get_nodes_in_group("player").size()
@@ -2696,6 +2769,9 @@ func _enter_downed(timer: float) -> void:
 	# A helper who goes down mid-channel is nobody's helper.
 	_revive_channel_target = null
 	_revive_channel_left = 0.0
+	# Every charge a weapon was carrying goes down with it. Runs on every peer, so the owner's
+	# copy - the one that holds them - is cleared too.
+	attack_charges.clear()
 	hp = 0.0
 	_emit_health_changed()
 	_cancel_action()
@@ -3429,8 +3505,6 @@ func _update_status_fx() -> void:
 		bits |= StatusFx.IRONBARK
 	if _berserk_timer > 0.0:
 		bits |= StatusFx.BERSERK
-	if exalted_charges > 0:
-		bits |= StatusFx.EXALTED
 	if _phoenix_ward_timer > 0.0:
 		bits |= StatusFx.PHOENIX
 	if is_giant:
@@ -3439,7 +3513,7 @@ func _update_status_fx() -> void:
 
 
 func is_control_immune() -> bool:
-	return _ironbark_timer > 0.0 or (kit != null and kit.control_immune())
+	return _ironbark_timer > 0.0 or _overrun_timer > 0.0 or (kit != null and kit.control_immune())
 
 
 ## Berserk (the barbarian's level-14 skill) holds. The timer is the server's, where the cast
@@ -3468,6 +3542,9 @@ func _update_skill_timers(delta: float) -> void:
 	_update_phalanx(delta)
 	if _cloak_timer > 0.0:
 		_cloak_timer -= delta
+	if _overrun_timer > 0.0:
+		_overrun_timer -= delta
+	RoundTwoSpells.tick_pact(self, delta)
 
 	if giant_timer > 0.0:
 		giant_timer -= delta
@@ -3957,25 +4034,30 @@ func _commit_action(duration: float, roots: bool, is_melee: bool) -> void:
 ##
 ## `basic_attack` marks a sword swing or the kick, which is all Vampiric Link heals from. It
 ## reaches enemies only - nothing else a player hits takes it.
-func _deal_damage(target: Node, amount: float, is_melee: bool, exile_on_kill: bool = false, basic_attack: bool = false) -> void:
+##
+## `on_hit` is the per-enemy half of the charges riding on the attack (AttackLoad.claim_for):
+## spell ids the server turns into what they do (ChargedHits.on_struck). Passed explicitly on
+## the RPC, every argument - an RPC's default arguments are not something to lean on.
+func _deal_damage(target: Node, amount: float, is_melee: bool, exile_on_kill: bool = false, basic_attack: bool = false,
+		on_hit: PackedStringArray = PackedStringArray()) -> void:
 	if not is_instance_valid(target):
 		return
 	var to_enemy: bool = target is EnemyBase
 	if Net.is_server():
 		if to_enemy:
-			target.take_damage(amount, self, is_melee, exile_on_kill, basic_attack)
+			target.take_damage(amount, self, is_melee, exile_on_kill, basic_attack, on_hit)
 		elif target.has_method("take_damage"):
 			target.take_damage(amount, self, is_melee, exile_on_kill)
 		return
 	if target.has_method("request_damage"):
-		target.request_damage.rpc_id(1, amount, Net.local_id(), is_melee, exile_on_kill, basic_attack)
+		target.request_damage.rpc_id(1, amount, Net.local_id(), is_melee, exile_on_kill, basic_attack, on_hit)
 
 
 ## One enemy struck by one melee impact, with everything the player wears on the weapon arm.
 ## Rolled here, on the machine that swung, like the rest of melee - only the consequence
 ## travels to the server.
-func _melee_strike(enemy: Node3D, dmg: float, exile: bool) -> void:
-	_basic_strike(enemy, dmg, exile, true)
+func _melee_strike(enemy: Node3D, dmg: float, exile: bool, load: RefCounted = null) -> void:
+	_basic_strike(enemy, dmg, exile, true, load)
 	_hit_stop(_action_is_heavy)
 
 
@@ -4000,8 +4082,13 @@ func _hit_stop(heavy: bool) -> void:
 ## One enemy struck by any class's basic attack - a blade or an arrow - with everything the
 ## player wears on the weapon arm. `is_melee` is false for an arrow, which still counts as a
 ## basic attack for everything that reads that (Vampiric Link, the equipment below).
-func _basic_strike(enemy: Node3D, dmg: float, exile: bool, is_melee: bool) -> void:
-	_deal_damage(enemy, dmg, is_melee, exile, true)
+##
+## `load` is what the attack carries (AttackLoad), null for an uncharged one. Its per-enemy
+## payloads ride on the first hit only - Fireshrieker's second lands bare, so nothing a charge
+## does to an enemy ever happens twice from one blow.
+func _basic_strike(enemy: Node3D, dmg: float, exile: bool, is_melee: bool, load: RefCounted = null) -> void:
+	var on_hit: PackedStringArray = load.claim_for(enemy) if load != null else PackedStringArray()
+	_deal_damage(enemy, dmg, is_melee, exile, true, on_hit)
 	# Fireshrieker: the blade sometimes lands twice. A second hit rather than a bigger one,
 	# which is what double strike means - it is seen as two numbers, and a second hit on a
 	# nearly dead enemy is a kill where one bigger hit would only have been overkill.
@@ -4031,9 +4118,147 @@ func melee_execute_threshold() -> float:
 ## Rubblebelt Rioters (red+green guild node): called from the two charge-in spells'
 ## launch half (cast_green_titanic_leap, cast_red_fire_dash). A no-op without the node,
 ## so every caller can call it unconditionally.
+## Life taken straight off health, for the round-two bargains: Unholy Strength's price per
+## attack and the Demonic Pact's debt. Like pay_life, no shield, block, ward or Worship stands in
+## the way - it is a price, not an attack - but where pay_life never goes below 1, a `lethal`
+## loss can take the rest and the player goes down (through die(), so Undying still catches it).
+func lose_life(amount: float, lethal: bool) -> void:
+	if amount <= 0.0 or is_downed:
+		return
+	if Net.is_active() and not Net.is_server():
+		return
+	hp = hp - amount if lethal else maxf(hp - amount, 1.0)
+	_emit_health_changed()
+	NetFx.damage_number(global_position + Vector3(0.0, 1.8, 0.0), amount, Color(0.62, 0.18, 0.4), "-%d life" % roundi(amount))
+	if hp <= 0.0:
+		hp = 0.0
+		die()
+
+
+## Puts up the tower `spell_id` raises where the caster aims, and takes down this player's oldest
+## of that kind once more stand than the spell's rank allows (1/2/2/3/3). Server.
+func place_tower(spell_id: String) -> void:
+	var tower_id: String = SpellDatabase.tower_of(spell_id)
+	var at: Vector3 = _ground_snap(_aim_point(GameSettings.tower_place_range, SpellEffects.ENVIRONMENT_MASK))
+	if at.distance_to(global_position) > GameSettings.tower_place_range + 2.0:
+		at = _ground_snap(global_position - global_basis.z * 3.0)
+	var limit: int = GameSettings.rank_count(GameSettings.tower_count, GameSettings.tower_count_max, _casting_rank)
+	var standing: Array = (_towers.get(tower_id, []) as Array).filter(func(t: Variant) -> bool:
+		return is_instance_valid(t) and not (t as Node).is_queued_for_deletion())
+	while standing.size() >= limit:
+		var oldest: Node = standing.pop_front()
+		NetFx.impact((oldest as Node3D).global_position + Vector3(0.0, 1.5, 0.0), Color(0.8, 0.8, 0.8), 1.0)
+		oldest.queue_free()
+	var tower: Node3D = _place_networked({
+		"kind": "tower", "tower": tower_id, "rank": _casting_rank, "position": at,
+		"yaw": rotation.y,
+	})
+	if tower != null:
+		standing.append(tower)
+	_towers[tower_id] = standing
+	_spawn_spell_fx("tower_rise/" + SpellDatabase.get_color(spell_id), at, 1.0)
+	_play_sound(SpellEffects.cast_sound(spell_id), at)
+
+
+## Call of the Herd: a trophy walked over (BeastTrophy, server). Refused once the rank's count
+## is carried; a full hand leaves it on the ground for somebody else.
+func take_trophy(color: String, size: float) -> bool:
+	var rank: int = get_spell_rank("green_11")
+	if rank <= 0:
+		return false
+	var carry: int = GameSettings.rank_count(GameSettings.spell_green_herd_trophies, GameSettings.spell_green_herd_trophies_max, rank)
+	if beast_trophies.size() >= carry:
+		return false
+	beast_trophies.append({"color": color, "size": size})
+	_publish_trophies()
+	_notify("%s trophy taken" % EnemyBase.BeastDatabase.display_name(color))
+	return true
+
+
+## The owner's copy of the trophies, for showing; the server's is the one that counts.
+func _publish_trophies() -> void:
+	if Net.is_active() and Net.is_server() and not is_local:
+		_net_trophies.rpc_id(get_multiplayer_authority(), beast_trophies)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_trophies(trophies: Array) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	beast_trophies = trophies
+
+
+## Kraul Harpooner's self-pull: towards `target` at `speed`, on the machine that moves this
+## player - the dash's clock carries it, with nothing laid behind.
+func pull_to(target: Vector3, speed: float) -> void:
+	if is_local or not Net.is_active():
+		var to: Vector3 = target - global_position
+		var distance: float = to.length()
+		if distance < 0.5:
+			return
+		velocity = to / distance * speed
+		_dash_timer = distance / maxf(speed, 0.1)
+		_dash_trail_timer = 0.0
+		_dash_trail_radius = 0.0
+		return
+	_net_pull_to.rpc_id(get_multiplayer_authority(), target, speed)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_pull_to(target: Vector3, speed: float) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	pull_to(target, speed)
+
+
 func _start_rampage() -> void:
 	if has_guild("guild_gruul"):
-		_rampage_hits_left = GameSettings.guild_gruul_rampage_hits
+		attack_charges.arm("guild_gruul", 1)
+
+
+## Charges this player's next attack with `spell_id` at `rank` (AttackCharges). Called by the
+## spell on the server; the charge belongs to the machine that plays this player, so a client's
+## is sent back to it.
+func arm_next_attack(spell_id: String, rank: int) -> void:
+	if is_local or not Net.is_active():
+		attack_charges.arm(spell_id, rank)
+		return
+	_net_arm_next_attack.rpc_id(get_multiplayer_authority(), spell_id, rank)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_arm_next_attack(spell_id: String, rank: int) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	attack_charges.arm(spell_id, rank)
+
+
+## The once-per-attack half of a charged attack, where it landed (ChargedHits.resolve_impact):
+## Sunlance's line, Bone Splinters' corpses, Entangling Vines' roots. Called by the kit on the
+## attacker's machine; the effect is world state, so it happens on the server.
+func resolve_charged_impact(load: RefCounted, at: Vector3, direction: Vector3) -> void:
+	if load == null:
+		return
+	var ids: PackedStringArray = load.claim_impact()
+	if ids.is_empty():
+		return
+	if Net.is_server():
+		ChargedHits.resolve_impact(self, ids, at, direction)
+	else:
+		_request_charged_impact.rpc_id(1, ids, at, direction)
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _request_charged_impact(ids: PackedStringArray, at: Vector3, direction: Vector3) -> void:
+	if not Net.is_server():
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	if sender != 0 and sender != get_multiplayer_authority():
+		return
+	# An impact from across the map is not one this player's attack could have made.
+	if at.distance_to(global_position) > GameSettings.charged_impact_max_reach:
+		return
+	ChargedHits.resolve_impact(self, ChargedHits.validated(self, ids), at, direction)
 
 
 func _apply_basic_attack_knockback(enemy: Node3D, strength: float = -1.0) -> void:
@@ -4124,6 +4349,10 @@ func _physics_process(delta: float) -> void:
 
 	_update_skill_timers(delta)
 	_update_status_fx()
+	attack_charges.tick(delta)
+	var bits: int = attack_charges.armed_bits()
+	if bits != armed_charge_bits:
+		armed_charge_bits = bits
 
 	# A client's channel is STARTED by the server, so this has to run before the branch
 	# below rather than only where the spell is cast - on that machine the spell was never

@@ -10,6 +10,10 @@ extends RefCounted
 ## screens and what a hit does once it lands. A kit decides when a press becomes an attack,
 ## which one, and what it reaches.
 
+## The weights an attack can have, and the charges riding on it (AttackCharges) - every kit
+## states which of its moves is light and which heavy.
+const AttackCharges := preload("res://scripts/attack_charges.gd")
+
 var player: Player
 
 

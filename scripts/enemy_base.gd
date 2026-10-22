@@ -35,6 +35,8 @@ const MAGE_VISUAL_SCENES := {
 }
 
 const BeastDatabase := preload("res://scripts/beast_database.gd")
+## The payload half of a charged player attack (on_hit in take_damage).
+const ChargedHits := preload("res://scripts/charged_hits.gd")
 
 # Shared across every EnemyBase instance so the corpse cap applies project-wide.
 static var _corpses: Array[EnemyBase] = []
@@ -662,7 +664,7 @@ func _build_synchronizer() -> void:
 	# What only changes now and then: sent when it changes, reliably. Every one of these used
 	# to go out every frame, for every enemy, to every client, whether it had changed or not -
 	# health included, which for most of a wave is the same number it was a second ago.
-	for property: String in [":health", ":is_dying", ":contagion_timer"]:
+	for property: String in [":health", ":is_dying", ":contagion_timer", ":round_two_state"]:
 		config.add_property(NodePath(property))
 		config.property_set_replication_mode(NodePath(property), SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
 	# Once per enemy, at death; the lean starts on whichever frame it lands.
@@ -1095,6 +1097,10 @@ func _physics_tick(delta: float) -> void:
 	if _check_recovery(delta):
 		return
 
+	# Banished, or in the air from a Fling: held out of its own AI this frame.
+	if _tick_round_two(delta):
+		return
+
 	if _sapling_timer > 0.0:
 		_sapling_timer -= delta
 		if _sapling_timer <= 0.0:
@@ -1477,6 +1483,8 @@ func _update_puppet(delta: float) -> void:
 		health_bar.set_health(health, enemy_data.health)
 	# The plague's look, from the replicated timer - the plague itself only runs on the server.
 	_sync_contagion_fx()
+	# And the round-two looks (banished, a boar, caged, a keg), from their replicated bits.
+	_sync_round_two_look()
 	if is_dying:
 		_play_puppet_death()
 		_lean_corpse(delta)
@@ -3653,10 +3661,11 @@ func _on_aggro_body_exited(body: Node3D) -> void:
 ## server can resolve the avatar itself. Attribution matters because lifesteal and the
 ## melee-into-spell cooldown refund both pay the player who landed the blow.
 @rpc("any_peer", "call_local", "reliable")
-func request_damage(amount: float, attacker_peer: int, is_melee: bool, exile_on_kill: bool = false, basic_attack: bool = false) -> void:
+func request_damage(amount: float, attacker_peer: int, is_melee: bool, exile_on_kill: bool = false, basic_attack: bool = false,
+		on_hit: PackedStringArray = PackedStringArray()) -> void:
 	if not Net.is_server() or is_dying:
 		return
-	take_damage(amount, PlayerRegistry.by_peer(attacker_peer), is_melee, exile_on_kill, basic_attack)
+	take_damage(amount, PlayerRegistry.by_peer(attacker_peer), is_melee, exile_on_kill, basic_attack, on_hit)
 
 
 ## `exile_on_kill` is Exalted Strike (white_1) and nothing else: if THIS hit is what
@@ -3666,9 +3675,14 @@ func request_damage(amount: float, attacker_peer: int, is_melee: bool, exile_on_
 ##
 ## `basic_attack` is a player's sword swing or kick, passed back to them in on_damage_dealt -
 ## it is what their black affinity's lifesteal heals from.
-func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, exile_on_kill: bool = false, basic_attack: bool = false) -> void:
+##
+## `on_hit` is the per-enemy half of a charged attack (ChargedHits): the ids of the charges
+## that rode on this blow. Checked against the attacker's build here, then acted on.
+func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, exile_on_kill: bool = false, basic_attack: bool = false,
+		on_hit: PackedStringArray = PackedStringArray()) -> void:
 	if is_dying:
 		return
+	var charged: PackedStringArray = ChargedHits.validated(source, on_hit) if not on_hit.is_empty() else on_hit
 	# Some colours hold their formation under fire and some do not (SquadDoctrine's
 	# break_on_damage - Red's goblins scatter the moment anything touches them). The squad
 	# owns that decision, so it is asked rather than told.
@@ -3689,6 +3703,9 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, e
 			boss_regenerating = false
 	var damage_dealt: float = minf(maxf(amount, 0.0), maxf(health, 0.0))
 	health -= amount
+	# Mark of Sanctity: whoever strikes a marked enemy is shielded.
+	if _sanctity_timer > 0.0 and damage_dealt > 0.0:
+		_sanctity_reward(source)
 	if is_boss():
 		_check_boss_phase()
 		if _channel_active and enemy_data != null:
@@ -3702,13 +3719,21 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, e
 	var spawn_pos = global_position + Vector3(randf_range(-0.3, 0.3), 1.5, randf_range(-0.3, 0.3))
 	NetFx.damage_number(spawn_pos, amount, Color(1.0, 0.95, 0.2), "")
 	# Executioner's Capsule: a melee hit from its wearer finishes off anything it leaves this
-	# close to death. Never a boss - Kill's boss window is the one way to execute those.
+	# close to death. Never a boss - Deathtouch's boss window is the one way to execute those.
 	if health > 0.0 and is_melee and not is_boss() and is_instance_valid(source) \
 			and source.has_method("melee_execute_threshold"):
 		var threshold: float = float(source.melee_execute_threshold())
 		if threshold > 0.0 and enemy_data != null and health <= enemy_data.health * threshold:
 			NetFx.damage_number(spawn_pos + Vector3(0.0, 0.4, 0.0), 0.0, Color(0.75, 0.3, 0.95), "Executed")
 			health = 0.0
+	# Deathtouch (black_3): the same decision as the capsule's, for every attack and every class.
+	if health > 0.0 and not charged.is_empty() and ChargedHits.executes(self, source, charged):
+		NetFx.damage_number(spawn_pos + Vector3(0.0, 0.4, 0.0), 0.0, Color(0.6, 0.2, 0.8), "Deathtouch")
+		health = 0.0
+	if not charged.is_empty():
+		ChargedHits.on_struck(self, source, charged, health <= 0.0)
+		if is_dying:
+			return
 	if health <= 0.0:
 		_killer = source
 		_record_fatal_hit(amount, source)
@@ -3747,6 +3772,17 @@ func _react_to_hit(damage_dealt: float) -> void:
 		_impact_timer = -1.0
 
 func die() -> void:
+	# A Powder Keg goes off with the body that carried it, before the body is anything else.
+	if not _keg.is_empty():
+		_detonate_keg()
+	if _banish_timer > 0.0 or _swine_timer > 0.0 or _encase_timer > 0.0:
+		_banish_timer = 0.0
+		_swine_timer = 0.0
+		if _encase_timer > 0.0:
+			_encase_timer = 0.0
+			_end_encase()
+		round_two_state = 0
+		_sync_round_two_look()
 	# Dimir Guildmage's own question - "did this thing die under control?" - captured
 	# before anything below resets the timers it reads (contagion_timer two lines down,
 	# the rest never reset by die() itself but easiest kept next to the one that is).
@@ -4800,3 +4836,408 @@ static func consume_corpse(corpse: EnemyBase) -> void:
 	_corpses.erase(corpse)
 	if is_instance_valid(corpse):
 		corpse.queue_free()
+
+
+# ============================================================
+# ROUND TWO (docs/SKILL_DESIGN.md, "Idea backlog - round two")
+#
+# What the round-two skills do to an enemy. Every one of these is server state, decided where
+# the AI runs; what a peer has to SEE of it travels as one replicated bit set
+# (round_two_state), from which every peer builds the look itself (_sync_round_two_look) - the
+# same shape the plague's haze already has with contagion_timer.
+# ============================================================
+
+## round_two_state bits.
+const R2_BANISHED := 1
+const R2_SWINE := 2
+const R2_ENCASED := 4
+const R2_KEG := 8
+const R2_SANCTIFIED := 16
+
+## Replicated: which of the round-two states this enemy is in, for the look on every screen.
+var round_two_state: int = 0
+var _r2_look: int = 0
+var _banish_timer: float = 0.0
+var _swine_timer: float = 0.0
+var _encase_timer: float = 0.0
+var _sanctity_timer: float = 0.0
+## Mark of Sanctity's per-ally pace: instance id -> msec the next shield may come.
+var _sanctity_next: Dictionary = {}
+## Powder Keg: {} when none, otherwise {"fuse", "damage", "radius", "source"}.
+var _keg: Dictionary = {}
+## Fling: {} when not in the air, otherwise {"from", "to", "t", "time", "damage", "radius", "source"}.
+var _fling: Dictionary = {}
+## Where this enemy first stood - its lane's mouth, for a wave enemy - for Time Ebb.
+var origin_position: Vector3 = Vector3.INF
+var _r2_nodes: Dictionary = {}
+var _ice_block: StaticBody3D = null
+
+
+## The round-two clocks, from the top of _physics_tick. Returns true when the enemy is held
+## out of its own AI this frame (banished, or in the air from a Fling).
+func _tick_round_two(delta: float) -> bool:
+	if not origin_position.is_finite():
+		origin_position = global_position
+	var held: bool = false
+	if _banish_timer > 0.0:
+		_banish_timer -= delta
+		stun_timer = maxf(stun_timer, 0.1)
+		velocity = Vector3.ZERO
+		held = true
+		if _banish_timer <= 0.0:
+			_end_banish()
+	if _swine_timer > 0.0:
+		_swine_timer -= delta
+		blind_timer = maxf(blind_timer, 0.1)
+		damage_suppress_timer = maxf(damage_suppress_timer, 0.1)
+		apply_slow(0.2, GameSettings.spell_blue_swine_slow)
+		if _swine_timer <= 0.0:
+			_set_r2(R2_SWINE, false)
+	if _encase_timer > 0.0:
+		_encase_timer -= delta
+		freeze_timer = maxf(freeze_timer, 0.1)
+		if _encase_timer <= 0.0:
+			_end_encase()
+	if _sanctity_timer > 0.0:
+		_sanctity_timer -= delta
+		if _sanctity_timer <= 0.0:
+			_set_r2(R2_SANCTIFIED, false)
+	if not _keg.is_empty():
+		_keg["fuse"] = float(_keg["fuse"]) - delta
+		if float(_keg["fuse"]) <= 0.0:
+			_detonate_keg()
+	if not _fling.is_empty():
+		_tick_fling(delta)
+		held = true
+	return held
+
+
+func _set_r2(bit: int, on: bool) -> void:
+	round_two_state = (round_two_state | bit) if on else (round_two_state & ~bit)
+	_sync_round_two_look()
+
+
+## Smite the Monstrous and Counterspell: whether there is a special going that can be broken.
+func is_special_interruptible() -> bool:
+	return _is_special_active or _channel_active or _miniboss_special_windup >= 0.0 or not _beast_special.is_empty()
+
+
+## Breaks the special in progress the way a Consecration broken by damage is (_break_channel):
+## its cooldown spent, nothing dealt, "INTERRUPTED" over it, and a boss left open after it.
+func interrupt_special(_source: Node = null) -> bool:
+	if is_dying or not is_special_interruptible():
+		return false
+	if _miniboss_special_windup >= 0.0:
+		_cancel_miniboss_special()
+		_miniboss_special_timer = enemy_data.attack_speed * GameSettings.wave_miniboss_special_cooldown_mult
+		NetFx.damage_number(_label_point(), 0.0, Color(1.0, 0.9, 0.5), "INTERRUPTED")
+		return true
+	if is_boss():
+		_break_channel()
+		return true
+	_cancel_special()
+	NetFx.damage_number(_label_point(), 0.0, Color(1.0, 0.9, 0.5), "INTERRUPTED")
+	return true
+
+
+## Mark of Sanctity: for `duration`, every ally who strikes this enemy is shielded.
+func apply_sanctity_mark(duration: float) -> void:
+	_sanctity_timer = maxf(_sanctity_timer, duration)
+	_sanctity_next.clear()
+	_set_r2(R2_SANCTIFIED, true)
+
+
+## take_damage's half of the mark: the striker's shield, once per interval per striker.
+func _sanctity_reward(source: Node3D) -> void:
+	if _sanctity_timer <= 0.0 or source == null or not is_instance_valid(source) or not source.has_method("grant_protection_shield"):
+		return
+	var key: int = source.get_instance_id()
+	var now: int = Time.get_ticks_msec()
+	if now < int(_sanctity_next.get(key, 0)):
+		return
+	_sanctity_next[key] = now + int(GameSettings.spell_white_sanctity_interval * 1000.0)
+	source.grant_protection_shield(
+		minf(GameSettings.spell_white_sanctity_shield + float(source.get("protection_shield")), GameSettings.spell_white_sanctity_shield_cap),
+		GameSettings.spell_white_sanctity_shield_duration)
+
+
+## Crippling Chill: the first two charged hits chill, the third (`final`) freezes. A boss is
+## slowed by all three.
+func apply_crippling_chill(final: bool, freeze: float) -> void:
+	if final:
+		apply_equipment_freeze(freeze)
+		NetFx.impact(global_position + Vector3(0.0, 1.0, 0.0), Color(0.6, 0.85, 1.0), 1.0)
+	else:
+		apply_frost_slow(GameSettings.spell_blue_crippling_chill_slow)
+		NetFx.impact(global_position + Vector3(0.0, 1.0, 0.0), Color(0.6, 0.85, 1.0), 0.5)
+
+
+## Ice Cage: frozen inside a block of ice the others have to walk around. A boss is slowed.
+func encase(duration: float) -> void:
+	if is_immune_to_control() or is_dying:
+		apply_frost_slow(duration * 0.5)
+		return
+	_encase_timer = maxf(_encase_timer, duration)
+	freeze_timer = maxf(freeze_timer, duration)
+	if _ice_block == null:
+		# A body of its own on the layer walls are on (WallOfFrost), so the wave paths round it
+		# the way it paths round the wall. Its own enemy is excepted, or it would be wedged.
+		_ice_block = StaticBody3D.new()
+		_ice_block.collision_layer = 1
+		_ice_block.collision_mask = 0
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(1.6, 2.2, 1.6)
+		shape.shape = box
+		shape.position = Vector3(0.0, 1.1, 0.0)
+		_ice_block.add_child(shape)
+		add_child(_ice_block)
+		add_collision_exception_with(_ice_block)
+	_set_r2(R2_ENCASED, true)
+
+
+func _end_encase() -> void:
+	if _ice_block != null and is_instance_valid(_ice_block):
+		_ice_block.queue_free()
+	_ice_block = null
+	_set_r2(R2_ENCASED, false)
+	NetFx.impact(global_position + Vector3(0.0, 1.0, 0.0), Color(0.7, 0.9, 1.0), 1.2)
+
+
+## Time Ebb: back to where it first stood. A boss, a miniboss or a beast is only slowed.
+func send_to_origin(boss_slow: float) -> void:
+	if is_dying:
+		return
+	if is_boss() or is_miniboss or is_beast() or not origin_position.is_finite():
+		apply_frost_slow(boss_slow)
+		return
+	NetFx.ring(global_position, Color(0.45, 0.7, 1.0), 1.4)
+	leave_formation()
+	velocity = Vector3.ZERO
+	knockback_velocity = Vector3.ZERO
+	global_position = origin_position + Vector3(0.0, 0.1, 0.0)
+	_watch_position = global_position
+	NetFx.ring(global_position, Color(0.45, 0.7, 1.0), 1.4)
+	update_path(true)
+
+
+## Powder Keg: a bomb on this enemy that goes off after `fuse` - or when it dies, if first
+## (`now`: this very hit is killing it).
+func attach_powder_keg(source: Node, fuse: float, damage: float, radius: float, now: bool) -> void:
+	_keg = {"fuse": 0.0 if now else fuse, "damage": damage, "radius": radius, "source": source}
+	_set_r2(R2_KEG, true)
+
+
+func _detonate_keg() -> void:
+	if _keg.is_empty():
+		return
+	var keg: Dictionary = _keg
+	_keg = {}
+	_set_r2(R2_KEG, false)
+	var at: Vector3 = global_position
+	var source: Node3D = keg["source"] as Node3D if is_instance_valid(keg["source"]) else null
+	var radius: float = float(keg["radius"])
+	for enemy: Node in get_tree().get_nodes_in_group("enemies"):
+		var body := enemy as Node3D
+		if body == null or not is_instance_valid(body) or body.global_position.distance_to(at) > radius:
+			continue
+		if body.has_method("take_damage"):
+			body.take_damage(float(keg["damage"]), source)
+	NetFx.spell("r2_explosion", at, radius, 0)
+	NetFx.sound(&"spell_fireball_impact", at)
+	NetFx.shake(0.25, 0.25, at, 0)
+
+
+## Banishing Light: out of the fight for `duration` - not there to hit, nor to hit anything -
+## then back where it was.
+func banish(duration: float) -> void:
+	if is_immune_to_control() or is_dying:
+		return
+	_banish_timer = maxf(_banish_timer, duration)
+	if is_in_group("enemies"):
+		remove_from_group("enemies")
+	collision_layer = 0
+	leave_formation()
+	_cancel_special()
+	_set_r2(R2_BANISHED, true)
+
+
+func _end_banish() -> void:
+	if is_dying:
+		return
+	add_to_group("enemies")
+	collision_layer = 4
+	_set_r2(R2_BANISHED, false)
+	NetFx.ring(global_position, Color(1.0, 0.95, 0.7), 1.6)
+	update_path(true)
+
+
+## Curse of the Swine: a harmless boar for `duration` - it cannot attack and barely walks.
+func polymorph(duration: float) -> void:
+	if is_immune_to_control() or is_dying:
+		return
+	_swine_timer = maxf(_swine_timer, duration)
+	_cancel_special()
+	_set_r2(R2_SWINE, true)
+	NetFx.impact(global_position + Vector3(0.0, 0.8, 0.0), Color(0.55, 0.8, 1.0), 1.0)
+
+
+## Fling: seized and thrown in an arc to `to`, bursting in flame where it lands. Server only;
+## the arc is the position the enemy's sync already sends.
+func fling(to: Vector3, damage: float, radius: float, source: Node) -> void:
+	if is_boss() or is_dying:
+		return
+	leave_formation()
+	_cancel_special()
+	var flat: float = Vector2(to.x - global_position.x, to.z - global_position.z).length()
+	_fling = {
+		"from": global_position, "to": to, "t": 0.0,
+		"time": clampf(flat / 18.0, 0.45, 1.2),
+		"damage": damage, "radius": radius, "source": source,
+	}
+	collision_mask = 0
+
+
+func _tick_fling(delta: float) -> void:
+	_fling["t"] = float(_fling["t"]) + delta
+	var k: float = clampf(float(_fling["t"]) / float(_fling["time"]), 0.0, 1.0)
+	var from: Vector3 = _fling["from"]
+	var to: Vector3 = _fling["to"]
+	var at: Vector3 = from.lerp(to, k)
+	at.y += sin(k * PI) * GameSettings.spell_red_fling_height
+	global_position = at
+	velocity = Vector3.ZERO
+	stun_timer = maxf(stun_timer, 0.2)
+	if k < 1.0:
+		return
+	var landed: Dictionary = _fling
+	_fling = {}
+	collision_mask = 31
+	var source: Node3D = landed["source"] as Node3D if is_instance_valid(landed["source"]) else null
+	var radius: float = float(landed["radius"])
+	NetFx.spell("r2_explosion", to, radius, 0)
+	NetFx.sound(&"spell_fireball_impact", to)
+	NetFx.shake(0.3, 0.3, to, 0)
+	for enemy: Node in get_tree().get_nodes_in_group("enemies"):
+		var body := enemy as Node3D
+		if body == null or not is_instance_valid(body) or body.global_position.distance_to(to) > radius:
+			continue
+		if body.has_method("take_damage"):
+			body.take_damage(float(landed["damage"]), source)
+	update_path(true)
+
+
+## What every peer draws for round_two_state: banished in a pillar of light, a boar for a
+## swine, a block of ice, a keg on its back, a halo for the mark. Built here on each peer from
+## the bit set, never sent as nodes.
+func _sync_round_two_look() -> void:
+	if _r2_look == round_two_state:
+		return
+	var changed: int = _r2_look ^ round_two_state
+	_r2_look = round_two_state
+	var hidden: bool = round_two_state & (R2_BANISHED | R2_SWINE) != 0
+	if is_instance_valid(_visual_root):
+		_visual_root.visible = not hidden
+	if health_bar != null and is_instance_valid(health_bar):
+		health_bar.visible = round_two_state & R2_BANISHED == 0
+	for bit: int in [R2_BANISHED, R2_SWINE, R2_ENCASED, R2_KEG, R2_SANCTIFIED]:
+		if changed & bit == 0:
+			continue
+		if round_two_state & bit != 0:
+			var look: Node3D = _build_r2_look(bit)
+			if look != null:
+				add_child(look)
+				_r2_nodes[bit] = look
+		elif _r2_nodes.has(bit):
+			var old: Node3D = _r2_nodes[bit]
+			_r2_nodes.erase(bit)
+			if is_instance_valid(old):
+				old.queue_free()
+
+
+func _build_r2_look(bit: int) -> Node3D:
+	match bit:
+		R2_BANISHED:
+			return _glow_column(Color(1.0, 0.95, 0.72), 0.9, 3.2)
+		R2_SWINE:
+			var scene: PackedScene = load(GameSettings.spell_blue_swine_scene) as PackedScene \
+				if ResourceLoader.exists(GameSettings.spell_blue_swine_scene) else null
+			if scene == null:
+				scene = BeastDatabase.visual_scene("Green")
+			var boar: Node3D = scene.instantiate()
+			boar.scale = Vector3.ONE * GameSettings.spell_blue_swine_scale
+			return boar
+		R2_ENCASED:
+			var ice := MeshInstance3D.new()
+			var mesh := BoxMesh.new()
+			mesh.size = Vector3(1.6, 2.2, 1.6)
+			ice.mesh = mesh
+			ice.position = Vector3(0.0, 1.1, 0.0)
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = Color(0.7, 0.88, 1.0, 0.42)
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.roughness = 0.08
+			mat.emission_enabled = true
+			mat.emission = Color(0.4, 0.65, 0.9)
+			mat.emission_energy_multiplier = 0.35
+			ice.material_override = mat
+			return ice
+		R2_KEG:
+			var keg := MeshInstance3D.new()
+			var barrel := CylinderMesh.new()
+			barrel.top_radius = 0.22
+			barrel.bottom_radius = 0.22
+			barrel.height = 0.5
+			keg.mesh = barrel
+			keg.position = Vector3(0.0, 1.3, -0.3)
+			var wood := StandardMaterial3D.new()
+			wood.albedo_color = Color(0.42, 0.26, 0.13)
+			keg.material_override = wood
+			var spark := OmniLight3D.new()
+			spark.light_color = Color(1.0, 0.55, 0.2)
+			spark.light_energy = 1.2
+			spark.omni_range = 2.0
+			spark.position = Vector3(0.0, 0.35, 0.0)
+			keg.add_child(spark)
+			return keg
+		R2_SANCTIFIED:
+			var halo := OmniLight3D.new()
+			halo.light_color = Color(1.0, 0.92, 0.6)
+			halo.light_energy = 1.4
+			halo.omni_range = 2.6
+			halo.position = Vector3(0.0, 2.2, 0.0)
+			return halo
+	return null
+
+
+## A soft column of light - no hard rim (memory: VFX without hard edges): an unshaded
+## cylinder fading out at the top and the bottom, and a light inside it.
+static func _glow_column(tint: Color, radius: float, height: float) -> Node3D:
+	var root := Node3D.new()
+	var column := MeshInstance3D.new()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
+	mesh.height = height
+	mesh.cap_top = false
+	mesh.cap_bottom = false
+	column.mesh = mesh
+	column.position = Vector3(0.0, height * 0.5, 0.0)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	mat.albedo_color = Color(tint.r, tint.g, tint.b, 0.28)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.proximity_fade_enabled = true
+	mat.proximity_fade_distance = 0.6
+	column.material_override = mat
+	column.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(column)
+	var light := OmniLight3D.new()
+	light.light_color = tint
+	light.light_energy = 1.8
+	light.omni_range = radius * 4.0
+	light.position = Vector3(0.0, 1.2, 0.0)
+	root.add_child(light)
+	return root

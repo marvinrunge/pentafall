@@ -25,7 +25,8 @@ var velocity: Vector3 = Vector3.ZERO
 var shooter: Player = null
 ## Damage per enemy struck. Zero on every copy but the shooter's.
 var authority_damage: float = 0.0
-var exile_on_kill: bool = false
+## What the shot is charged with (AttackLoad), on the shooter's copy only; null for a plain one.
+var load: RefCounted = null
 var deadeye: bool = false
 var _pierce_left: int = 1
 var _travelled: float = 0.0
@@ -106,6 +107,9 @@ func _physics_process(delta: float) -> void:
 			_stuck_timer = GameSettings.archer_arrow_stuck_lifetime
 			if is_instance_valid(shooter):
 				SoundBank.play_at(&"arrow_hit", at)
+				# A charge that acts on the ground lands where the arrow does.
+				if authority_damage > 0.0:
+					_burst_charge(at)
 			return
 	global_position = to
 	_travelled += velocity.length() * delta
@@ -130,10 +134,26 @@ func _strike(enemy: Node3D, at: Vector3, _rid: RID) -> void:
 	if deadeye and is_headshot(enemy, at):
 		damage *= GameSettings.archer_deadeye_damage_mult
 		NetFx.impact(at, Color(1.0, 0.9, 0.55), 0.45)
-	shooter._basic_strike(enemy, damage, exile_on_kill, false)
+	var exile: bool = load != null and load.exile
+	shooter._basic_strike(enemy, damage, exile, false, load)
 	shooter._apply_basic_attack_knockback(enemy, GameSettings.archer_arrow_knockback)
+	_burst_charge(at)
 	# The bow feeds the spells exactly as the axe does: a connecting hit takes time off them.
 	shooter._reduce_spell_cooldowns(GameSettings.melee_hit_cooldown_reduction)
+
+
+## The charge's area half, once, where the arrow first lands: Become Immense's burst over
+## everything near it, and the impact payloads (Sunlance, Entangling Vines...).
+func _burst_charge(at: Vector3) -> void:
+	if load == null or not is_instance_valid(shooter):
+		return
+	if load.burst_radius > 0.0:
+		var exile: bool = load.exile
+		for enemy: Node3D in shooter._enemies_in_radius(at, load.burst_radius):
+			shooter._basic_strike(enemy, authority_damage, exile, false, load)
+		load.burst_radius = 0.0
+		NetFx.impact(at, Color(0.45, 0.85, 0.35), 1.2)
+	shooter.resolve_charged_impact(load, at, velocity.normalized())
 
 
 ## The enemy a collider belongs to, or null for the world.

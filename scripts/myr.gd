@@ -1,5 +1,7 @@
 extends CharacterBody3D
 class_name Myr
+## Worship (white_10) - see take_damage.
+const _round_two := preload("res://scripts/round_two_spells.gd")
 
 enum State {
 	IDLE,
@@ -273,6 +275,9 @@ func take_damage(amount: float, _source: Node3D = null, _is_melee: bool = false)
 		if phase > 0.0:
 			_phase_left = phase
 	health = maxf(0.0, health - amount)
+	# Worship (white_10): nothing takes a myr's last point of health on hallowed ground.
+	if health < 1.0 and _round_two.protects(global_position):
+		health = 1.0
 	NetFx.damage_number(global_position + Vector3(0, 1.2, 0), amount, Color(1.0, 0.25, 0.25), "")
 	if health <= 0.0:
 		die()

@@ -22,7 +22,25 @@ class_name SpellDatabase
 ## time, tier costs - stay in GameSettings.
 
 const COLORS: Array[String] = ["white", "blue", "black", "red", "green"]
-const SPELLS_PER_COLOR: int = 5
+## The highest N a colour's `colour_N` id runs to. Ids are append-only and never renumbered -
+## the first twenty-five are named in icons, sounds, visuals and tests ~190 times - so N is the
+## spell's identity, not its place on the board. Where it sits is RINGS' business.
+const MAX_SPELLS_PER_COLOR: int = 12
+
+## Every colour's spells by ring, inner first; left to right within a ring is the board order.
+## The ring is a GAMEPLAY gate (GameSettings.color_ring_investment), which is why it lives here
+## and not in the skill tree: the server and Player check it without a SkillTree in sight.
+##
+## Ring 1 holds the skills that work with no setup and read instantly - each colour's original
+## Core pair plus one next-attack skill; ring 2 the original Specialists plus one more; ring 3
+## the rest of the round-two backlog (docs/SKILL_DESIGN.md), the tower among them.
+const RINGS: Dictionary = {
+	"white": [[1, 7, 2], [3, 4, 8, 5], [6, 9, 10, 11, 12]],
+	"blue": [[1, 7, 2], [3, 4, 8, 5], [6, 9, 10, 11, 12]],
+	"black": [[1, 6, 2], [3, 4, 7, 5], [8, 9, 10, 11, 12]],
+	"red": [[1, 8, 2], [3, 4, 7, 5], [6, 9, 10, 11]],
+	"green": [[1, 6, 2], [3, 4, 7, 5], [8, 9, 10, 11, 12]],
+}
 
 ## Fallback for an id that isn't in the table at all.
 const DEFAULT_COOLDOWN: float = 1.0
@@ -35,10 +53,47 @@ const ICON_FILES: Dictionary = {
 	# wore before (docs/ICON_PROMPTS.md), so dropping the new file in is the whole change.
 	"blue_2": "frostwave.png", "blue_3": "suction.png", "blue_4": ["wall-of-frost.png", "frost-globe.png"],
 	"blue_5": ["displace.png", "flying.png"],
-	"black_1": "doom-blade.png", "black_2": "contagion.png", "black_3": "kill.png", "black_4": "wall-of-souls.png",
+	"black_1": "doom-blade.png", "black_2": "contagion.png", "black_3": ["deathtouch.png", "kill.png"],
+	"black_4": "wall-of-souls.png",
 	"black_5": "zombify.png", "red_1": "fireball.png", "red_2": "fire-dash.png", "red_3": "rain-of-ember.png",
 	"red_4": "fire-cone.png", "red_5": "lightning-bolt.png", "green_1": "titanic-leap.png",
 	"green_2": "giant-growth.png", "green_3": "fog.png", "green_4": "roar.png", "green_5": "ironbark.png",
+	# Round two (docs/SKILL_DESIGN.md). Each one's own icon first, once drawn, and until then the
+	# nearest existing one - so dropping the new file in is the whole change, as above.
+	"white_6": ["glorious-charge.png", "circle-of-protection.png"],
+	"white_7": ["smite-the-monstrous.png", "exalted-strike.png"],
+	"white_8": ["sunlance.png", "wrath-of-god.png"],
+	"white_9": ["mark-of-sanctity.png", "circle-of-protection.png"],
+	"white_10": ["worship.png", "rally-the-fallen.png"],
+	"white_11": ["banishing-light.png", "wrath-of-god.png"],
+	"white_12": ["ivory-tower.png", "glorious anthem.png"],
+	"blue_6": ["mirror-image.png", "phantasmal-decoy.png"],
+	"blue_7": ["crippling-chill.png", "frostwave.png"],
+	"blue_8": ["ice-cage.png", "wall-of-frost.png"],
+	"blue_9": ["time-ebb.png", "unsummon.png"],
+	"blue_10": ["counterspell.png", "rhystic-study.png"],
+	"blue_11": ["curse-of-the-swine.png", "suction.png"],
+	"blue_12": ["glacial-fortress.png", "orb-of-frost.png"],
+	"black_6": ["unholy-strength.png", "phyrexian-arena.png"],
+	"black_7": ["bone-splinters.png", "zombify.png"],
+	"black_8": ["undying.png", "grave-pact.png"],
+	"black_9": ["animate-dead.png", "enchantment-animate-dead.png", "zombify.png"],
+	"black_10": ["gravewalk.png", "displace.png"],
+	"black_11": ["demonic-pact.png", "phyrexian-arena.png"],
+	"black_12": ["bontus-monument.png", "grave-pact.png"],
+	"red_6": ["fling.png", "fireball.png"],
+	"red_7": ["blood-frenzy.png", "fervor.png"],
+	"red_8": ["powder-keg.png", "fireball.png"],
+	"red_9": ["grapeshot.png", "lightning-orb.png"],
+	"red_10": ["fork.png", "lightning-bolt.png"],
+	"red_11": ["goblin-sharpshooter.png", "orb-of-fire.png"],
+	"green_6": ["become-immense.png", "giant-growth.png"],
+	"green_7": ["entangling-vines.png", "fog.png"],
+	"green_8": ["kraul-harpooner.png", "titanic-leap.png"],
+	"green_9": ["awaken.png", "kodamas-reach.png"],
+	"green_10": ["overrun.png", "trample.png"],
+	"green_11": ["call-of-the-herd.png", "roar.png"],
+	"green_12": ["hornet-nest.png", "ironbark.png"],
 	"flight": "flying.png", "haste": "haste.png",
 	"double_strike": "doublestrike.png", "trample_strike": "trample.png", "vigilance": "vigilance.png",
 	"roar": "roar.png", "ironbark": "ironbark.png", "melee_combo": "blade-dance.png",
@@ -114,6 +169,12 @@ const ICON_FILES: Dictionary = {
 ##                  the one case where the two come apart and so states it outright:
 ##                  it moves the caster AND needs its own legs, because the movement
 ##                  it makes IS the brawl leap the clip is playing
+##   next_attack    "light", "heavy" or "any": the cast does nothing by itself but CHARGE the
+##                  caster's next attack of that weight (AttackCharges). Every class has both
+##                  weights - a tap and a hold - so none of these assumes a weapon; what each
+##                  charge does when it lands is ChargedHits'
+##   tower          the Tower id the cast places (scripts/tower.gd)
+##   passive        never cast: a round node in the tree, never put on the quick bar
 ##
 ## Two things are deliberately NOT stored here, both because storing them is how they
 ## drifted in the first place:
@@ -125,12 +186,10 @@ const ICON_FILES: Dictionary = {
 ##   a clip whose payload is its FINAL impact rather than its first: Titanic Brawl
 ##   lands on the slam at 79% of the jump, not on the take-off at 15%.
 ##
-##   the unlock cost - that is the tier's cost from GameSettings.TIER_COSTS.
-## Slot order is the RING order from docs/SKILL_DESIGN.md, not a power ranking: slots 1
-## and 2 are the colour's Core ring - the skills that work with no setup and read
-## instantly - and slots 3-5 are its Specialist ring, which need positioning or are
-## situationally stronger. The skill tree gates slots on affinity rank, so putting the
-## Core skills first is what makes a colour playable the moment you invest in it.
+##   the unlock cost - one skill point, like every rank (get_unlock_cost).
+## The N in an id is identity, not position: where a spell sits on the board and what it takes
+## to reach it is RINGS (above) and GameSettings.color_ring_investment. Ids 1-5 are the
+## original roster; 6-12 the round-two backlog of docs/SKILL_DESIGN.md.
 const SPELLS: Dictionary = {
 	# --- WHITE: protection and restoration ---
 	# The only colour built around the myrs and the crystal rather than the player, and
@@ -164,6 +223,49 @@ const SPELLS: Dictionary = {
 		"desc": "Revives every downed teammate in range and heals surviving allies - myrs included.",
 		"cooldown": 45.0, "chargeable": false,
 		"cast_clip": "cast_white", "cast_duration": 0.9, "roots": true,
+	},
+	# Round two. Like Fire Dash this one MOVES the caster, so it launches when the cast starts.
+	"white_6": {
+		"name": "Glorious Charge",
+		"desc": "Charge forward behind a raised guard. Enemies in the way are carried along and stunned; allies you pass are shielded.",
+		"cooldown": 12.0, "chargeable": false,
+		"cast_clip": "cast_white", "cast_duration": 0.45, "roots": false,
+	},
+	"white_7": {
+		"name": "Smite the Monstrous",
+		"desc": "Your next heavy attack strikes far harder. Landing it on a boss in the middle of a special attack breaks the special.",
+		"cooldown": 14.0, "chargeable": false, "next_attack": "heavy",
+		"cast_clip": "cast_white", "cast_duration": 0.45, "roots": false,
+	},
+	"white_8": {
+		"name": "Sunlance",
+		"desc": "Your next light attack becomes a lance of light that carries on through the line, blinding everything it touches.",
+		"cooldown": 10.0, "chargeable": false, "next_attack": "light",
+		"cast_clip": "cast_white", "cast_duration": 0.45, "roots": false,
+	},
+	"white_9": {
+		"name": "Mark of Sanctity",
+		"desc": "Your next light attack marks its target. Every ally who strikes the marked enemy is shielded.",
+		"cooldown": 12.0, "chargeable": false, "next_attack": "light",
+		"cast_clip": "cast_white", "cast_duration": 0.45, "roots": false,
+	},
+	"white_10": {
+		"name": "Worship",
+		"desc": "Hallowed ground around you. While allies and myrs stand in it, nothing can bring them below 1 health.",
+		"cooldown": 30.0, "chargeable": false,
+		"cast_clip": "cast_white", "cast_duration": 0.7, "roots": true,
+	},
+	"white_11": {
+		"name": "Banishing Light",
+		"desc": "Seals every enemy in a small circle where you aim inside light for a time - out of the fight, then back. Not bosses.",
+		"cooldown": 24.0, "chargeable": false,
+		"cast_clip": "cast_white", "cast_duration": 0.6, "roots": false,
+	},
+	"white_12": {
+		"name": "Ivory Tower",
+		"desc": "Raise a tower where you aim that shields the allies and myrs around it. More towers stand at once with rank.",
+		"cooldown": 14.0, "chargeable": false, "tower": "ivory_tower",
+		"cast_clip": "cast_white", "cast_duration": 0.6, "roots": true,
 	},
 
 	# --- BLUE: control ---
@@ -203,6 +305,49 @@ const SPELLS: Dictionary = {
 		# cast_clip is the supported way to say "resolve now" - see Player._begin_cast.
 		"cast_clip": "", "cast_duration": 0.0, "roots": false,
 	},
+	"blue_6": {
+		"name": "Mirror Image",
+		"desc": "Copies of you step out and fight beside you with your own attacks at half strength. Enemies take them for you. More copies with rank.",
+		"cooldown": 26.0, "chargeable": false,
+		"cast_clip": "cast_blue", "cast_duration": 0.6, "roots": false,
+	},
+	"blue_7": {
+		"name": "Crippling Chill",
+		"desc": "Your next three light attacks chill what they hit. The third freezes it solid. Bosses are slowed instead.",
+		"cooldown": 10.0, "chargeable": false, "next_attack": "light",
+		"cast_clip": "cast_blue", "cast_duration": 0.45, "roots": false,
+	},
+	"blue_8": {
+		"name": "Ice Cage",
+		"desc": "Your next light attack encases its target in a block of ice the others have to walk around.",
+		"cooldown": 14.0, "chargeable": false, "next_attack": "light",
+		"cast_clip": "cast_blue", "cast_duration": 0.45, "roots": false,
+	},
+	"blue_9": {
+		"name": "Time Ebb",
+		"desc": "Your next heavy attack sends everything it hits back to where it came from. Bosses are only slowed.",
+		"cooldown": 18.0, "chargeable": false, "next_attack": "heavy",
+		"cast_clip": "cast_blue", "cast_duration": 0.45, "roots": false,
+	},
+	# Reactive, so it must be quick: no root and the shortest cast in blue.
+	"blue_10": {
+		"name": "Counterspell",
+		"desc": "Cast while a boss or miniboss is winding up a special attack nearby: the special fizzles.",
+		"cooldown": 30.0, "chargeable": false,
+		"cast_clip": "cast_blue", "cast_duration": 0.35, "roots": false,
+	},
+	"blue_11": {
+		"name": "Curse of the Swine",
+		"desc": "Turns enemies where you aim into harmless boars for a few seconds. More of them with rank. Not bosses.",
+		"cooldown": 24.0, "chargeable": false,
+		"cast_clip": "cast_blue", "cast_duration": 0.7, "roots": true,
+	},
+	"blue_12": {
+		"name": "Glacial Fortress",
+		"desc": "Raise a tower where you aim that fires ice at enemies, slowing them; every fourth shot freezes. More towers stand at once with rank.",
+		"cooldown": 14.0, "chargeable": false, "tower": "glacial_fortress",
+		"cast_clip": "cast_blue", "cast_duration": 0.6, "roots": true,
+	},
 
 	# --- BLACK: death as a resource ---
 	# Kills, and feeds on what the killing leaves: corpses to raise, souls to throw, a plague
@@ -221,14 +366,14 @@ const SPELLS: Dictionary = {
 		"cooldown": 12.0, "chargeable": false,
 		"cast_clip": "cast_black", "cast_duration": 0.55, "roots": false,
 	},
-	# Still the longest cooldown in the game, deliberately: an instant delete on a short
-	# cooldown invalidates every other black skill. Cut from a whole minute, which in a
-	# game of hordes meant one elite a minute.
+	# Was Kill: one target at 45 m. Now the next attack, light or heavy, executes everything it
+	# hits up to a limit - one execute for black instead of two (docs/SKILL_DESIGN.md, round
+	# two). Still the longest cooldown in the game, and still the one that falls with rank.
 	"black_3": {
-		"name": "Kill",
-		"desc": "Instantly kills one enemy. Bosses only below a third of their health.",
-		"cooldown": 40.0, "chargeable": false,
-		"cast_clip": "cast_black", "cast_duration": 0.75, "roots": true,
+		"name": "Deathtouch",
+		"desc": "Your next attack within a few seconds kills every enemy it hits, up to a limit. Bosses and minibosses only when they are weak enough.",
+		"cooldown": 40.0, "chargeable": false, "next_attack": "any",
+		"cast_clip": "cast_black", "cast_duration": 0.5, "roots": false,
 	},
 	"black_4": {
 		"name": "Wall of Souls",
@@ -241,6 +386,49 @@ const SPELLS: Dictionary = {
 		"desc": "Raises the corpses lying nearby as ghouls that rush the nearest enemy and fight it.",
 		"cooldown": 30.0, "chargeable": false,
 		"cast_clip": "cast_black", "cast_duration": 0.9, "roots": true,
+	},
+	"black_6": {
+		"name": "Unholy Strength",
+		"desc": "For a time every hit you land costs a little of your life and deals a multiple of it as extra damage. Never takes your last point of health.",
+		"cooldown": 20.0, "chargeable": false,
+		"cast_clip": "cast_black", "cast_duration": 0.5, "roots": false,
+	},
+	"black_7": {
+		"name": "Bone Splinters",
+		"desc": "Your next heavy attack tears apart every corpse near where it lands; each one flies at the nearest enemy as a splinter of bone.",
+		"cooldown": 12.0, "chargeable": false, "next_attack": "heavy",
+		"cast_clip": "cast_black", "cast_duration": 0.45, "roots": false,
+	},
+	"black_8": {
+		"name": "Undying",
+		"desc": "Passive. Once a wave, when you would go down, you rise again at once - briefly untouchable, with a wave of dread that throws the enemies around you back.",
+		"cooldown": 0.0, "chargeable": false, "passive": true,
+		"cast_clip": "", "cast_duration": 0.0, "roots": false,
+	},
+	"black_9": {
+		"name": "Animate Dead",
+		"desc": "Raises the corpse of an elite, a miniboss or a boss near where you aim as your own, until the wave ends.",
+		"cooldown": 40.0, "chargeable": false,
+		"cast_clip": "cast_black", "cast_duration": 0.9, "roots": true,
+	},
+	# No cast animation, like Displace: an escape that has to be announced is not one.
+	"black_10": {
+		"name": "Gravewalk",
+		"desc": "Step into the corpse nearest where you aim. It bursts as you arrive, hurting everything around you.",
+		"cooldown": 12.0, "chargeable": false,
+		"cast_clip": "", "cast_duration": 0.0, "roots": false,
+	},
+	"black_11": {
+		"name": "Demonic Pact",
+		"desc": "Every other black spell comes off cooldown now. The demon wants ten kills in return before time runs out - fail, and it takes half your health. That can kill you.",
+		"cooldown": 60.0, "chargeable": false,
+		"cast_clip": "cast_black", "cast_duration": 0.7, "roots": false,
+	},
+	"black_12": {
+		"name": "Bontu's Monument",
+		"desc": "Raise a monument where you aim. Every death near it charges it; full, it raises a ghoul. More monuments stand at once with rank.",
+		"cooldown": 16.0, "chargeable": false, "tower": "bontus_monument",
+		"cast_clip": "cast_black", "cast_duration": 0.6, "roots": true,
 	},
 
 	# --- RED: aggression ---
@@ -277,6 +465,42 @@ const SPELLS: Dictionary = {
 		"desc": "Calls a bolt down on a small area, striking bosses and elites for double. The precision answer to one big target.",
 		"cooldown": 12.0, "chargeable": false,
 		"cast_clip": "cast_red", "cast_duration": 0.7, "roots": true,
+	},
+	"red_6": {
+		"name": "Fling",
+		"desc": "Seize the enemy you are looking at and hurl it where you aim. It bursts into flame where it lands. Not bosses.",
+		"cooldown": 12.0, "chargeable": false,
+		"cast_clip": "cast_red", "cast_duration": 0.6, "roots": true,
+	},
+	"red_7": {
+		"name": "Blood Frenzy",
+		"desc": "For a time you hit harder the less health you have left.",
+		"cooldown": 24.0, "chargeable": false,
+		"cast_clip": "cast_red", "cast_duration": 0.5, "roots": false,
+	},
+	"red_8": {
+		"name": "Powder Keg",
+		"desc": "Your next light attack sticks a powder keg to its target. It goes off after a few seconds - at once if the target dies first.",
+		"cooldown": 9.0, "chargeable": false, "next_attack": "light",
+		"cast_clip": "cast_red", "cast_duration": 0.45, "roots": false,
+	},
+	"red_9": {
+		"name": "Grapeshot",
+		"desc": "A spray of small bolts at the nearest enemies: one, and one more for every spell you cast in the last few seconds.",
+		"cooldown": 6.0, "chargeable": false,
+		"cast_clip": "cast_red", "cast_duration": 0.4, "roots": false,
+	},
+	"red_10": {
+		"name": "Fork",
+		"desc": "Your next aimed spell, of any colour, is cast twice: at your target, and at the nearest other enemy.",
+		"cooldown": 20.0, "chargeable": false,
+		"cast_clip": "cast_red", "cast_duration": 0.4, "roots": false,
+	},
+	"red_11": {
+		"name": "Goblin Sharpshooter",
+		"desc": "Post a goblin sharpshooter where you aim: very fast, very deadly shots, and it falls to almost anything. More of them at once with rank.",
+		"cooldown": 14.0, "chargeable": false, "tower": "goblin_sharpshooter",
+		"cast_clip": "cast_red", "cast_duration": 0.6, "roots": true,
 	},
 
 	# --- GREEN: primal vitality ---
@@ -334,6 +558,49 @@ const SPELLS: Dictionary = {
 		"desc": "Bark over your skin: heavy damage reduction, and nothing can knock you back, stun or freeze you.",
 		"cooldown": 20.0, "chargeable": false,
 		"cast_clip": "cast_green", "cast_duration": 0.55, "roots": false,
+	},
+	"green_6": {
+		"name": "Become Immense",
+		"desc": "Your next attack, light or heavy, grows huge: a bigger swing, arrow or bolt that hits harder and covers more ground.",
+		"cooldown": 12.0, "chargeable": false, "next_attack": "any",
+		"cast_clip": "cast_green", "cast_duration": 0.45, "roots": false,
+	},
+	"green_7": {
+		"name": "Entangling Vines",
+		"desc": "Vines burst from wherever your next light attack lands and root the enemies around it - they still fight, but cannot advance.",
+		"cooldown": 12.0, "chargeable": false, "next_attack": "light",
+		"cast_clip": "cast_green", "cast_duration": 0.45, "roots": false,
+	},
+	"green_8": {
+		"name": "Kraul Harpooner",
+		"desc": "Fire a vine harpoon where you aim. An enemy it hits is dragged to you; a tree or a standing stone drags you to it. Not bosses.",
+		"cooldown": 10.0, "chargeable": false,
+		"cast_clip": "cast_green", "cast_duration": 0.4, "roots": false,
+	},
+	"green_9": {
+		"name": "Awaken",
+		"desc": "Aim at a tree to wake it as a treant, or at a standing stone of the ring to raise a golem. It fights for you for a time.",
+		"cooldown": 40.0, "chargeable": false,
+		"cast_clip": "cast_green", "cast_duration": 0.8, "roots": true,
+	},
+	# Moves the caster like Fire Dash, so it launches when the cast starts.
+	"green_10": {
+		"name": "Overrun",
+		"desc": "A short unstoppable charge that throws everything in your way aside and clears a path. Nothing can stop or stun you while it lasts.",
+		"cooldown": 18.0, "chargeable": false,
+		"cast_clip": "cast_green", "cast_duration": 0.45, "roots": false,
+	},
+	"green_11": {
+		"name": "Call of the Herd",
+		"desc": "Call a beast you have hunted: it fights for you until it falls or the wave ends, as big as the one you took the trophy from. Needs a trophy from a slain beast.",
+		"cooldown": 30.0, "chargeable": false,
+		"cast_clip": "cast_green", "cast_duration": 0.7, "roots": true,
+	},
+	"green_12": {
+		"name": "Hornet Nest",
+		"desc": "Raise a nest where you aim. Enemies turn on it, and every blow they land sends hornets out to sting them. More nests stand at once with rank.",
+		"cooldown": 16.0, "chargeable": false, "tower": "hornet_nest",
+		"cast_clip": "cast_green", "cast_duration": 0.6, "roots": true,
 	},
 }
 
@@ -493,39 +760,77 @@ static func get_icon_path(icon_id: String, fallback_color: String = "") -> Strin
 	return ""
 
 
-## 1-based tier, or 0 for a non-spell id.
-static func get_tier(spell_id: String) -> int:
+## The N of a `colour_N` id, or 0 for a non-spell id. Identity only - see MAX_SPELLS_PER_COLOR.
+static func spell_index(spell_id: String) -> int:
 	if not SPELLS.has(spell_id):
 		return 0
 	return int(spell_id.get_slice("_", 1))
 
 
-static func make_id(color: String, tier: int) -> String:
-	return "%s_%d" % [color, tier]
+static func make_id(color: String, index: int) -> String:
+	return "%s_%d" % [color, index]
 
 
-## Mana price of unlocking the spell, taken from the shared tier table so it can
-## never disagree with what the skill tree charges.
+## Every spell of `color`, in N order. The one loop over a colour's spells: everything that
+## used to count to five (the investment sum, the debug unlock, the tree) asks here instead.
+static func spells_of(color: String) -> Array[String]:
+	var out: Array[String] = []
+	for index in range(1, MAX_SPELLS_PER_COLOR + 1):
+		var spell_id := make_id(color, index)
+		if SPELLS.has(spell_id):
+			out.append(spell_id)
+	return out
+
+
+## 1-based ring of a colour spell (RINGS), 0 for anything that is not one.
+static func get_ring(spell_id: String) -> int:
+	var index: int = spell_index(spell_id)
+	var rings: Array = RINGS.get(get_color(spell_id), [])
+	for ring: int in rings.size():
+		if (rings[ring] as Array).has(index):
+			return ring + 1
+	return 0
+
+
+## A colour's spells ring by ring, each ring in board order.
+static func get_rings(color: String) -> Array:
+	return RINGS.get(color, [])
+
+
+## "light", "heavy", "any" or "" - which of the caster's next attacks this spell charges.
+static func next_attack(spell_id: String) -> String:
+	return String(SPELLS.get(spell_id, {}).get("next_attack", ""))
+
+
+## The Tower id the spell places, or "".
+static func tower_of(spell_id: String) -> String:
+	return String(SPELLS.get(spell_id, {}).get("tower", ""))
+
+
+## A passive spell is never cast and never bound to the quick bar (Undying).
+static func is_passive(spell_id: String) -> bool:
+	return bool(SPELLS.get(spell_id, {}).get("passive", false))
+
+
+## Skill-point price of a spell's first rank - the same flat price as every rank after it
+## (GameSettings.spell_rank_point_cost). It used to be the tier's MANA cost from TIER_COSTS
+## (1, 3, 7, 15, 30), which nothing charged any more: the tree read a tier-5 spell as
+## unaffordable until the player held thirty points, then took one.
 static func get_unlock_cost(spell_id: String) -> int:
-	var tier: int = get_tier(spell_id)
-	if tier <= 0:
-		return 0
-	return GameSettings.get_tier_cost(tier - 1)
+	return GameSettings.spell_rank_point_cost if SPELLS.has(spell_id) else 0
 
 
-## The colour's five spells in tier order, shaped for the skill tree's board builder:
-## {id, name, cost, desc}.
+## The colour's spells in N order, shaped for the skill tree's board builder:
+## {id, name, cost, desc, ring}.
 static func get_spells_for_color(color: String) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	for tier in range(1, SPELLS_PER_COLOR + 1):
-		var spell_id := make_id(color, tier)
-		if not SPELLS.has(spell_id):
-			continue
+	for spell_id: String in spells_of(color):
 		out.append({
 			"id": spell_id,
 			"name": get_display_name(spell_id),
 			"cost": get_unlock_cost(spell_id),
 			"desc": get_description(spell_id),
+			"ring": get_ring(spell_id),
 		})
 	return out
 

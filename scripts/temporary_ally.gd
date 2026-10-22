@@ -27,9 +27,25 @@ class_name TemporaryAlly
 ## `EnemyBase.evaluate_target`, which treats the group exactly the way it treats a myr.
 ## Both kinds are in it: a ghoul nothing would swing at could run the whole lane untouched.
 
-## Which of the two this is. "undead" rushes in and fights; "decoy" stands where it was put
-## and soaks attention.
+## What this is. "decoy" stands where it was put and soaks attention; everything else rushes
+## in and fights (_fights):
+##   undead   Zombify's ghoul, Dimir's, Nim Deathmantle's
+##   raised   Animate Dead's: one elite, miniboss or boss corpse, bigger and harder
+##   mirror   Mirror Image: a copy of the caster in their class's own visual
+##   beast    Call of the Herd: a hunted beast, in its biome's skin and at its size
+##   treant   Awaken on a tree; golem: Awaken on a standing stone
 var kind: String = "undead"
+## How much bigger than its model's ordinary size it is drawn and bodied.
+var visual_scale: float = 1.0
+## For a beast, a treant or a golem: the biome colour it is drawn in.
+var biome_color: String = ""
+## Ends with the wave that is running when it rises, whatever its timer still says (Animate Dead,
+## Call of the Herd).
+var ends_with_wave: bool = false
+## Seconds between swings, and the clip they play; a mirror of a ranged class strikes from
+## its own reach instead of walking up.
+var attack_interval: float = GameSettings.spell_black_zombify_attack_interval
+var _attack_clip: String = "attack"
 var health: float = 100.0
 var max_health: float = 100.0
 ## For a ghoul, what its burst deals to everything in the radius - only ever dealt with
@@ -125,15 +141,19 @@ func _ready() -> void:
 	# The ground is on EnemyBase.ENVIRONMENT_LAYER, not layer 1 - masking only layer 1
 	# left nothing underneath, and every summon fell out of the world the moment it rose.
 	collision_mask = 1 | EnemyBase.ENVIRONMENT_LAYER
-	if kind == "undead":
+	if kind == "undead" or kind == "raised":
 		move_speed = GameSettings.spell_black_zombify_speed
+	if ends_with_wave:
+		SignalBus.wave_completed.connect(func(_wave: int) -> void:
+			if Net.is_server() and is_instance_valid(self):
+				_expire())
 
 	var body := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.45
-	capsule.height = 1.8
+	capsule.radius = 0.45 * visual_scale
+	capsule.height = 1.8 * visual_scale
 	body.shape = capsule
-	body.position = Vector3(0.0, 0.9, 0.0)
+	body.position = Vector3(0.0, 0.9 * visual_scale, 0.0)
 	add_child(body)
 
 	_build_visual()
@@ -176,9 +196,22 @@ func _build_visual() -> void:
 	# The resource when there is one, the two replicated strings when there is not.
 	var color: String = source.color_identity if source != null else visual_color
 	var enemy_class: String = source.enemy_class if source != null else visual_class
-	if kind == "undead":
+	if kind == "undead" or (kind == "raised" and enemy_class != "Boss"):
 		enemy_class = "Melee"
 	var scene: PackedScene = null
+	if kind == "beast" or kind == "treant" or kind == "golem":
+		_build_creature_visual()
+		return
+	if kind == "raised" and enemy_class == "Boss":
+		var boss_scene: PackedScene = BossDatabase.get_visual_scene(color)
+		if boss_scene != null:
+			_visual = boss_scene.instantiate()
+			_visual.scale = Vector3.ONE * 100.0 * BossDatabase.get_model_scale(color, 2.5) * GameSettings.spell_black_animate_boss_scale
+			add_child(_visual)
+			_find_clips(["walk"])
+			_apply_tint()
+			_update_animation()
+			return
 	if visual_player_class != "":
 		# A player's visual is built at its real size and already faces -Z, the way the player
 		# it copies faces (PlayerCharacterBuilder); it idles by itself on its autoplay clip.
@@ -186,6 +219,13 @@ func _build_visual() -> void:
 		if player_scene != null:
 			_visual = player_scene.instantiate()
 			add_child(_visual)
+			if kind == "mirror":
+				# A copy that fights: it runs and swings with its class's own clips.
+				_find_clips(["run_forward", "run_forward_unarmed", "walk_forward"])
+				for clip: String in ["combo_3", "combo_2", "slash_chain", "cleave_chain", "shoot", "bolt_1"]:
+					if _anim != null and _anim.has_animation(clip):
+						_attack_clip = clip
+						break
 			_apply_tint()
 			# The mage holds its orb even as an illusion, in the illusion's colour.
 			var skeleton: Skeleton3D = _visual.find_child("Skeleton3D", true, false) as Skeleton3D
@@ -205,15 +245,10 @@ func _build_visual() -> void:
 	if scene != null:
 		_visual = scene.instantiate()
 		# Same 100x correction the enemies use: the imported models are ~0.016m tall.
-		_visual.scale = Vector3(100, 100, 100)
+		_visual.scale = Vector3(100, 100, 100) * visual_scale
 		add_child(_visual)
-		_anim = _visual.find_child("AnimationPlayer", true, false) as AnimationPlayer
-		if _anim != null:
-			# A ghoul sprints, so it runs where the rig can; a decoy never moves at all.
-			for clip: String in (["run", "walk"] if kind == "undead" else ["walk"]):
-				if _anim.has_animation(clip):
-					_move_clip = clip
-					break
+		# A ghoul sprints, so it runs where the rig can; a decoy never moves at all.
+		_find_clips(["run", "walk"] if _fights() else ["walk"])
 	else:
 		var box := CSGBox3D.new()
 		box.size = Vector3(0.8, 1.7, 0.8)
@@ -225,12 +260,89 @@ func _build_visual() -> void:
 	_update_animation()
 
 
+## The model and clips of a beast (Call of the Herd), a treant or a golem (Awaken). A beast is
+## its biome's species in its biome's skin, in metres like every beast (BeastDatabase); the
+## treant is the green boss's own model, smaller, in the skin of the biome it was woken in; the
+## golem, until it has a model of its own, is that treant turned to the grey of the stones.
+func _build_creature_visual() -> void:
+	var scene: PackedScene = null
+	var scale: float = visual_scale
+	if kind == "beast":
+		scene = EnemyBase.BeastDatabase.visual_scene(biome_color)
+	else:
+		scene = BossDatabase.get_visual_scene("Green")
+		scale = 100.0 * BossDatabase.get_model_scale("Green", 2.5) * GameSettings.spell_green_awaken_scale * visual_scale
+	if scene == null:
+		return
+	_visual = scene.instantiate()
+	_visual.scale = Vector3.ONE * scale
+	add_child(_visual)
+	for node: Node in _visual.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh == null:
+			continue
+		for surface: int in mesh_instance.mesh.get_surface_count():
+			var source: Material = mesh_instance.get_active_material(surface)
+			var skinned: Material = _creature_skin(source)
+			if skinned != source:
+				mesh_instance.set_surface_override_material(surface, skinned)
+	_find_clips(["run", "walk"])
+	if _anim != null:
+		for clip: String in ["idle", "walk", "run"]:
+			if _anim.has_animation(clip):
+				_anim.get_animation(clip).loop_mode = Animation.LOOP_LINEAR
+	_update_animation()
+
+
+## The skin a creature wears: a beast its biome's (BeastDatabase.VARIANTS), a treant the
+## biome it was woken in drawn the same way, a golem stone grey.
+func _creature_skin(source: Material) -> Material:
+	if kind == "golem":
+		if not source is StandardMaterial3D:
+			return source
+		var standard := source as StandardMaterial3D
+		var stone := ShaderMaterial.new()
+		stone.shader = EnemyBase.BeastDatabase.TINT_SHADER
+		stone.set_shader_parameter("albedo_texture", standard.albedo_texture)
+		stone.set_shader_parameter("use_normal", standard.normal_enabled and standard.normal_texture != null)
+		stone.set_shader_parameter("normal_texture", standard.normal_texture)
+		stone.set_shader_parameter("use_orm", standard.roughness_texture != null)
+		stone.set_shader_parameter("orm_texture", standard.roughness_texture)
+		stone.set_shader_parameter("roughness", standard.roughness)
+		stone.set_shader_parameter("metallic", standard.metallic)
+		stone.set_shader_parameter("hue_shift", 0.0)
+		stone.set_shader_parameter("saturation", 0.12)
+		stone.set_shader_parameter("value", 0.95)
+		return stone
+	return EnemyBase.BeastDatabase.tinted_material(biome_color, source)
+
+
+## Finds the rig's AnimationPlayer and the first of `moves` it has to walk or run with.
+func _find_clips(moves: Array) -> void:
+	_anim = _visual.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if _anim == null:
+		return
+	for clip: String in moves:
+		if _anim.has_animation(clip):
+			_move_clip = clip
+			break
+
+
+## Whether it fights at all - everything but the decoy.
+func _fights() -> bool:
+	return kind != "decoy"
+
+
 ## The tint IS the readability of this feature. A raised corpse and the enemy standing
 ## next to it are the same model, so without a colour telling them apart the player
 ## cannot see what their own spell did.
 func _apply_tint() -> void:
 	var tint: Color = _tint()
-	if kind == "undead":
+	if kind == "beast" or kind == "treant" or kind == "golem":
+		# Its own skin is the read: a beast of the player's is a beast, and the bar above it
+		# says whose.
+		return
+	if kind == "undead" or kind == "raised":
 		# Dead flesh split by black furrows with violet glowing up out of them - see
 		# undead_overlay.gdshader. The green wash it replaced made a ghoul look poisoned,
 		# not dead.
@@ -264,7 +376,12 @@ func _apply_tint() -> void:
 
 
 func _tint() -> Color:
-	return UNDEAD_TINT if kind == "undead" else decoy_tint
+	match kind:
+		"undead", "raised":
+			return UNDEAD_TINT
+		"beast", "treant", "golem":
+			return Color(0.45, 0.85, 0.35)
+	return decoy_tint
 
 
 ## `material_overlay` rather than `material_override`: the overlay draws ON TOP of the
@@ -299,7 +416,7 @@ func _build_health_bar() -> void:
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	bar.material_override = mat
-	bar.position = Vector3(0.0, 2.15, 0.0)
+	bar.position = Vector3(0.0, 2.15 * maxf(visual_scale, 1.0) + (1.4 if kind == "treant" or kind == "golem" else 0.0), 0.0)
 	_bar_fill = bar
 	add_child(bar)
 
@@ -313,11 +430,11 @@ func _update_animation() -> void:
 		return
 	if attack_serial != _seen_attack_serial:
 		_seen_attack_serial = attack_serial
-		if _anim.has_animation("attack"):
+		if _anim.has_animation(_attack_clip):
 			# Stretched to fill exactly one swing interval, the way EnemyBase.perform_attack
 			# does, so it finishes as the next swing starts instead of restarting mid-way.
-			var clip: Animation = _anim.get_animation("attack")
-			_anim.play("attack", 0.1, clip.length / GameSettings.spell_black_zombify_attack_interval)
+			var clip: Animation = _anim.get_animation(_attack_clip)
+			_anim.play(_attack_clip, 0.1, clip.length / attack_interval)
 			return
 	if _swinging():
 		return
@@ -356,7 +473,7 @@ func _physics_process(delta: float) -> void:
 
 	# A decoy is a target and nothing else. It does not move, it does not swing - all it
 	# does is exist somewhere the player would rather the enemies were looking.
-	if kind != "undead":
+	if not _fights():
 		velocity.x = 0.0
 		velocity.z = 0.0
 		move_and_slide()
@@ -401,18 +518,18 @@ func _physics_process(delta: float) -> void:
 
 
 func _swinging() -> bool:
-	return _anim != null and _anim.current_animation == "attack" and _anim.is_playing()
+	return _anim != null and _anim.current_animation == _attack_clip and _anim.is_playing()
 
 
 ## Server only. The clip itself starts on every peer from the replicated `attack_serial`
 ## (see _update_animation); what lands, and when, is decided here.
 func _start_swing() -> void:
-	var interval: float = GameSettings.spell_black_zombify_attack_interval
+	var interval: float = attack_interval
 	_attack_cooldown = interval
 	attack_serial += 1
 	var impact_ratio: float = 0.5
-	if _anim != null and _anim.has_animation("attack"):
-		impact_ratio = float(_anim.get_animation("attack").get_meta("hit_ratio", 0.5))
+	if _anim != null and _anim.has_animation(_attack_clip):
+		impact_ratio = float(_anim.get_animation(_attack_clip).get_meta("hit_ratio", 0.5))
 	_impact_timer = maxf(impact_ratio * interval, 0.01)
 	SoundBank.play_at(&"blunt_swing", global_position)
 
@@ -433,6 +550,11 @@ func _land_hit() -> void:
 		return
 	var credited: Node3D = owner_player if is_instance_valid(owner_player) else null
 	SoundBank.play_at(&"blunt_hit", _target.global_position)
+	if attack_range > 4.0:
+		# A copy of an archer or a mage strikes from where it stands: drawn as the shot.
+		var from: Vector3 = global_position + Vector3(0.0, 1.3, 0.0)
+		var to: Vector3 = _target.global_position + Vector3(0.0, 1.0, 0.0)
+		NetFx.beam(from, (to - from).normalized(), from.distance_to(to), decoy_tint)
 	_target.take_damage(hit_damage * Player.anthem_damage_mult(self), credited)
 
 
@@ -500,7 +622,7 @@ func take_damage(amount: float, _source: Node3D = null, _is_melee: bool = false)
 func _expire() -> void:
 	if is_queued_for_deletion():
 		return
-	if kind == "undead":
+	if kind == "undead" or kind == "raised":
 		_explode()
 		return
 	# An illusion goes out in a puff of its own light, so it reads as the spell ending rather

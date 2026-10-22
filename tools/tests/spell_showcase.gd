@@ -77,9 +77,11 @@ func _shoot_all() -> void:
 	layer.add_child(_caption)
 
 	for colour: String in colours:
-		var sheet := Image.create(TILE.x * MOMENTS.size(), TILE.y * SpellDatabase.SPELLS_PER_COLOR, false, Image.FORMAT_RGB8)
-		for row: int in range(SpellDatabase.SPELLS_PER_COLOR):
-			var spell_id: String = "%s_%d" % [colour, row + 1]
+		var spells: Array[String] = SpellDatabase.spells_of(colour).filter(func(id: String) -> bool:
+			return not SpellDatabase.is_passive(id))
+		var sheet := Image.create(TILE.x * MOMENTS.size(), TILE.y * spells.size(), false, Image.FORMAT_RGB8)
+		for row: int in range(spells.size()):
+			var spell_id: String = spells[row]
 			var moments: Array = SPELL_MOMENTS.get(spell_id, MOMENTS)
 			for column: int in range(moments.size()):
 				var frame: Image = await _shoot(spell_id, float(moments[column]))

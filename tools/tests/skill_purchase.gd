@@ -114,9 +114,9 @@ func _run() -> void:
 	# owned makes the node legitimately reachable and the assertion passes for the wrong reason.
 	# (That is what it did on the first run of this rewrite.)
 	GameSettings.debug_free_skills = false
-	for branch: int in range(1, 6):
-		player.spell_ranks.erase("red_%d" % branch)
-		player.unlocked_spells_in_path.erase("red_%d" % branch)
+	for spell_id: String in SpellDatabase.spells_of("red"):
+		player.spell_ranks.erase(spell_id)
+		player.unlocked_spells_in_path.erase(spell_id)
 	player.skill_points = 40
 
 	var unreachable: Dictionary = _record(st, "red", SkillTree.AURA_BRANCHES[0])
@@ -134,11 +134,13 @@ func _run() -> void:
 	if drawn != pip:
 		failures.append("an unreachable aura showed its own icon instead of the mana pip")
 
-	# Branch 6 connects to 3 and 4, branch 7 to 4 and 5 (SkillTree.BRANCH_EDGES), so owning
-	# red_4 reaches both at once.
-	player.spell_ranks["red_4"] = 1
-	if not player.unlocked_spells_in_path.has("red_4"):
-		player.unlocked_spells_in_path.append("red_4")
+	# The auras sit in the gaps of the outer ring and join the outer-ring nodes either side
+	# (SkillTree._build_edges): red's Attunement to red_6 and red_9, its Manifestation to red_10
+	# and red_11. Owning the two in the middle reaches both.
+	for spell_id: String in ["red_9", "red_10"]:
+		player.spell_ranks[spell_id] = 1
+		if not player.unlocked_spells_in_path.has(spell_id):
+			player.unlocked_spells_in_path.append(spell_id)
 
 	var attunement: Dictionary = _record(st, "red", SkillTree.AURA_BRANCHES[0])
 	for _rank in range(GameSettings.spell_max_rank):
@@ -185,7 +187,10 @@ func _run() -> void:
 	st.set_open(true)
 	GameSettings.debug_free_skills = true
 	player.skill_points = 60
-	for branch: int in range(0, 6):
+	var red_branches: Array[int] = [0]
+	for spell_id: String in SpellDatabase.spells_of("red"):
+		red_branches.append(SpellDatabase.spell_index(spell_id))
+	for branch: int in red_branches:
 		var rec: Dictionary = _record(st, "red", branch)
 		if not rec.is_empty():
 			for _n: int in range(2):
@@ -268,27 +273,34 @@ func _check_connectivity(st: Node, player: Node, failures: Array[String]) -> voi
 	if player.get_spell_rank("blue_1") != 0:
 		failures.append("a spell was bought with no owned neighbour")
 
-	# The affinity opens exactly the two openers.
-	player.affinity_ranks["blue"] = 10
-	print("TEST T reachable after affinity: 1=%s 2=%s 3=%s 5=%s" % [
-		st._is_reachable(player, "blue", 1), st._is_reachable(player, "blue", 2),
+	# One rank of affinity opens the first ring (blue_1, blue_7, blue_2) - and nothing further
+	# out: the second ring needs 4 invested or an owned neighbour.
+	player.affinity_ranks["blue"] = 1
+	print("TEST T reachable after affinity: 1=%s 7=%s 2=%s 3=%s 5=%s" % [
+		st._is_reachable(player, "blue", 1), st._is_reachable(player, "blue", 7), st._is_reachable(player, "blue", 2),
 		st._is_reachable(player, "blue", 3), st._is_reachable(player, "blue", 5)])
-	if not st._is_reachable(player, "blue", 1) or not st._is_reachable(player, "blue", 2):
-		failures.append("the affinity did not open its two openers")
+	if not (st._is_reachable(player, "blue", 1) and st._is_reachable(player, "blue", 7) and st._is_reachable(player, "blue", 2)):
+		failures.append("the affinity did not open its first ring")
 	if st._is_reachable(player, "blue", 3) or st._is_reachable(player, "blue", 5):
 		failures.append("a finisher was reachable with no opener owned")
 
-	# Buying opener 1 reaches ITS finishers and nothing that hangs only off opener 2.
+	# Buying opener 1 reveals the second-ring node beside it, and not the one across the wedge.
 	st._on_node_pressed("blue", 1, opener["info"])
-	print("TEST U after opener 1: 3=%s 4=%s 5=%s" % [
-		st._is_reachable(player, "blue", 3), st._is_reachable(player, "blue", 4),
-		st._is_reachable(player, "blue", 5)])
+	print("TEST U after opener 1: 3=%s 5=%s" % [st._is_reachable(player, "blue", 3), st._is_reachable(player, "blue", 5)])
 	if player.get_spell_rank("blue_1") <= 0:
 		failures.append("the opener could not be bought once the affinity was owned")
-	if not st._is_reachable(player, "blue", 3) or not st._is_reachable(player, "blue", 4):
+	if not st._is_reachable(player, "blue", 3):
 		failures.append("an opener did not reach its own finishers")
 	if st._is_reachable(player, "blue", 5):
 		failures.append("a finisher of the OTHER opener was reachable")
+
+	# Revealed is not buyable: blue_3 is ring 2 and blue holds 2 of the 4 it asks for. The click
+	# is refused and costs nothing - the first rank used to skip this gate and was bought anyway.
+	var points_before: int = player.skill_points
+	st._on_node_pressed("blue", 3, _record(st, "blue", 3)["info"])
+	print("TEST U2 under-invested ring 2: rank %d, points %d -> %d" % [player.get_spell_rank("blue_3"), points_before, player.skill_points])
+	if player.get_spell_rank("blue_3") != 0 or player.skill_points != points_before:
+		failures.append("an under-invested ring-2 spell was bought on its first click")
 
 	# And an unreachable node is not described: no name, no cost, nothing to plan against.
 	st._show_details("blue", 5, _record(st, "blue", 5)["info"])
@@ -297,6 +309,14 @@ func _check_connectivity(st: Node, player: Node, failures: Array[String]) -> voi
 	print("TEST V unreachable detail title='%s' body='%s'" % [title, body])
 	if title.contains(String(_record(st, "blue", 5)["info"]["name"])) or body != "":
 		failures.append("an unreachable node revealed its name or description")
+
+	# Investment alone reveals a ring: 9 in blue brings the whole third ring into view with no
+	# neighbour of it owned - nothing in the tree is anything's prerequisite.
+	player.affinity_ranks["blue"] = 9
+	print("TEST U3 ring 3 by investment: 12=%s" % st._is_reachable(player, "blue", 12))
+	if not st._is_reachable(player, "blue", 12):
+		failures.append("investment alone did not reveal the third ring")
+	player.affinity_ranks["blue"] = 1
 
 	# A guild node is joined to an outer node of each of its colours: found from either one,
 	# bought only once both colours have guild_investment_requirement in them. It used to be
@@ -308,7 +328,7 @@ func _check_connectivity(st: Node, player: Node, failures: Array[String]) -> voi
 	player.aura_ranks.clear()
 	player.guild_ranks.erase("guild_gruul")
 	var hidden_before: bool = not st._node_reachable(player, "red", SkillTree.GUILD_BRANCH, gruul_info)
-	player.aura_ranks["aura_lightning_orb"] = 1
+	player.aura_ranks["aura_orb_of_fire"] = 1
 	var found: bool = st._node_reachable(player, "red", SkillTree.GUILD_BRANCH, gruul_info)
 	st._on_node_pressed("red", SkillTree.GUILD_BRANCH, gruul_info)
 	var refused: bool = player.get_guild_rank("guild_gruul") == 0
@@ -522,6 +542,9 @@ func _check_layout(st: Node, failures: Array[String]) -> void:
 				var b: Control = st._button_records[second]["button"]
 				if Rect2(a.position, a.size).intersects(Rect2(b.position, b.size)):
 					overlaps += 1
+					print("TEST G overlap: %s/%d %s and %s/%d %s" % [
+						st._button_records[first]["color"], st._button_records[first]["branch_index"], Rect2(a.position, a.size),
+						st._button_records[second]["color"], st._button_records[second]["branch_index"], Rect2(b.position, b.size)])
 		if overlaps > 0:
 			failures.append("%d skill nodes overlap at %dx%d" % [overlaps, size.x, size.y])
 		var off_board: int = 0

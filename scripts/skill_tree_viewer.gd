@@ -43,8 +43,8 @@ class SkillTreePreviewPlayer extends Node3D:
 	func _init() -> void:
 		for color: String in SkillTree.COLOR_NAMES:
 			_affinity_ranks[color] = GameSettings.spell_max_rank
-			for tier: int in range(1, SpellDatabase.SPELLS_PER_COLOR + 1):
-				_spell_ranks[SpellDatabase.make_id(color, tier)] = GameSettings.spell_max_rank
+			for spell_id: String in SpellDatabase.spells_of(color):
+				_spell_ranks[spell_id] = GameSettings.spell_max_rank
 		for color: String in SkillTree.COLOR_NAMES:
 			var auras: Array[Dictionary] = SpellDatabase.get_auras(color)
 			if not auras.is_empty():
@@ -67,10 +67,14 @@ class SkillTreePreviewPlayer extends Node3D:
 		return "Maximum rank"
 
 
+	func spell_gate_blocker(_spell_id: String) -> String:
+		return "Maximum rank"
+
+
 	func color_investment(color: String) -> int:
 		var total: int = get_affinity_rank(color)
-		for tier: int in range(1, SpellDatabase.SPELLS_PER_COLOR + 1):
-			total += get_spell_rank(SpellDatabase.make_id(color, tier))
+		for spell_id: String in SpellDatabase.spells_of(color):
+			total += get_spell_rank(spell_id)
 		return total
 
 

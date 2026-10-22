@@ -200,17 +200,12 @@ func _loose(blast: bool) -> void:
 	var damage: float = GameSettings.spell_melee_damage * damage_mult
 	damage *= player.get_spell_damage_multiplier() * player._giant_damage_mult()
 	# The rest of what a basic attack carries, exactly as the axe's apply_hit() and the bow
-	# spend it: Loxodon Warhammer's share of the health pool, an Exalted Strike charge, a
-	# Rubblebelt hit.
+	# spend it: Loxodon Warhammer's share of the health pool, and whatever the throw is charged
+	# with (AttackCharges) - the blast is the mage's heavy attack, a bolt its light one.
 	damage += player.max_hp * player.equipment_value("loxodon_warhammer")
-	var exalted: bool = player.exalted_charges > 0
-	if exalted:
-		player.exalted_charges -= 1
-		damage *= player._exalted_damage_mult
-		player._spawn_cast_flash(Color(1.0, 0.97, 0.75), 2.0)
-	if player._rampage_hits_left > 0:
-		player._rampage_hits_left -= 1
-		damage *= GameSettings.guild_gruul_rampage_damage_mult
+	var load: RefCounted = player.attack_charges.take(AttackCharges.Weight.HEAVY if blast else AttackCharges.Weight.LIGHT)
+	if load != null:
+		damage = damage * load.damage_mult + load.damage_add
 	var empowered: bool = prowess_charges > 0
 	if empowered:
 		prowess_charges -= 1
@@ -219,6 +214,9 @@ func _loose(blast: bool) -> void:
 	var color: String = player.path_color()
 	var size: float = (2.2 if blast else 1.0) * (1.45 if empowered else 1.0)
 	var radius: float = GameSettings.mage_blast_radius if blast else 0.0
+	if load != null:
+		size *= load.size_mult
+		radius = maxf(radius, load.burst_radius)
 	var speed: float = GameSettings.mage_blast_speed if blast else GameSettings.mage_bolt_speed
 	var shot_range: float = GameSettings.mage_bolt_range
 	# A bolt is the orb held over the palm, thrown (MageHandOrb); the blast leaves from between
@@ -238,7 +236,7 @@ func _loose(blast: bool) -> void:
 		orb.spend()
 	var bolt := MageBolt.launch(player, origin, direction * speed, color, size, radius, shot_range)
 	bolt.authority_damage = damage
-	bolt.exile_on_kill = exalted
+	bolt.load = load
 	bolt.knockback = GameSettings.mage_blast_knockback if blast else GameSettings.mage_bolt_knockback
 	if Net.is_active() and player.is_local:
 		player._net_spawn_bolt.rpc(origin, direction * speed, MageBolt.color_index(color), size, radius, shot_range)

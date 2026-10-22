@@ -127,7 +127,7 @@ if (-not $SkipRuntime) {
         [Console]::WriteLine($rosterResult.Output)
         throw "One or more skills in the roster do nothing."
     }
-    Write-Output "PASS: all 25 spells and 10 auras have an observable effect."
+    Write-Output "PASS: every spell and aura has an observable effect."
 
     # The Particle Effects option is applied centrally to every particle system, so a
     # regression there quietly thins or doubles every effect in the game at once.

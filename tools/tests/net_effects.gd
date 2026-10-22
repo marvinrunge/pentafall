@@ -265,6 +265,18 @@ func _run_client_checks() -> void:
 	report["mate_grounded"] = mate.is_grounded if mate != null else false
 	report["mate_loco"] = mate.animator._current_loco if mate != null else "<no mate>"
 
+	# 6b. A charge for the NEXT attack (AttackCharges). The spell resolves on the host; the
+	#     charge has to come back to THIS machine, which is the one whose attacks spend it.
+	#     Exalted Strike used to keep its charges on the host's copy of a client - the copy
+	#     that never attacks - so a client's cast did nothing at all.
+	player.grant_spell_rank("white_1")
+	await _wait(ROUND_TRIP)
+	player.attack_charges.clear()
+	player.execute_spell("white_1")
+	await _wait(ROUND_TRIP)
+	report["armed"] = int(player.attack_charges.uses_left("white_1")) > 0
+	report["armed_bits"] = player.armed_charge_bits
+
 	# 7. Health authored by the host (it damaged us before we started casting). Without
 	#    the vitals synchronizer a client's own bar sits at full while the host counts it
 	#    down, and the first the player knows of it is being downed.
@@ -844,6 +856,7 @@ func _client_result(report: Dictionary) -> void:
 		"rank": them.get_spell_rank(BUILT_SPELL) if them != null else -1,
 		"aura": them.get_aura_rank(BUILT_AURA) if them != null else -1,
 		"orb": them._aura_orbs.has(BUILT_AURA) if them != null else false,
+		"armed_bits": them.armed_charge_bits if them != null else 0,
 	}
 
 
@@ -874,6 +887,9 @@ func _finish() -> void:
 		_check("its zone was standing there", _client_report.get("zone", false))
 		_check("its fireball was in the air", _client_report.get("projectile", false),
 			String(_client_report.get("projectile_detail", "")))
+		_check("a charge it cast for its next attack reached it", _client_report.get("armed", false))
+		_check("...and the host can see it carrying one", int(_host_view.get("armed_bits", 0)) != 0,
+			"bits %s" % _host_view.get("armed_bits"))
 		_check("its health matched the host's", _client_report.get("health", false),
 			String(_client_report.get("health_detail", "")))
 		_check("it owns a spell it bought", _client_report.get("owns", false),

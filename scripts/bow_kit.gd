@@ -208,16 +208,13 @@ func _loose(drawn: float) -> void:
 	var damage: float = GameSettings.spell_melee_damage * damage_mult
 	damage *= player.get_spell_damage_multiplier() * player._giant_damage_mult()
 	# The rest of what a basic attack carries, exactly as the axe's apply_hit() spends it:
-	# Loxodon Warhammer's share of the health pool, an Exalted Strike charge, a Rubblebelt hit.
+	# Loxodon Warhammer's share of the health pool, and whatever the shot is charged with
+	# (AttackCharges) - a full draw is the archer's heavy attack, anything less its light one.
 	damage += player.max_hp * player.equipment_value("loxodon_warhammer")
-	var exalted: bool = player.exalted_charges > 0
-	if exalted:
-		player.exalted_charges -= 1
-		damage *= player._exalted_damage_mult
-		player._spawn_cast_flash(Color(1.0, 0.97, 0.75), 2.0)
-	if player._rampage_hits_left > 0:
-		player._rampage_hits_left -= 1
-		damage *= GameSettings.guild_gruul_rampage_damage_mult
+	var weight: int = AttackCharges.Weight.HEAVY if drawn >= GameSettings.archer_heavy_draw_threshold else AttackCharges.Weight.LIGHT
+	var load: RefCounted = player.attack_charges.take(weight)
+	if load != null:
+		damage = damage * load.damage_mult + load.damage_add
 
 	var full: bool = drawn >= 1.0
 	var pierce: int = GameSettings.archer_longshot_pierce if full and player.has_class_skill("archer_longshot") else 1
@@ -229,7 +226,9 @@ func _loose(drawn: float) -> void:
 		direction = -player.global_basis.z
 	var arrow := PlayerArrow.launch(player, origin, direction * speed, pierce)
 	arrow.authority_damage = damage
-	arrow.exile_on_kill = exalted
+	arrow.load = load
+	if load != null and load.size_mult != 1.0:
+		arrow.scale = Vector3.ONE * load.size_mult
 	arrow.deadeye = player.has_class_skill("archer_deadeye")
 	player._play_sound(&"arrow_shot", origin)
 	if Net.is_active() and player.is_local:

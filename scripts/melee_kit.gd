@@ -95,6 +95,14 @@ var _attack_knockback_strength: float = GameSettings.spell_melee_knockback
 ## How hard a connecting impact kicks the camera. Chosen alongside the sounds, for the same
 ## reason: it is a property of the move, not of its damage number.
 var _attack_shake_strength: float = 0.0
+## AttackCharges.Weight of the swing in flight: the kick is neither, the heavy clip is heavy and
+## everything else - the chain, its finisher included - is light. Said by the kit where the
+## swing starts rather than read off Player._action_is_heavy, which _commit_action clears.
+var _attack_weight: int = AttackCharges.Weight.NONE
+## What the swing carries (AttackLoad), taken on its first impact frame - so a swing a cast
+## cuts off before it lands spends no charge - and kept for every impact after.
+var _load: RefCounted = null
+var _load_taken: bool = false
 
 
 func _init(owner: Player) -> void:
@@ -126,6 +134,9 @@ func land_due_hits() -> void:
 		player._play_sound(_attack_swing_sound, player.global_position)
 	while not _pending_hits.is_empty() and _pending_hits[0] <= player._action_elapsed:
 		_pending_hits.remove_at(0)
+		if not _load_taken:
+			_load_taken = true
+			_load = player.attack_charges.take(_attack_weight)
 		var hit_mult: float = _pending_hit_mults.pop_front() if not _pending_hit_mults.is_empty() else _attack_damage_mult
 		if apply_hit(hit_mult) > 0:
 			_swing_connected = true
@@ -203,6 +214,8 @@ func drop_hits() -> void:
 	_pending_hits.clear()
 	_pending_hit_mults.clear()
 	_pending_whooshes.clear()
+	_load = null
+	_load_taken = true
 
 
 ## Everything at once: the button, the hits still to land and the chain. For a cast that
@@ -348,6 +361,14 @@ func _begin_melee_action(clip: String, duration: float, damage_mult: float, uppe
 	_swing_connected = false
 	player._pending_cast_id = ""
 	player._action_is_heavy = clip == heavy_clip
+	if damage_mult < 0.0:
+		_attack_weight = AttackCharges.Weight.NONE
+	elif clip == heavy_clip:
+		_attack_weight = AttackCharges.Weight.HEAVY
+	else:
+		_attack_weight = AttackCharges.Weight.LIGHT
+	_load = null
+	_load_taken = false
 	# Heard whatever it goes on to hit - now, or timed to the blade (whoosh_before_hit). The
 	# impact is a separate sound scheduled with the damage below, so a swing through empty air
 	# still makes a noise.
@@ -394,22 +415,20 @@ func apply_hit(damage_mult: float) -> int:
 	# it pair with green's size - Giant Growth and the green affinity both raise the pool.
 	dmg += player.max_hp * player.equipment_value("loxodon_warhammer")
 
-	# Exalted Strike (white_1). A kick is not a strike, so it never spends the charge -
-	# otherwise the buff could be thrown away by a button the player pressed for spacing.
-	var exalted: bool = player.exalted_charges > 0 and not is_kick
-	if exalted:
-		player.exalted_charges -= 1
-		dmg *= player._exalted_damage_mult
-		reach += player._exalted_reach_bonus
-		player._spawn_cast_flash(Color(1.0, 0.97, 0.75), 2.0)
-
-	# Rubblebelt Rioters: one impact frame is "a hit", the same unit Exalted Strike's charge
-	# spends above - a cleave that connects with three enemies on one swing must not burn
-	# three of the three charges this grants.
-	if player._rampage_hits_left > 0 and not is_kick:
-		player._rampage_hits_left -= 1
-		dmg *= GameSettings.guild_gruul_rampage_damage_mult
-		knockback *= GameSettings.guild_gruul_rampage_knockback_mult
+	# What the swing is charged with (AttackCharges): Exalted Strike, Become Immense, Deathtouch,
+	# Rubblebelt Rioters... Taken once per swing, on its first impact frame, so a cleave's
+	# second impact carries the same charge and a cleave through three enemies spends one.
+	# A kick is neither weight and never carries one - a buff thrown away by a button pressed
+	# for spacing would be worse than no buff.
+	var load: RefCounted = null if is_kick else _load
+	var cone: float = _cone()
+	var exile: bool = false
+	if load != null:
+		dmg = dmg * load.damage_mult + load.damage_add
+		reach += load.reach_bonus
+		cone -= load.cone_widen
+		knockback *= load.knockback_mult
+		exile = load.exile
 
 	var space_state := player.get_world_3d().direct_space_state
 	var start: Vector3 = player.camera.global_position
@@ -418,28 +437,41 @@ func apply_hit(damage_mult: float) -> int:
 	var result: Dictionary = space_state.intersect_ray(query)
 
 	var knock_first: bool = not is_kick and _knock_first()
+	var forward: Vector3 = -player.transform.basis.z
 	if result and result.collider.is_in_group("enemies"):
 		var enemy: Node3D = result.collider
-		_strike(enemy, dmg, exalted, knockback, knock_first)
+		_strike(enemy, dmg, exile, knockback, knock_first, load)
+		player.resolve_charged_impact(load, enemy.global_position, forward)
 		return 1
 
-	var connected: int = 0
+	# Nearest first: a charge with a target limit (Deathtouch's) reaches the enemies in front
+	# of the blade before the ones at the edge of its arc.
+	var struck: Array[Node3D] = []
 	for e in player.get_tree().get_nodes_in_group("enemies"):
 		if is_instance_valid(e) and player.global_position.distance_to(e.global_position) <= reach:
 			var dir_to_e: Vector3 = (e.global_position - player.global_position).normalized()
-			if -player.transform.basis.z.dot(dir_to_e) > _cone():
-				_strike(e, dmg, exalted, knockback, knock_first)
-				connected += 1
-	return connected
+			if forward.dot(dir_to_e) > cone:
+				struck.append(e)
+	var from: Vector3 = player.global_position
+	struck.sort_custom(func(a: Node3D, b: Node3D) -> bool:
+		return a.global_position.distance_squared_to(from) < b.global_position.distance_squared_to(from))
+	for e: Node3D in struck:
+		_strike(e, dmg, exile, knockback, knock_first, load)
+	# Where the blow fell, for a charge that acts on the ground rather than on an enemy
+	# (Sunlance's line, Entangling Vines): the first enemy it met, or the end of the blade.
+	var landed: Vector3 = struck[0].global_position if not struck.is_empty() else from + forward * reach
+	if load != null and (not struck.is_empty() or _pending_hits.is_empty()):
+		player.resolve_charged_impact(load, landed, forward)
+	return struck.size()
 
 
 ## The blow and its push on one enemy. The push normally follows the blow; `knock_first`
 ## turns that round, so a blow that kills throws the body with the push already on it
 ## (EnemyBase._record_fatal_hit counts a knockback in flight towards the death launch).
-func _strike(enemy: Node3D, dmg: float, exalted: bool, knockback: float, knock_first: bool) -> void:
+func _strike(enemy: Node3D, dmg: float, exile: bool, knockback: float, knock_first: bool, load: RefCounted = null) -> void:
 	if knock_first:
 		player._apply_basic_attack_knockback(enemy, knockback)
-	player._melee_strike(enemy, dmg, exalted)
+	player._melee_strike(enemy, dmg, exile, load)
 	if not knock_first:
 		player._apply_basic_attack_knockback(enemy, knockback)
 

@@ -4,6 +4,8 @@ class_name MainController
 const IntroTour := preload("res://scripts/intro_tour.gd")
 const WildlifeManager := preload("res://scripts/wildlife_manager.gd")
 const FogOfWar := preload("res://scripts/fog_of_war.gd")
+const Tower := preload("res://scripts/tower.gd")
+const BeastTrophy := preload("res://scripts/beast_trophy.gd")
 
 @export var player_scene: PackedScene = preload("res://scenes/misc/player.tscn")
 @export var myr_scene: PackedScene = preload("res://scenes/misc/myr.tscn")
@@ -954,6 +956,31 @@ static func build_effect(info: Dictionary, caster: Node3D) -> Node3D:
 			illusion.visual_player_class = String(info.get("class", ""))
 			illusion.decoy_tint = MageBolt.tint_of(String(info.get("color", "")))
 			node = illusion
+		"mirror", "raised", "beast", "treant", "golem":
+			# Round two's fighters (TemporaryAlly): Mirror Image, Animate Dead, Call of the Herd
+			# and Awaken. All of them fight like a ghoul; what differs is what they are drawn as.
+			var fighter := TemporaryAlly.new()
+			fighter.configure(String(info["kind"]), float(info["hp"]), float(info["duration"]), 0.0, caster)
+			fighter.hit_damage = float(info.get("hit_damage", 20.0))
+			fighter.visual_scale = float(info.get("scale", 1.0))
+			fighter.attack_range = float(info.get("range", 1.8)) * maxf(fighter.visual_scale, 1.0)
+			fighter.visual_color = String(info.get("color", ""))
+			fighter.visual_class = String(info.get("class", ""))
+			fighter.biome_color = String(info.get("color", ""))
+			match String(info["kind"]):
+				"mirror":
+					fighter.visual_player_class = String(info.get("class", ""))
+					fighter.decoy_tint = MageBolt.tint_of(String(info.get("color", "")))
+				"raised", "beast":
+					fighter.ends_with_wave = true
+				"treant", "golem":
+					fighter.move_speed = 3.2
+					fighter.attack_range = 2.8
+			node = fighter
+		"tower":
+			node = Tower.create(String(info["tower"]), int(info.get("rank", 1)), caster)
+		"beast_trophy":
+			node = BeastTrophy.create(String(info.get("color", "Green")), float(info.get("size", 1.0)))
 		"bolt_telegraph":
 			node = _build_bolt_telegraph(float(info["radius"]), float(info["delay"]))
 		"hurled_axe":

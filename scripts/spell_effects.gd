@@ -151,17 +151,37 @@ static func cast_red_rain_ember(caster: Player) -> void:
 	caster._spawn_spell_fx("red_3", target_pos, GameSettings.spell_red_rain_ember_radius * caster._rank_area())
 
 
-## white_1. Charges the NEXT melee hit rather than dealing damage itself - see
-## MeleeKit.apply_hit, which spends the charge and exiles anything the hit kills.
+## white_1. Charges the NEXT attack rather than dealing damage itself - the charge is spent
+## where the attack is resolved (AttackCharges), and anything the charged hit kills is exiled.
 static func cast_white_exalted_strike(caster: Player) -> void:
-	caster.exalted_charges = GameSettings.rank_count(
-		GameSettings.spell_white_exalted_charges, GameSettings.spell_white_exalted_charges_max, caster._casting_rank
-	)
-	# Resolved now, not on the hit: the charge can sit unspent through several other casts.
-	caster._exalted_damage_mult = GameSettings.spell_white_exalted_damage_mult * caster._rank_damage()
-	caster._exalted_reach_bonus = GameSettings.spell_white_exalted_reach_bonus * caster._rank_area()
+	caster.arm_next_attack("white_1", caster._casting_rank)
 	caster._play_sound(&"spell_exalted_strike", caster.global_position)
 	caster._spawn_spell_fx("white_1", caster.global_position, 1.0)
+
+
+## Every "your next attack ..." spell of round two (SpellDatabase `next_attack`): the cast only
+## arms the charge; what it does is ChargedHits'. The flash and the sound are the cast's.
+static func cast_next_attack(caster: Player, spell_id: String) -> void:
+	caster.arm_next_attack(spell_id, caster._casting_rank)
+	caster._play_sound(cast_sound(spell_id), caster.global_position)
+	caster._spawn_cast_flash(_charge_tint(spell_id), 1.6)
+
+
+## The SoundBank event a round-two spell is heard by: "spell_" and its name, lower-case, words
+## joined by underscores - "Bontu's Monument" is spell_bontus_monument. Named for the skill like
+## every spell sound (SoundBank says why), so swapping a recording is one line there.
+static func cast_sound(spell_id: String) -> StringName:
+	var name: String = SpellDatabase.get_display_name(spell_id).to_lower().replace("'", "").replace(" ", "_")
+	return StringName("spell_" + name)
+
+
+static func _charge_tint(spell_id: String) -> Color:
+	match SpellDatabase.get_color(spell_id):
+		"white": return Color(1.0, 0.95, 0.72)
+		"blue": return Color(0.5, 0.78, 1.0)
+		"black": return Color(0.6, 0.3, 0.78)
+		"red": return Color(1.0, 0.45, 0.2)
+	return Color(0.45, 0.9, 0.38)
 
 
 ## white_2. A base shield PER TARGET, grown a little for every ally beyond the first -
@@ -470,33 +490,16 @@ static func cast_black_contagion(caster: Player) -> void:
 	caster._play_sound(&"spell_contagion", target.global_position)
 
 
-## black_3. The only outright delete in the game. Bosses and minibosses are executed ONLY
-## below the threshold - without that clause this one skill would end every wave boss on
-## sight, and the one glowing miniboss a wave is built around along with it.
-static func cast_black_kill(caster: Player) -> void:
-	var target: Node3D = caster.aim_target(GameSettings.spell_black_kill_range * caster._rank_area())
-	if target == null:
-		caster._notify("No enemy in the sights")
-		return
-	if (target.has_method("is_boss") and target.is_boss()) or bool(target.get("is_miniboss")):
-		var ratio: float = HealthReader.ratio(target)
-		# The window a boss can be executed inside is what rank widens - the cooldown is
-		# the other half, in _get_spell_cooldown.
-		var threshold: float = GameSettings.rank_fraction(
-			GameSettings.spell_black_kill_boss_threshold, GameSettings.spell_black_kill_boss_threshold_max, caster._casting_rank
-		)
-		if ratio < 0.0 or ratio > threshold:
-			# Too healthy to execute. The cooldown is still spent - the risk of calling it
-			# early is what makes the threshold a decision rather than a formality.
-			caster._notify("Not weak enough to kill")
-			return
-	caster._spawn_spell_fx("black_3", target.global_position, 1.0)
-	caster._play_sound(&"spell_kill", target.global_position)
-	caster._shake(0.5, 0.3, target.global_position)
-	# An ordinary death, not an exile: the corpse stays on the field, which is what makes
-	# Kill feed Zombify inside the same colour.
-	if target.has_method("die"):
-		target.die()
+## black_3, Deathtouch (was Kill). The cast arms the caster's next attack; the execute itself
+## is ChargedHits.executes, decided in EnemyBase.take_damage with the hit it rides on - every
+## non-boss it reaches up to a limit, bosses and minibosses only below the threshold Kill had.
+## An ordinary death, not an exile: the corpses stay, which is what makes it feed Zombify,
+## Bone Splinters and Animate Dead inside the same colour.
+static func cast_black_deathtouch(caster: Player) -> void:
+	caster.arm_next_attack("black_3", caster._casting_rank)
+	caster._play_sound(&"spell_kill", caster.global_position)
+	caster._spawn_spell_fx("black_3", caster.global_position + Vector3(0.0, 1.0, 0.0), 1.0)
+	caster._spawn_cast_flash(Color(0.6, 0.2, 0.8), 2.0)
 
 
 ## black_4. Laid across the player's line of sight rather than along it - see SoulWall,

@@ -53,6 +53,9 @@ var _hotbar_cd_labels: Array[Label] = []
 ## Per slot, the charges a spell holds under the mage's Spell Mastery (Player.spell_charges),
 ## in the slot's top corner. Hidden for anything that has none to count.
 var _hotbar_charge_labels: Array[Label] = []
+## Per slot: what the spell in it has armed for the next attack (AttackCharges) - "x3" for
+## Crippling Chill's hits left, "6s" for Deathtouch's window - in the slot's bottom corner.
+var _hotbar_armed_labels: Array[Label] = []
 var _player: Node3D = null
 var _team_frames: TeamFrames = null
 var _active_spell_idx: int = 0
@@ -337,6 +340,7 @@ func _ready() -> void:
 				overlay.get_node_or_null("Label") as Label if overlay != null else null
 			)
 			_hotbar_charge_labels.append(_build_charge_label(slot))
+			_hotbar_armed_labels.append(_build_armed_label(slot))
 	_ensure_hotbar_icons()
 	_lay_out_hotbar_slots()
 	_setup_mana_icons()
@@ -436,6 +440,8 @@ func _process(delta: float) -> void:
 			var spell_id: String = _player._get_spell_id_for_slot(i) if has_slot_lookup else ""
 			if i < _hotbar_charge_labels.size():
 				_show_charges(_hotbar_charge_labels[i], int(_player.spell_charges(spell_id)) if has_charge_lookup and spell_id != "" else -1)
+			if i < _hotbar_armed_labels.size():
+				_show_armed(_hotbar_armed_labels[i], spell_id)
 			var cd: float = _player.spell_cooldown_timers.get(spell_id, 0.0)
 			if cd <= 0.0:
 				# Only when it CHANGES: hide() on an already-hidden node still walks the
@@ -468,6 +474,46 @@ func _build_charge_label(slot: Control) -> Label:
 	label.hide()
 	slot.add_child(label)
 	return label
+
+
+## The armed readout, bottom left in gold.
+func _build_armed_label(slot: Control) -> Label:
+	var label := Label.new()
+	label.name = "Armed"
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+	label.add_theme_constant_override("outline_size", 4)
+	label.hide()
+	slot.add_child(label)
+	return label
+
+
+## What `spell_id` has armed right now: its uses left, or the seconds left of its window.
+func _show_armed(label: Label, spell_id: String) -> void:
+	if label == null:
+		return
+	var charges: RefCounted = _player.get("attack_charges") as RefCounted if spell_id != "" else null
+	var text: String = ""
+	if charges != null:
+		var uses: int = int(charges.uses_left(spell_id))
+		var seconds: float = float(charges.seconds_left(spell_id))
+		if seconds > 0.0:
+			text = "%ds" % ceili(seconds)
+		elif uses > 0:
+			text = "x%d" % uses
+	if text == "":
+		if label.visible:
+			label.hide()
+		return
+	if label.text != text:
+		label.text = text
+	if not label.visible:
+		label.show()
 
 
 ## Only touched when it changes, like the cooldown overlay: every frame, per slot.

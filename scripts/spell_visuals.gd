@@ -153,6 +153,74 @@ static func play(scene: Node, payload: Dictionary, owner: Node3D) -> void:
 			_on_ground(scene, magic_circle("green", EARTH.lerp(Player.FX_GREEN, 0.35), 1.4, 0.6, 0.2), at)
 			_on_owner(owner, splinters(EARTH, 1.0, 34))
 			_on_owner(owner, dust_ring(1.2, 0.6))
+		_:
+			_play_round_two(scene, spell, at, size, payload, owner)
+
+
+## Round two (docs/SKILL_DESIGN.md): built from the same pieces as the first twenty-five - the
+## colour's rune circle, a light pillar, a burst - until any of them earns art of its own.
+static func _play_round_two(scene: Node, spell: String, at: Vector3, size: float, payload: Dictionary, owner: Node3D) -> void:
+	# A tower going up, in its colour: "tower_rise/<colour>".
+	if spell.begins_with("tower_rise"):
+		var colour: String = spell.get_slice("/", 1)
+		_on_ground(scene, magic_circle(colour, _colour_tint(colour), 1.8, 0.5, 0.2, 1.0), at)
+		_on_ground(scene, dust_ring(1.8, 0.8), at)
+		return
+	match spell:
+		"r2_explosion":
+			var blast: Node3D = ExplosionFx.fireball(size)
+			_on_ground(scene, blast, at)
+			_on_ground(scene, SpellFx.shockwave(Color(0.85, 0.38, 0.12), size * 1.3, 0.35), at)
+			SoundBank.play_at(&"spell_fireball_impact", at)
+		"white_6":
+			_on_ground(scene, magic_circle("white", WHITE_GOLD, 1.2, 0.2, 0.1, 2.0), at)
+			_on_ground(scene, dust_ring(1.4, 0.7), at)
+		"white_10":
+			_on_ground(scene, magic_circle("white", WHITE_GOLD, size, GameSettings.spell_white_worship_duration, 0.4, 0.3), at)
+			_on_ground(scene, light_pillar(WHITE_GOLD, size * 0.5, 5.0, GameSettings.spell_white_worship_duration, 0.6, 1.2), at)
+		"white_11":
+			_on_ground(scene, magic_circle("white", WHITE_GOLD, size, 0.8, 0.2, 1.0), at)
+			_on_ground(scene, light_pillar(WHITE_GOLD, size * 0.8, 9.0, 1.0, 1.6, -2.0), at)
+		"blue_6":
+			_on_ground(scene, blink(Player.FX_BLUE, true), at)
+		"blue_10":
+			_on_ground(scene, magic_circle("blue", Player.FX_BLUE, 1.6, 0.3, 0.1, -2.0), at)
+		"blue_11":
+			_on_ground(scene, magic_circle("blue", Player.FX_BLUE, size, 0.6, 0.25, 1.0), at)
+		"black_6", "black_11":
+			_on_ground(scene, magic_circle("black", Player.FX_BLACK, 1.5, 0.6, 0.2), at)
+			_on_owner(owner, light_pillar(Player.FX_BLACK, 0.5, 3.4, 0.6, 1.2, 1.4))
+		"black_8":
+			_on_ground(scene, magic_circle("black", Player.FX_BLACK, size, 0.5, 0.15, 2.0), at)
+			_on_ground(scene, light_pillar(Player.FX_BLACK, 0.9, 6.0, 0.8, 1.6, 1.6), at)
+		"black_9":
+			_on_ground(scene, raise_dead(), at)
+		"black_10_from":
+			_on_ground(scene, blink(Player.FX_BLACK, false), at)
+		"black_10":
+			_on_ground(scene, blink(Player.FX_BLACK, true), at)
+			_on_ground(scene, raise_dead(), at)
+		"red_6":
+			_on_ground(scene, flame_burst(1.6), at)
+		"red_7", "red_9", "red_10":
+			_on_ground(scene, magic_circle("red", RED_CIRCLE, 1.3, 0.2, 0.1, 2.0), at)
+		"green_8", "green_10":
+			_on_ground(scene, dust_ring(1.6, 0.8), at)
+		"green_9":
+			_on_ground(scene, magic_circle("green", Player.FX_GREEN, size, 0.8, 0.3, 0.5), at)
+			_on_ground(scene, leaf_spiral(size * 0.5, 4.0), at)
+		"green_11":
+			_on_ground(scene, magic_circle("green", Player.FX_GREEN, 2.0, 0.7, 0.3, 0.5), at)
+			_on_ground(scene, leaf_spiral(1.2, 3.0), at)
+
+
+static func _colour_tint(colour: String) -> Color:
+	match colour:
+		"blue": return Player.FX_BLUE
+		"black": return Player.FX_BLACK
+		"red": return RED_CIRCLE
+		"green": return Player.FX_GREEN
+	return WHITE_GOLD
 
 
 ## The mage's blink and class skills. Drawn in the colour of the mage's path, which rides on

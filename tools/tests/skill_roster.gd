@@ -1,7 +1,7 @@
 extends Node
 ## Regression test: does every skill in the roster actually DO something?
 ##
-## Twenty-five spells and eleven auras, each cast for real against real enemies, each
+## Every spell and aura, each cast for real against real enemies, each
 ## with one assertion about an observable consequence. Not "does it parse" and not "does
 ## it run without an error" - a spell that silently does nothing passes both of those,
 ## which is exactly how the skill tree managed to refuse every purchase for a whole
@@ -23,7 +23,7 @@ var _scene: Node = null
 ## of false green this whole file exists to prevent.
 var _completed: Array[String] = []
 
-const SECTIONS: Array[String] = ["white", "blue", "black", "red", "green", "auras", "aura_ranks", "ranks", "multicolour", "sounds"]
+const SECTIONS: Array[String] = ["white", "blue", "black", "red", "green", "auras", "aura_ranks", "ranks", "multicolour", "sounds", "round_two"]
 
 ## Every skill that should be audible, and the event it plays. Hand-written on purpose:
 ## deriving it from SoundBank would only prove SoundBank agrees with itself, and the
@@ -147,6 +147,19 @@ func _cast(spell_id: String) -> void:
 	_player._run_spell_effect(spell_id, 1.0)
 
 
+const ChargedHits_ := preload("res://scripts/charged_hits.gd")
+
+
+## A boss at full health, for the Deathtouch threshold - only its class and health are read.
+func _boss_stub() -> EnemyBase:
+	var boss: EnemyBase = _spawn_enemy(Vector3(0.0, 0.0, 40.0))
+	var data: EnemyData = boss.enemy_data.duplicate() as EnemyData
+	data.enemy_class = "Boss"
+	boss.enemy_data = data
+	boss.health = data.health
+	return boss
+
+
 # --- the checks ----------------------------------------------------------------
 
 func _run() -> void:
@@ -167,13 +180,14 @@ func _run() -> void:
 	_check_ranks()
 	_check_multicolour()
 	_check_sounds()
+	await _check_round_two()
 
 	for section: String in SECTIONS:
 		if not _completed.has(section):
 			_failures.append("section '%s' did not finish - look for a SCRIPT ERROR above" % section)
 
 	if _failures.is_empty():
-		print("TEST RESULT: PASS (25 spells, 11 auras, ranks, multicolour)")
+		print("TEST RESULT: PASS (%d spells, 11 auras, ranks, multicolour)" % SpellDatabase.SPELLS.size())
 	else:
 		print("TEST RESULT: FAIL - %d failed: %s" % [_failures.size(), ", ".join(_failures)])
 
@@ -185,9 +199,10 @@ func _done_with(section: String) -> void:
 
 func _check_white() -> void:
 	print("WHITE")
-	_player.exalted_charges = 0
+	_player.attack_charges.clear()
 	_cast("white_1")
-	_check("white_1 Exalted Strike", _player.exalted_charges > 0, "no charge granted")
+	_check("white_1 Exalted Strike", _player.attack_charges.uses_left("white_1") > 0, "no charge granted")
+	_player.attack_charges.clear()
 
 	_player.protection_shield = 0.0
 	# The HUD draws the shield from a signal, not from a poll, so a cast that raises the field
@@ -310,23 +325,19 @@ func _check_black() -> void:
 	_check("black_2 Contagion spreads", neighbour.contagion_timer > 0.0, "neighbour never caught it")
 	_clear_enemies()
 
-	# Kill takes what the CROSSHAIR is on - not the enemy straight ahead of the character,
-	# which over the shoulder camera is 0.85 m beside it. That bystander, nearer and dead
-	# ahead, is exactly what the old feet-based "most in front" rule used to pick instead.
-	var target_far: EnemyBase = _spawn_enemy(_under_crosshair(30.0))
-	var dead_ahead: EnemyBase = _spawn_enemy(-_player.transform.basis.z * 9.0)
-	_check("black_3 Kill picks the enemy under the crosshair", _player.aim_target(45.0) == target_far,
-		"picked %s" % ("the bystander" if _player.aim_target(45.0) == dead_ahead else "nothing"))
-	_clear_enemies()
-	var doomed: EnemyBase = _spawn_enemy(_under_crosshair(11.0))
-	# Kill's boss clause reads the target's health RATIO, and an enemy used to have no maximum
-	# to divide by - HealthReader answered "unreadable" and Kill refused every boss forever.
-	_check("black_3 Kill can read an enemy's health", HealthReader.ratio(doomed) >= 0.0,
-		"ratio %.2f" % HealthReader.ratio(doomed))
+	# Deathtouch (black_3, was Kill) charges the next attack; the charged hit kills. An ordinary
+	# death rather than an exile: the corpse stays on the field and feeds Zombify, so the check
+	# is the death animation running, not the node being gone. (The crowd and the limit are
+	# _check_round_two's.)
+	var doomed: EnemyBase = _spawn_enemy(-_player.transform.basis.z * 3.0)
+	# Owned: the server only acts on a charge the attacker's build actually holds.
+	_set_rank("black_3", 1)
 	_cast("black_3")
-	# An ordinary death rather than an exile: the corpse stays on the field and feeds
-	# Zombify, so the check is the death animation running, not the node being gone.
-	_check("black_3 Kill", not is_instance_valid(doomed) or doomed.is_queued_for_deletion() or doomed.is_dying, "survived")
+	var touch: RefCounted = _player.attack_charges.take(1)
+	_player._basic_strike(doomed, 1.0, false, true, touch)
+	_check("black_3 Deathtouch", not is_instance_valid(doomed) or doomed.is_queued_for_deletion() or doomed.is_dying, "survived")
+	# A boss above the threshold walks away from it.
+	_check("black_3 Deathtouch spares a healthy boss", not ChargedHits_.executes(_boss_stub(), _player, PackedStringArray(["black_3"])))
 	_clear_enemies()
 
 	_clear_spawned()
@@ -818,8 +829,9 @@ func _check_ranks() -> void:
 
 	# --- COUNTS ---------------------------------------------------------------
 	var charges: Array = _measure("white_1", func() -> float:
+		_player.attack_charges.clear()
 		_cast("white_1")
-		return float(_player.exalted_charges))
+		return float(_player.attack_charges.uses_left("white_1")))
 	_check("white_1 charges scale", charges[1] > charges[0], "%.0f -> %.0f" % [charges[0], charges[1]])
 
 	var raised_low: int = _raise_and_count(1)
@@ -933,7 +945,7 @@ func _check_sounds() -> void:
 		var event: StringName = EXPECTED_SPELL_SOUNDS[spell_id]
 		if not SoundBank.EVENT_FILES.has(event):
 			unvoiced.append("%s (%s)" % [spell_id, event])
-	_check("all 25 skills map to a real event", unvoiced.is_empty(), ", ".join(unvoiced))
+	_check("all 25 original skills map to a real event", unvoiced.is_empty(), ", ".join(unvoiced))
 
 	# The two sustained spells have to be told to loop on the IMPORT, not at runtime.
 	# A firestorm that plays its clip once and stops is the failure this catches.
@@ -992,3 +1004,358 @@ func _recording_count() -> int:
 	for event: StringName in SoundBank.EVENT_FILES:
 		total += (SoundBank.EVENT_FILES[event] as Array).size()
 	return total
+
+
+# --- round two (docs/SKILL_DESIGN.md, "Idea backlog - round two") ---------------
+
+const AttackChargesT := preload("res://scripts/attack_charges.gd")
+const RoundTwoSpellsT := preload("res://scripts/round_two_spells.gd")
+
+## Every round-two id, so a spell added to SpellDatabase without a check here fails the suite.
+const ROUND_TWO_IDS: Array[String] = [
+	"white_6", "white_7", "white_8", "white_9", "white_10", "white_11", "white_12",
+	"blue_6", "blue_7", "blue_8", "blue_9", "blue_10", "blue_11", "blue_12",
+	"black_6", "black_7", "black_8", "black_9", "black_10", "black_11", "black_12",
+	"red_6", "red_7", "red_8", "red_9", "red_10", "red_11",
+	"green_6", "green_7", "green_8", "green_9", "green_10", "green_11", "green_12",
+]
+
+
+## Points the server-side aim ray (Player._aim_override, what a client's cast arrives with)
+## straight at `enemy`, so a targeted spell's choice does not hang on the camera's tilt.
+func _aim_at(enemy: Node3D) -> void:
+	var origin: Vector3 = _player.global_position + Vector3(0.0, 1.6, 0.0)
+	_player._aim_override = [origin, ((enemy.global_position + Vector3(0.0, 1.0, 0.0)) - origin).normalized()]
+
+
+func _towers_named(tower_id: String) -> Array[Node]:
+	var out: Array[Node] = []
+	for child: Node in _effects_root().get_children():
+		if String(child.name).begins_with("Tower_" + tower_id) and not child.is_queued_for_deletion():
+			out.append(child)
+	return out
+
+
+func _allies_of_kind(kind: String) -> Array[Node]:
+	var out: Array[Node] = []
+	for ally: Node in _nodes_of("TemporaryAlly"):
+		if String(ally.get("kind")) == kind:
+			out.append(ally)
+	return out
+
+
+func _clear_round_two() -> void:
+	_clear_spawned()
+	_clear_enemies()
+	for child: Node in _effects_root().get_children():
+		if String(child.name).begins_with("Tower_") or String(child.name).begins_with("BeastTrophy"):
+			child.free()
+	_player.attack_charges.clear()
+
+
+## Arms `spell_id`, takes an attack of `weight` and lands it on `enemy` the way a basic attack
+## does (Player._basic_strike) - the real path from charge to consequence.
+func _charged_hit(spell_id: String, weight: int, enemy: Node3D, damage: float = 1.0) -> RefCounted:
+	var load: RefCounted = _player.attack_charges.take(weight)
+	if load != null and enemy != null:
+		_player._basic_strike(enemy, damage, load.exile, true, load)
+	return load
+
+
+func _check_round_two() -> void:
+	print("ROUND TWO")
+	var missing: Array[String] = []
+	for color: String in SpellDatabase.COLORS:
+		for spell_id: String in SpellDatabase.spells_of(color):
+			if SpellDatabase.spell_index(spell_id) > 5 and not ROUND_TWO_IDS.has(spell_id):
+				missing.append(spell_id)
+	_check("every round-two spell has a check here", missing.is_empty(), ", ".join(missing))
+	for spell_id: String in ROUND_TWO_IDS:
+		_set_rank(spell_id, 1)
+	var forward: Vector3 = -_player.transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var side: Vector3 = _player.transform.basis.x
+
+	# --- WHITE ---
+	_clear_round_two()
+	var carried: EnemyBase = _spawn_enemy(-forward * 4.0)
+	_cast("white_6")
+	_check("white_6 Glorious Charge stuns what it went through", carried.stun_timer > 0.0, "stun=%.1f" % carried.stun_timer)
+
+	_clear_round_two()
+	_cast("white_7")
+	var smite: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.LIGHT)
+	_check("white_7 Smite waits for a HEAVY attack", smite == null and _player.attack_charges.uses_left("white_7") == 1)
+	smite = _player.attack_charges.take(AttackChargesT.Weight.HEAVY)
+	_check("white_7 Smite hits harder", smite != null and smite.damage_mult > 1.5, "mult=%s" % (smite.damage_mult if smite else 0.0))
+
+	_clear_round_two()
+	var lanced: EnemyBase = _spawn_enemy(forward * 7.0)
+	_cast("white_8")
+	var lance: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.LIGHT)
+	_player.resolve_charged_impact(lance, _player.global_position + forward * 2.0, forward)
+	_check("white_8 Sunlance blinds the line past the hit", lanced.blind_timer > 0.0, "blind=%.1f" % lanced.blind_timer)
+
+	_clear_round_two()
+	var marked: EnemyBase = _spawn_enemy(forward * 3.0)
+	_cast("white_9")
+	_charged_hit("white_9", AttackChargesT.Weight.LIGHT, marked)
+	_player.protection_shield = 0.0
+	marked.take_damage(1.0, _player)
+	_check("white_9 Mark of Sanctity shields whoever strikes the mark", marked._sanctity_timer > 0.0 and _player.protection_shield > 0.0,
+		"mark=%.1f shield=%.0f" % [marked._sanctity_timer, _player.protection_shield])
+	_player.protection_shield = 0.0
+
+	_clear_round_two()
+	_cast("white_10")
+	_player._invulnerable_timer = 0.0
+	_player.hp = 5.0
+	_player.take_damage(500.0, null)
+	_check("white_10 Worship keeps the last point of health", not _player.is_downed and _player.hp >= 1.0, "hp=%.0f downed=%s" % [_player.hp, _player.is_downed])
+	RoundTwoSpellsT._worship_zones.clear()
+	_player.hp = _player.max_hp
+
+	_clear_round_two()
+	var banished: EnemyBase = _spawn_enemy(_under_crosshair(10.0))
+	_cast("white_11")
+	_check("white_11 Banishing Light seals the circle away", banished._banish_timer > 0.0 and not banished.is_in_group("enemies"),
+		"timer=%.1f" % banished._banish_timer)
+
+	# Towers: the rank sets how many of one kind stand at once (1/2/2/3/3), the oldest going.
+	_clear_round_two()
+	_set_rank("white_12", 1)
+	_cast("white_12")
+	_cast("white_12")
+	var at_one: int = _towers_named("ivory_tower").size()
+	_set_rank("white_12", GameSettings.spell_max_rank)
+	for i: int in 4:
+		_cast("white_12")
+	var at_five: int = _towers_named("ivory_tower").size()
+	_check("white_12 Ivory Tower: 1 standing at rank 1, 3 at rank 5", at_one == 1 and at_five == 3, "%d / %d" % [at_one, at_five])
+	_set_rank("white_12", 1)
+
+	# --- BLUE ---
+	_clear_round_two()
+	_cast("blue_6")
+	_check("blue_6 Mirror Image raises a copy", _allies_of_kind("mirror").size() == 1, "%d" % _allies_of_kind("mirror").size())
+
+	_clear_round_two()
+	var chilled: EnemyBase = _spawn_enemy(forward * 3.0)
+	_cast("blue_7")
+	var uses: int = _player.attack_charges.uses_left("blue_7")
+	_charged_hit("blue_7", AttackChargesT.Weight.LIGHT, chilled)
+	var frozen_early: bool = chilled.freeze_timer > 0.0
+	_charged_hit("blue_7", AttackChargesT.Weight.LIGHT, chilled)
+	_charged_hit("blue_7", AttackChargesT.Weight.LIGHT, chilled)
+	_check("blue_7 Crippling Chill: three hits, the third freezes", uses == 3 and not frozen_early and chilled.freeze_timer > 0.0,
+		"uses=%d early=%s freeze=%.1f" % [uses, frozen_early, chilled.freeze_timer])
+
+	_clear_round_two()
+	var caged: EnemyBase = _spawn_enemy(forward * 3.0)
+	_cast("blue_8")
+	_charged_hit("blue_8", AttackChargesT.Weight.LIGHT, caged)
+	_check("blue_8 Ice Cage encases its target", caged._encase_timer > 0.0 and caged._ice_block != null, "timer=%.1f" % caged._encase_timer)
+
+	_clear_round_two()
+	var ebbed: EnemyBase = _spawn_enemy(forward * 3.0)
+	ebbed.origin_position = _player.global_position + side * 25.0
+	_cast("blue_9")
+	_charged_hit("blue_9", AttackChargesT.Weight.HEAVY, ebbed)
+	_check("blue_9 Time Ebb sends it back where it came from", ebbed.global_position.distance_to(ebbed.origin_position) < 2.0,
+		"%.1f m from home" % ebbed.global_position.distance_to(ebbed.origin_position))
+
+	_clear_round_two()
+	var caster: EnemyBase = _spawn_enemy(forward * 6.0, "Blue", "Mage")
+	caster.is_miniboss = true
+	caster._miniboss_special_windup = 1.0
+	_cast("blue_10")
+	_check("blue_10 Counterspell breaks a special mid-windup", caster._miniboss_special_windup < 0.0, "windup=%.1f" % caster._miniboss_special_windup)
+
+	_clear_round_two()
+	var swine: EnemyBase = _spawn_enemy(_under_crosshair(10.0))
+	_cast("blue_11")
+	_check("blue_11 Curse of the Swine", swine._swine_timer > 0.0 and swine.round_two_state & EnemyBase.R2_SWINE != 0, "timer=%.1f" % swine._swine_timer)
+
+	_clear_round_two()
+	_cast("blue_12")
+	_check("blue_12 Glacial Fortress goes up", _towers_named("glacial_fortress").size() == 1)
+
+	# --- BLACK ---
+	# Deathtouch: one attack, every enemy it reaches up to the limit - 3 at rank 1, 7 at rank 5.
+	for rank: int in [1, GameSettings.spell_max_rank]:
+		_clear_round_two()
+		_set_rank("black_3", rank)
+		var crowd: Array[EnemyBase] = []
+		for i: int in 10:
+			crowd.append(_spawn_enemy(forward * 3.0 + side * (float(i) - 4.5) * 0.6))
+		_cast("black_3")
+		var touch: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.LIGHT)
+		for enemy: EnemyBase in crowd:
+			_player._basic_strike(enemy, 1.0, false, true, touch)
+		var dead: int = crowd.filter(func(e: EnemyBase) -> bool: return not is_instance_valid(e) or e.is_dying).size()
+		var expected: int = GameSettings.rank_count(GameSettings.spell_black_deathtouch_targets, GameSettings.spell_black_deathtouch_targets_max, rank)
+		_check("black_3 Deathtouch executes %d at rank %d" % [expected, rank], dead == expected, "killed %d" % dead)
+	_set_rank("black_3", 1)
+	_clear_round_two()
+	_cast("black_3")
+	_player.attack_charges.tick(GameSettings.spell_black_deathtouch_window + 0.1)
+	_check("black_3 Deathtouch lapses after its window", _player.attack_charges.uses_left("black_3") == 0)
+
+	_clear_round_two()
+	_cast("black_6")
+	var unholy: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.LIGHT)
+	_check("black_6 Unholy Strength turns life into damage", unholy != null and unholy.damage_add > 0.0, "add=%s" % (unholy.damage_add if unholy else 0.0))
+
+	_clear_round_two()
+	var bones: EnemyBase = _spawn_enemy(forward * 3.0)
+	bones._register_corpse()
+	var splintered: EnemyBase = _spawn_enemy(forward * 3.0 + side * 3.0)
+	var splinter_before: float = splintered.health
+	_cast("black_7")
+	var splinters: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.HEAVY)
+	_player.resolve_charged_impact(splinters, bones.global_position, forward)
+	_check("black_7 Bone Splinters throws the corpse at the living", splintered.health < splinter_before,
+		"%.0f -> %.0f" % [splinter_before, splintered.health])
+
+	_clear_round_two()
+	_player._undying_used = false
+	_player._invulnerable_timer = 0.0
+	_player.hp = 0.0
+	_player.die()
+	_check("black_8 Undying gets back up", not _player.is_downed and _player.hp > 0.0, "hp=%.0f downed=%s" % [_player.hp, _player.is_downed])
+	_player._undying_used = true
+	_player._invulnerable_timer = 0.0
+	_player.hp = _player.max_hp
+
+	_clear_round_two()
+	var elite: EnemyBase = _spawn_enemy(_under_crosshair(8.0))
+	elite.elite_modifier = "test"
+	elite._register_corpse()
+	_cast("black_9")
+	_check("black_9 Animate Dead raises the elite", _allies_of_kind("raised").size() == 1)
+
+	_clear_round_two()
+	var grave: EnemyBase = _spawn_enemy(_under_crosshair(9.0))
+	grave._register_corpse()
+	var grave_at: Vector3 = grave.global_position
+	_cast("black_10")
+	_check("black_10 Gravewalk steps into the corpse", _player.global_position.distance_to(grave_at) < 2.5,
+		"%.1f m away" % _player.global_position.distance_to(grave_at))
+
+	_clear_round_two()
+	_player.hp = _player.max_hp
+	_cast("black_11")
+	var owed: int = _player._pact_kills_left
+	RoundTwoSpellsT.tick_pact(_player, _player._pact_timer + 0.1)
+	_check("black_11 Demonic Pact collects its debt", owed == GameSettings.spell_black_pact_kills and _player.hp < _player.max_hp,
+		"owed=%d hp=%.0f" % [owed, _player.hp])
+	_player.hp = _player.max_hp
+
+	_clear_round_two()
+	_cast("black_12")
+	_check("black_12 Bontu's Monument goes up", _towers_named("bontus_monument").size() == 1)
+
+	# --- RED ---
+	_clear_round_two()
+	var flung: EnemyBase = _spawn_enemy(_under_crosshair(8.0))
+	# One physics frame, so the ray the spell aims with can see the body that just arrived.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_cast("red_6")
+	_check("red_6 Fling seizes it", not flung._fling.is_empty())
+
+	_clear_round_two()
+	_cast("red_7")
+	_player.hp = _player.max_hp * 0.25
+	var frenzy: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.HEAVY)
+	_check("red_7 Blood Frenzy hits harder hurt", frenzy != null and frenzy.damage_mult > 1.2, "mult=%s" % (frenzy.damage_mult if frenzy else 0.0))
+	_player.hp = _player.max_hp
+
+	_clear_round_two()
+	var kegged: EnemyBase = _spawn_enemy(forward * 3.0)
+	_cast("red_8")
+	_charged_hit("red_8", AttackChargesT.Weight.LIGHT, kegged)
+	_check("red_8 Powder Keg sticks", not kegged._keg.is_empty())
+
+	_clear_round_two()
+	var peppered: EnemyBase = _spawn_enemy(forward * 5.0)
+	var pepper_before: float = peppered.health
+	_cast("red_9")
+	_check("red_9 Grapeshot", peppered.health < pepper_before, "%.0f -> %.0f" % [pepper_before, peppered.health])
+
+	_clear_round_two()
+	var first: EnemyBase = _spawn_enemy(_under_crosshair(8.0))
+	var second: EnemyBase = _spawn_enemy(_under_crosshair(8.0) + side * 4.0)
+	# One physics frame, so the ray the spell aims with can see the body that just arrived.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var second_before: float = second.health
+	_cast("red_10")
+	_aim_at(first)
+	_cast("black_1")
+	_player._aim_override = []
+	_check("red_10 Fork casts the next aimed spell again at another", not _player._fork_armed and second.health < second_before,
+		"%.0f -> %.0f" % [second_before, second.health])
+
+	_clear_round_two()
+	_cast("red_11")
+	_check("red_11 Goblin Sharpshooter goes up", _towers_named("goblin_sharpshooter").size() == 1)
+
+	# --- GREEN ---
+	_clear_round_two()
+	_cast("green_6")
+	var immense: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.LIGHT)
+	_check("green_6 Become Immense", immense != null and immense.size_mult > 1.0 and immense.damage_mult > 1.0)
+
+	_clear_round_two()
+	var rooted: EnemyBase = _spawn_enemy(forward * 3.0)
+	_cast("green_7")
+	var vines: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.LIGHT)
+	_player.resolve_charged_impact(vines, rooted.global_position, forward)
+	_check("green_7 Entangling Vines roots", rooted.root_timer > 0.0, "root=%.1f" % rooted.root_timer)
+
+	_clear_round_two()
+	var hooked: EnemyBase = _spawn_enemy(_under_crosshair(14.0))
+	# One physics frame, so the ray the spell aims with can see the body that just arrived.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_aim_at(hooked)
+	_cast("green_8")
+	_player._aim_override = []
+	var toward: Vector3 = (_player.global_position - hooked.global_position)
+	_check("green_8 Kraul Harpooner drags it in", hooked.knockback_velocity.dot(toward) > 0.0, "knock=%s" % hooked.knockback_velocity)
+
+	var stone := StaticBody3D.new()
+	stone.name = "StoneCollision"
+	_check("green_9 Awaken knows a standing stone from the ground", RoundTwoSpellsT._scenery_kind(stone) == "golem"
+		and RoundTwoSpellsT._scenery_kind(_scene) == "")
+	stone.free()
+
+	_clear_round_two()
+	var trampled: EnemyBase = _spawn_enemy(-forward * 4.0 + side * 0.8)
+	_cast("green_10")
+	_check("green_10 Overrun throws it aside", absf(trampled.knockback_velocity.dot(side)) > 1.0, "knock=%s" % trampled.knockback_velocity)
+
+	_clear_round_two()
+	_player.beast_trophies.clear()
+	_cast("green_11")
+	var without: int = _allies_of_kind("beast").size()
+	var taken: bool = _player.take_trophy("Green", 2.0)
+	_cast("green_11")
+	_check("green_11 Call of the Herd needs a trophy and spends it", without == 0 and taken and _allies_of_kind("beast").size() == 1
+		and _player.beast_trophies.is_empty(), "without=%d taken=%s" % [without, taken])
+
+	_clear_round_two()
+	_cast("green_12")
+	_check("green_12 Hornet Nest goes up", _towers_named("hornet_nest").size() == 1)
+
+	# Every round-two spell is heard by its own event (SpellEffects.cast_sound).
+	var unvoiced: Array[String] = []
+	for spell_id: String in ROUND_TWO_IDS:
+		if not SoundBank.EVENT_FILES.has(SpellEffects.cast_sound(spell_id)):
+			unvoiced.append("%s (%s)" % [spell_id, SpellEffects.cast_sound(spell_id)])
+	_check("every round-two spell maps to a real event", unvoiced.is_empty(), ", ".join(unvoiced))
+
+	_clear_round_two()
+	_done_with("round_two")

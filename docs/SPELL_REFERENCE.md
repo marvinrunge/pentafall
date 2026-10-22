@@ -8,7 +8,7 @@ precedence over older skill-tree tooltip text.
 
 | Rule | Value |
 |---|---:|
-| Active spells per color | 5 |
+| Active spells per color | 11-12 (ids `colour_1`-`colour_12`; red to 11), one of them passive (Undying) |
 | Infinite affinity nodes per color | 1 |
 | Affinity rank cost | 1 matching mana |
 | Active spell rank cost | 1 skill point per rank |
@@ -92,7 +92,7 @@ and every rank after closes the same share of the remaining gap to the ceiling.
 |---:|---|---:|---:|:---:|---:|---:|---|
 | 1 | Doom Blade | 1 | 7s | No | Line damage | 20m line, 36m at rank 5 | Sends a black blade along the camera aim line through enemies. Rank buys reach, not width. |
 | 2 | Contagion | 1 | 12s | No | Damage over time, spreading | Aimed target, 4.5m jumps | Plagues the enemy in the sights; every second it jumps to the nearest uninfected enemy, up to 8 victims (12 at rank 5). Replaced Fear. |
-| 3 | Kill | 1 | 40s (24s at rank 5) | No | Execute | Single target | Instantly kills an enemy; bosses and minibosses must be below 25% health (35% at rank 5). |
+| 3 | Deathtouch | 1 | 40s (24s at rank 5) | No | Execute | Next attack | The next attack within 8s kills every non-boss it hits, up to 3 (7 at rank 5); bosses and minibosses only below 25% health (35% at rank 5). Was Kill. |
 | 4 | Wall of Souls | 1 | 20s | No | Damage amplifier | Wall | Enemies crossing the wall take increased damage. |
 | 5 | Zombify | 1 | 30s | No | Melee damage | Corpse area | Raises corpses as ghouls that sprint at the nearest enemy and fight it (22 damage per swing every 1.2s at rank 1). With Mayhem Devil they also burst when killed or on expiry (90 damage in 3.5m). |
 
@@ -110,3 +110,48 @@ release continues that same animation into the cast (`Player._begin_spell_windup
 |---|---|
 | Fireball damage | `base damage x (0.6 + 1.2 x charge) x rank multiplier` |
 | Fireball radius | `base radius x (0.8 + 0.7 x charge) x rank area multiplier` |
+
+## Round two (2026-10-22)
+
+Every colour's skills 6-12 - see `docs/SKILL_DESIGN.md`, *Idea backlog - round two*, for what each
+is for; the numbers are `GameSettings`' *ROUND TWO* block. "Next light / heavy / attack" charges the
+caster's next attack of that weight - every class has both (a tap and a hold).
+
+| Id | Spell | Trigger | Cooldown | Effect |
+|---|---|---|---:|---|
+| white_6 | Glorious Charge | Cast (moves) | 12s | Charge 9m; enemies on the path carried, damaged and stunned 1.2s; allies on it shielded. |
+| white_7 | Smite the Monstrous | Next heavy | 14s | x2.5 damage; on a boss mid-special, breaks the special. |
+| white_8 | Sunlance | Next light | 10s | A 12m line of light from the hit: 60 damage, blind 2s. |
+| white_9 | Mark of Sanctity | Next light | 12s | Marks the target 8s; every ally who hits it gets a 10 shield (cap 40). |
+| white_10 | Worship | Cast | 30s | 6m zone, 6s: players and myrs inside cannot drop below 1 HP. |
+| white_11 | Banishing Light | Cast, aimed | 24s | Every non-boss in 3.5m sealed away for 4s. |
+| white_12 | Ivory Tower | Tower | 14s | Shields players (heals myrs) within 10m every 3s. |
+| blue_6 | Mirror Image | Cast | 26s | 1 -> 3 copies fighting with the caster's class attack at half damage, 10s. |
+| blue_7 | Crippling Chill | Next 3 light | 10s | Two hits chill, the third freezes 2s (bosses slowed). |
+| blue_8 | Ice Cage | Next light | 14s | Target encased in an ice block 4s. |
+| blue_9 | Time Ebb | Next heavy | 18s | Everything hit is sent back to where it spawned; bosses, minibosses and beasts slowed 3s. |
+| blue_10 | Counterspell | Cast | 30s | A boss, miniboss or beast special winding up within 25m fizzles. |
+| blue_11 | Curse of the Swine | Cast, aimed | 24s | Up to 3 -> 8 non-bosses in 4m become harmless boars for 5s. |
+| blue_12 | Glacial Fortress | Tower | 14s | Ice shots: 18 damage and slow, every 4th freezes 1.5s. |
+| black_6 | Unholy Strength | Self, 8s | 20s | Every attack costs 2% max HP and adds 3x that as damage. |
+| black_7 | Bone Splinters | Next heavy | 12s | Corpses within 5m of the impact fly at the nearest enemies, 45 each. |
+| black_8 | Undying | Passive | - | Once a wave: instead of going down, back up at 30% -> 60% HP, 3s invulnerable, enemies thrown back. |
+| black_9 | Animate Dead | Cast, aimed | 40s | The nearest elite/miniboss/boss corpse rises as an ally until the wave ends. |
+| black_10 | Gravewalk | Instant | 12s | Teleport into the corpse nearest the aim (25m); it bursts for 70 in 4m. |
+| black_11 | Demonic Pact | Cast | 60s | Every other black spell off cooldown; 10 kills owed in 15s -> 20s, else lose 50% -> 35% max HP (can kill). |
+| black_12 | Bontu's Monument | Tower | 16s | 5 deaths within 12m raise a ghoul. |
+| red_6 | Fling | Cast, targeted | 12s | Throw the enemy in the sights (not a boss) up to 22m; it bursts for 90 in 4m. |
+| red_7 | Blood Frenzy | Self, 8s | 24s | Damage x1 at full health up to x1.8 -> x2.4 at none. |
+| red_8 | Powder Keg | Next light | 9s | Bomb on the target: 90 in 3.5m after 3s, at once if it dies. |
+| red_9 | Grapeshot | Cast | 6s | One bolt (28) per spell cast in the last 5s, at the nearest enemies, up to 8. |
+| red_10 | Fork | Cast | 20s | The next aimed spell is cast again at the nearest other enemy. |
+| red_11 | Goblin Sharpshooter | Tower | 14s | 32 damage every 0.35s within 26m; 60 health. |
+| green_6 | Become Immense | Next attack | 12s | x1.8 damage, +1.5m reach, wider arc, double-size projectile bursting over 2.5m. |
+| green_7 | Entangling Vines | Next light | 12s | Roots everything within 4m of the hit for 3s. |
+| green_8 | Kraul Harpooner | Cast, aimed | 10s | Drag the enemy in the sights to you, or yourself to a tree or standing stone. |
+| green_9 | Awaken | Cast, aimed | 40s | A tree becomes a treant, a ring stone a golem, fighting for 20s. |
+| green_10 | Overrun | Cast (moves) | 18s | 12m unstoppable charge; enemies in the way thrown aside. |
+| green_11 | Call of the Herd | Cast | 30s | Spends a trophy from a slain beast: that beast, at its size, fights until it falls or the wave ends. |
+| green_12 | Hornet Nest | Tower | 16s | 900 health, draws enemies; whoever hits it is stung. |
+
+Towers: 1 / 2 / 2 / 3 / 3 of a kind standing at ranks 1-5; one more replaces the oldest.

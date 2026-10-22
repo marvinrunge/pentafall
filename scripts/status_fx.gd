@@ -76,6 +76,11 @@ func _process(delta: float) -> void:
 	if _player == null:
 		return
 	var bits: int = int(_player.get("status_fx"))
+	# A weapon carrying a charge for its next attack (AttackCharges) glows with Exalted Strike's
+	# light, whichever colour charged it - published by the player's own machine, which is the
+	# one that holds the charges.
+	if int(_player.get("armed_charge_bits")) != 0:
+		bits |= EXALTED
 	var any: bool = false
 	for bit: int in UNIFORMS.keys():
 		var target: float = 1.0 if bits & bit else 0.0

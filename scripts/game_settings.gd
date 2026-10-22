@@ -723,9 +723,13 @@ extends Node
 ## a clock they could not influence; this one is entirely in their hands, which is why the
 ## numbers can be this steep.
 @export var color_investment_ladder: Array[int] = [1, 2, 5, 7, 10]
-## Kept only for save compatibility and the detail panel's old wording. Nothing gates on it
-## any more - see color_investment_ladder.
-@export var affinity_spell_rank_requirements: Array[int] = [1, 5, 10, 15, 25]
+## What a colour needs invested before a spell of ring 1, 2 or 3 (SpellDatabase.RINGS) can be
+## bought - and, met, what reveals that ring without a neighbour being owned. The ladder above
+## still gates every rank after; a spell takes whichever of the two is higher. Gates are on
+## the colour as a whole, never on a particular skill: nothing is anything's prerequisite.
+## Points arrive one per team level (~30 a run) plus Upkeep, so ring 3 at 9 is about a quarter
+## of the way into a run spent mostly in one colour.
+@export var color_ring_investment: Array[int] = [1, 4, 9]
 @export var aura_skill_point_cost: int = 3
 ## Guild nodes (docs/GUILD_PLAN.md Stage 1): how much BOTH neighbouring colours need
 ## invested before one is reachable. Matches color_investment_ladder's own step 3 (the
@@ -986,16 +990,15 @@ func get_tier_cost(tier_index: int) -> int:
 @export var spell_black_contagion_max_victims: int = 8
 ## 16 until 2026-10-11 - with damage and duration also rising, x6 a cast at rank 5.
 @export var spell_black_contagion_max_victims_max: int = 12
-## Kill (black_3). The boss clause is what stops an instant delete trivialising the wave
-## bosses; the cooldown (spell_database.gd) is still the longest in the game for the same
-## reason, if no longer a whole minute.
-## Doubled from 22 on 2026-10-01: an execute you have to walk up to was the wrong shape for
-## the one spell that picks a single target off a whole wave.
-@export var spell_black_kill_range: float = 45.0
-## Bosses AND minibosses below this share of health - minibosses used to be deleted at full
-## health, being no "Boss" class. 0.33 -> 0.25 on 2026-10-11 (and the ceiling 0.5 -> 0.35):
-## half a boss's bar at once every 24 seconds was half of every boss fight.
-@export var spell_black_kill_boss_threshold: float = 0.25
+## Deathtouch (black_3, was Kill). The boss clause is what stops an execute trivialising the
+## wave bosses; the cooldown (spell_database.gd) is still the longest in the game for the same
+## reason. Bosses AND minibosses die only below this share of health - minibosses used to be
+## deleted at full health, being no "Boss" class. 0.33 -> 0.25 on 2026-10-11 (and the ceiling
+## 0.5 -> 0.35): half a boss's bar at once every 24 seconds was half of every boss fight.
+@export var spell_black_deathtouch_boss_threshold: float = 0.25
+## How long the charge waits for an attack, and how many enemies one attack may execute.
+@export var spell_black_deathtouch_window: float = 8.0
+@export var spell_black_deathtouch_targets: int = 3
 ## Wall of Souls (black_4)
 @export var spell_black_wall_length: float = 14.0
 @export var spell_black_wall_duration: float = 12.0
@@ -1179,10 +1182,11 @@ func get_tier_cost(tier_index: int) -> int:
 ## Rally the Fallen: how many downed teammates one cast can pick up.
 @export var spell_white_rally_revives: int = 1
 @export var spell_white_rally_revives_max: int = 5
-## Kill: the ONLY skill whose cooldown scales, and the only one where a higher rank
+## Deathtouch: the ONLY skill whose cooldown scales, and the only one where a higher rank
 ## widens the boss window rather than adding damage.
-@export var spell_black_kill_cooldown_max_rank_mult: float = 0.6
-@export var spell_black_kill_boss_threshold_max: float = 0.35
+@export var spell_black_deathtouch_cooldown_max_rank_mult: float = 0.6
+@export var spell_black_deathtouch_boss_threshold_max: float = 0.35
+@export var spell_black_deathtouch_targets_max: int = 7
 ## Wall of Souls: x2 damage is the headline at rank 1; x4 would eclipse every other
 ## black skill, so the mark walks to x3.
 @export var spell_black_wall_mark_mult_max: float = 3.0
@@ -1200,6 +1204,205 @@ func get_tier_cost(tier_index: int) -> int:
 
 ## Doom Blade: "width (barely)" in the design doc, so barely.
 @export var spell_black_doom_blade_width_max: float = 1.9
+
+# --- ROUND TWO (docs/SKILL_DESIGN.md, "Idea backlog - round two") ---
+# Every number of the thirty-four skills round two added, colour by colour, with the ceilings
+# beside them rather than in RANK CEILINGS above - a block one reads top to bottom per skill.
+
+## What counts as the archer's HEAVY attack for a "next heavy attack" charge: a draw at least
+## this full. 1.0 is a full draw; anything less is the quick shot, the light one.
+@export var archer_heavy_draw_threshold: float = 1.0
+## How far from the attacker the impact half of a charged attack may land and still be taken on
+## trust (Player._request_charged_impact) - the longest reach of any basic attack, and some.
+@export var charged_impact_max_reach: float = 70.0
+
+## Glorious Charge (white_6): a charge behind the guard, carrying the enemies in the way.
+@export var spell_white_charge_distance: float = 9.0
+@export var spell_white_charge_duration: float = 0.45
+@export var spell_white_charge_width: float = 2.4
+@export var spell_white_charge_damage: float = 30.0
+@export var spell_white_charge_stun: float = 1.2
+@export var spell_white_charge_shield: float = 18.0
+@export var spell_white_charge_shield_duration: float = 5.0
+## Smite the Monstrous (white_7): the charged heavy's damage multiplier, before rank.
+@export var spell_white_smite_damage_mult: float = 2.5
+## Sunlance (white_8): the line past the hit, and how long what it touches is blind.
+@export var spell_white_sunlance_length: float = 12.0
+@export var spell_white_sunlance_width: float = 1.6
+@export var spell_white_sunlance_damage: float = 60.0
+@export var spell_white_sunlance_blind: float = 2.0
+## Mark of Sanctity (white_9): how long the mark lasts, and the shield each ally's hit on the
+## marked enemy earns - at most once per interval per ally, and never past the cap.
+@export var spell_white_sanctity_duration: float = 8.0
+@export var spell_white_sanctity_shield: float = 10.0
+@export var spell_white_sanctity_shield_cap: float = 40.0
+@export var spell_white_sanctity_shield_duration: float = 5.0
+@export var spell_white_sanctity_interval: float = 0.5
+## Worship (white_10): hallowed ground round the caster.
+@export var spell_white_worship_radius: float = 6.0
+@export var spell_white_worship_duration: float = 6.0
+## Banishing Light (white_11): a circle where the caster aims.
+@export var spell_white_banish_range: float = 30.0
+@export var spell_white_banish_radius: float = 3.5
+@export var spell_white_banish_duration: float = 4.0
+
+## Mirror Image (blue_6): copies, how long they last, how much of the caster's attack they deal.
+@export var spell_blue_mirror_count: int = 1
+@export var spell_blue_mirror_count_max: int = 3
+@export var spell_blue_mirror_duration: float = 10.0
+@export var spell_blue_mirror_health: float = 120.0
+@export var spell_blue_mirror_damage_share: float = 0.5
+## Crippling Chill (blue_7): three light attacks; the first two chill, the third freezes.
+@export var spell_blue_crippling_chill_uses: int = 3
+@export var spell_blue_crippling_chill_slow: float = 2.0
+@export var spell_blue_crippling_chill_freeze: float = 2.0
+## Ice Cage (blue_8): how long the target stands encased.
+@export var spell_blue_ice_cage_duration: float = 4.0
+## Time Ebb (blue_9): what a boss, a miniboss or a beast gets instead of going home.
+@export var spell_blue_time_ebb_boss_slow: float = 3.0
+## Counterspell (blue_10): how far from the caster a special can be countered.
+@export var spell_blue_counterspell_range: float = 25.0
+## Curse of the Swine (blue_11).
+@export var spell_blue_swine_range: float = 30.0
+@export var spell_blue_swine_radius: float = 4.0
+@export var spell_blue_swine_duration: float = 5.0
+@export var spell_blue_swine_count: int = 3
+@export var spell_blue_swine_count_max: int = 8
+## How slowly a boar walks, and what it is drawn as: the boar model once it exists (a Meshy mesh
+## waiting on the user's approval), and until then the smallest beast at this scale.
+@export var spell_blue_swine_slow: float = 0.45
+@export var spell_blue_swine_scene: String = "res://assets/enemies/beasts/boar/boar.tscn"
+@export var spell_blue_swine_scale: float = 0.4
+
+## Unholy Strength (black_6): life paid per hit, as a share of maximum health, and how many
+## times the life paid each hit adds as damage (before rank).
+@export var spell_black_unholy_duration: float = 8.0
+@export var spell_black_unholy_life_per_hit: float = 0.02
+@export var spell_black_unholy_damage_per_life: float = 3.0
+## Bone Splinters (black_7): which corpses, how hard, how many, and how far a splinter seeks.
+@export var spell_black_bone_splinters_radius: float = 5.0
+@export var spell_black_bone_splinters_damage: float = 45.0
+@export var spell_black_bone_splinters_max: int = 12
+@export var spell_black_bone_splinters_seek: float = 14.0
+## Undying (black_8): the health the player rises with, the grace after it, the dread wave.
+@export var spell_black_undying_health: float = 0.3
+@export var spell_black_undying_health_max: float = 0.6
+@export var spell_black_undying_invulnerable: float = 3.0
+@export var spell_black_undying_radius: float = 6.0
+@export var spell_black_undying_knockback: float = 18.0
+## Animate Dead (black_9): how near the aim a corpse is looked for, and what it rises as.
+@export var spell_black_animate_range: float = 30.0
+@export var spell_black_animate_search: float = 8.0
+@export var spell_black_animate_damage: float = 45.0
+## The share of the corpse's own health it rises with, and how big a raised BOSS is drawn
+## beside its living size.
+@export var spell_black_animate_health_share: float = 0.6
+@export var spell_black_animate_boss_scale: float = 0.6
+## The longest an animated corpse stands, if the wave goes on that long.
+@export var spell_black_animate_duration: float = 120.0
+## Gravewalk (black_10).
+@export var spell_black_gravewalk_range: float = 25.0
+@export var spell_black_gravewalk_radius: float = 4.0
+@export var spell_black_gravewalk_damage: float = 70.0
+## Demonic Pact (black_11): the kills owed, the time to pay, and the debt if not.
+@export var spell_black_pact_kills: int = 10
+@export var spell_black_pact_window: float = 15.0
+@export var spell_black_pact_window_max: float = 20.0
+@export var spell_black_pact_debt: float = 0.5
+@export var spell_black_pact_debt_max: float = 0.35
+
+## Fling (red_6): what can be seized, where it can be thrown, what it does when it lands.
+@export var spell_red_fling_range: float = 25.0
+@export var spell_red_fling_throw_range: float = 22.0
+@export var spell_red_fling_height: float = 5.0
+@export var spell_red_fling_radius: float = 4.0
+@export var spell_red_fling_damage: float = 90.0
+## Blood Frenzy (red_7): the damage multiplier at no health left (it scales linearly to it from
+## full health, where it is 1).
+@export var spell_red_frenzy_duration: float = 8.0
+@export var spell_red_frenzy_mult: float = 1.8
+@export var spell_red_frenzy_mult_max: float = 2.4
+## Powder Keg (red_8).
+@export var spell_red_powder_keg_fuse: float = 3.0
+@export var spell_red_powder_keg_damage: float = 90.0
+@export var spell_red_powder_keg_radius: float = 3.5
+## Grapeshot (red_9): one bolt, and one more per spell cast inside the window, up to the cap.
+@export var spell_red_grapeshot_window: float = 5.0
+@export var spell_red_grapeshot_max: int = 8
+@export var spell_red_grapeshot_damage: float = 28.0
+@export var spell_red_grapeshot_range: float = 22.0
+## Fork (red_10): how far the copy looks for its second target.
+@export var spell_red_fork_range: float = 22.0
+
+## Become Immense (green_6): the charged attack's size, before rank.
+@export var spell_green_immense_damage_mult: float = 1.8
+@export var spell_green_immense_reach_bonus: float = 1.5
+@export var spell_green_immense_cone_widen: float = 0.25
+@export var spell_green_immense_size_mult: float = 2.0
+@export var spell_green_immense_burst_radius: float = 2.5
+## Entangling Vines (green_7).
+@export var spell_green_vines_radius: float = 4.0
+@export var spell_green_vines_root: float = 3.0
+## Kraul Harpooner (green_8): its reach, and how fast it drags.
+@export var spell_green_harpoon_range: float = 28.0
+@export var spell_green_harpoon_pull: float = 22.0
+@export var spell_green_harpoon_self_speed: float = 26.0
+## Awaken (green_9): what can be woken, and what it rises as.
+@export var spell_green_awaken_range: float = 30.0
+@export var spell_green_awaken_duration: float = 20.0
+@export var spell_green_awaken_health: float = 600.0
+@export var spell_green_awaken_damage: float = 45.0
+## A woken treant (and, until it has a model of its own, the golem) beside the green boss's size.
+@export var spell_green_awaken_scale: float = 0.45
+## Overrun (green_10): the charge, and how hard it throws what it meets aside.
+@export var spell_green_overrun_distance: float = 12.0
+@export var spell_green_overrun_duration: float = 0.8
+@export var spell_green_overrun_width: float = 2.6
+@export var spell_green_overrun_knockback: float = 16.0
+## Call of the Herd (green_11): trophies carried, how long one lies before it fades, how near
+## a player has to walk to take it, and the longest a called beast stays.
+@export var spell_green_herd_trophies: int = 1
+@export var spell_green_herd_trophies_max: int = 3
+@export var spell_green_herd_trophy_lifetime: float = 45.0
+@export var spell_green_herd_pickup_radius: float = 1.8
+@export var spell_green_herd_duration: float = 120.0
+
+## Towers (white_12, blue_12, black_12, red_11, green_12): how many of one kind a player can have
+## standing at once, rank 1 and rank 5 (rank_count: 1/2/2/3/3), and how far away they can go up.
+@export var tower_count: int = 1
+@export var tower_count_max: int = 3
+@export var tower_place_range: float = 25.0
+## Ivory Tower: shields allies and myrs in range every interval.
+@export var tower_ivory_health: float = 400.0
+@export var tower_ivory_radius: float = 10.0
+@export var tower_ivory_interval: float = 3.0
+@export var tower_ivory_shield: float = 15.0
+@export var tower_ivory_shield_duration: float = 4.0
+## Glacial Fortress: ice shots that slow; every Nth freezes.
+@export var tower_glacial_health: float = 300.0
+@export var tower_glacial_range: float = 18.0
+@export var tower_glacial_interval: float = 1.0
+@export var tower_glacial_damage: float = 18.0
+@export var tower_glacial_slow: float = 2.0
+@export var tower_glacial_freeze_every: int = 4
+@export var tower_glacial_freeze: float = 1.5
+## Bontu's Monument: deaths in range charge it; full, it raises a ghoul.
+@export var tower_bontu_health: float = 350.0
+@export var tower_bontu_radius: float = 12.0
+@export var tower_bontu_charges: int = 5
+@export var tower_bontu_ghoul_health: float = 120.0
+@export var tower_bontu_ghoul_damage: float = 22.0
+@export var tower_bontu_ghoul_duration: float = 12.0
+## Goblin Sharpshooter: glass cannon.
+@export var tower_goblin_health: float = 60.0
+@export var tower_goblin_range: float = 26.0
+@export var tower_goblin_interval: float = 0.35
+@export var tower_goblin_damage: float = 32.0
+## Hornet Nest: a tank that stings whoever hits it.
+@export var tower_hornet_health: float = 900.0
+@export var tower_hornet_radius: float = 6.0
+@export var tower_hornet_sting: float = 14.0
+@export var tower_hornet_sting_cooldown: float = 0.4
 
 ## How fast a fleeing enemy runs compared with how fast it advances. No spell makes an
 ## enemy flee since Fear left the roster; EnemyBase.apply_fear is kept for whatever does next.
@@ -1272,10 +1475,6 @@ func get_tier_cost(tier_index: int) -> int:
 # take breadth because depth is not available yet, and late you choose what to deepen.
 @export var spell_max_rank: int = 5
 @export var spell_rank_point_cost: int = 1
-## Team level needed for each rank, rank 1 first. Levels are shared across the team
-## (docs/ECONOMY.md), so this is the same clock for everybody - nobody is ranked up
-## because they got the last hit.
-@export var spell_rank_level_requirements: Array[int] = [1, 3, 5, 7, 9]
 
 ## Rank 5 is roughly x2 damage, x1.6 area/range, x1.5 duration - the curve suggested in
 ## the design doc, kept in one place so twenty-five skills cannot each drift from it.
@@ -1357,11 +1556,12 @@ func color_investment_requirement(step: int) -> int:
 	return color_investment_ladder[index]
 
 
-func rank_level_requirement(rank: int) -> int:
-	if spell_rank_level_requirements.is_empty():
-		return 1
-	var index: int = clampi(rank - 1, 0, spell_rank_level_requirements.size() - 1)
-	return spell_rank_level_requirements[index]
+## What `color_ring_investment` asks for to buy into ring `ring` (1-based). Clamped like the
+## ladder; ring 0 (not a colour spell) asks for nothing.
+func ring_investment_requirement(ring: int) -> int:
+	if ring <= 0 or color_ring_investment.is_empty():
+		return 0
+	return color_ring_investment[clampi(ring - 1, 0, color_ring_investment.size() - 1)]
 
 
 # ============================================================

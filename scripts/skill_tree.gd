@@ -10,31 +10,18 @@ const InputHint := preload("res://scripts/input_hint.gd")
 ## lengthens the player's light attack chain by a stage.
 const CENTER_KEY: String = "center"
 const CENTER_BRANCH: int = -1
-## The aura nodes sit past the end of a colour's branch, splayed either side of it - the
-## fork in docs/SKILL_DESIGN.md drawn as a fork. 6 is the Attunement (the stat line), 7 the
-## Manifestation (the visible one), 9 a second Manifestation that only red has (Lightning
-## Orb), out past Lightning Bolt. 8 is taken by the guild nodes.
-const AURA_BRANCHES: Array[int] = [6, 7, 9]
-## How far each aura node is turned off its colour's axis, in degrees, and how far out it
-## sits as a share of the board's outer radius. The third (red's Lightning Orb) sits a little
-## further out than the fork: at the fork's own radius it lands on Lightning Bolt below it
-## and the red-green guild node beside it.
-const AURA_SPLAY: Array[float] = [-11.0, 11.0, 24.0]
-const AURA_REACH: Array[float] = [1.0, 1.0, 1.1]
-## One past the last ordinary branch index (0-5 plus the two aura branches).
+## Branch indices. A spell's branch index IS the N of its `colour_N` id (1-12), so the auras
+## and the guilds sit well past the spells rather than in between them - they used to be 6,
+## 7, 9 and 8, which was exactly where the round-two spells had to go.
 ##
-## There used to be a ninth: the five keyword passives (Flying, Double Strike, Haste,
-## Trample, Vigilance) sat on the bisectors between the colours. They were numbers that
-## belonged to no colour, and they are equipment now - found on bosses, worn from their
-## own menu (EquipmentMenu). The gaps between the colours sat free after that for real
-## guild nodes (docs/GUILD_PLAN.md Stage 1) - GUILD_BRANCH below is the first one back.
-const BRANCH_COUNT: int = 8
-## A guild node's own branch index, same slot the keyword passives used to sit in. One
-## index is enough for all five: each node's record is keyed by (its first colour,
-## GUILD_BRANCH), and the five pairs below never repeat a first colour, so no two guild
-## records ever collide on that key. A node whose pair shared a first colour with another
-## would need a branch index of its own.
-const GUILD_BRANCH: int = 8
+## The auras sit past the outer ring: 20 the Attunement (the stat line), 21 the Manifestation
+## (the visible one), 22 a second Manifestation that only red has (Lightning Orb), on its axis.
+const AURA_BRANCHES: Array[int] = [20, 21, 22]
+## A guild node's own branch index. One index is enough for all five: each node's record is
+## keyed by (its first colour, GUILD_BRANCH), and the five pairs below never repeat a first
+## colour, so no two guild records ever collide on that key. A node whose pair shared a first
+## colour with another would need a branch index of its own.
+const GUILD_BRANCH: int = 30
 ## docs/GUILD_PLAN.md Stage 1 - all five allied guilds. Every id, hook and number here is
 ## cross-referenced in that doc; look there before changing one without the other.
 const GUILD_NODES: Array[Dictionary] = [
@@ -104,51 +91,43 @@ const AFFINITY_DATA: Dictionary = {
 @onready var control_root: Control = $Control
 
 var _board: Control
-## Where each branch sits inside its colour's wedge: x is the angle off the colour's own
-## axis in degrees, y is how far out it sits between the hub and the rim.
+## Where each node sits inside its colour's wedge: an angle off the colour's own axis in
+## degrees, and how far out it sits between the hub and the rim.
 ##
-## A colour is a TREE, not a line. It used to be six nodes strung along one spoke, which
-## made every colour identical in shape, wasted the whole width of its wedge, and said
-## nothing about which spells belong together. Now it opens out:
+## A colour is a TREE, not a line, and it opens out ring by ring (SpellDatabase.RINGS):
 ##
-##       affinity              one node, on the axis
-##      /        \
-##   spell 1   spell 2         the two the colour opens with
-##    /   \    /   \
-##  s3     s4      s5          the three it builds towards
+##            affinity                 one node, on the axis
+##        /      |      \
+##      r1      r1      r1             what the colour opens with
+##    r2     r2     r2     r2          its specialists
+##  r3    r3    r3    r3    r3         the rest
+##     aura          aura              past the rim, in the gaps of the last ring
 ##
-## Red reads as: affinity, then Fireball and Fire Dash, then Rain of Ember, Fire Cone and
-## Lightning Bolt. The wedge is 72 degrees wide, so the widest pair at 26 degrees still
-## leaves a clear gap to the neighbouring colour. The affinity sits a little way out from the
+## The wedge is 72 degrees wide; the widest ring stops at 27 degrees, which leaves the guild
+## node on the 36-degree bisector clear of it. The affinity sits a little way out from the
 ## hub, far enough for the class ring to fit between them (_layout_class_ring).
-const BRANCH_LAYOUT: Dictionary = {
-	0: Vector2(0.0, 0.15),
-	1: Vector2(-14.0, 0.58),
-	2: Vector2(14.0, 0.58),
-	3: Vector2(-26.0, 1.0),
-	4: Vector2(0.0, 1.0),
-	5: Vector2(26.0, 1.0),
+const AFFINITY_REACH: float = 0.15
+## How far out each ring sits, inner first.
+const RING_REACH: Array[float] = [0.45, 0.72, 1.0]
+## The angles of a ring's nodes, by how many it holds.
+const RING_ANGLES: Dictionary = {
+	1: [0.0],
+	2: [-14.0, 14.0],
+	3: [-24.0, 0.0, 24.0],
+	4: [-21.0, -7.0, 7.0, 21.0],
+	5: [-27.0, -13.5, 0.0, 13.5, 27.0],
 }
-
-## Which nodes are joined by a line, as pairs of branch indices (CENTER_BRANCH is the hub).
-##
-## The middle of the outer row is fed by BOTH openers rather than by one of them: three
-## children over two parents has no symmetric strict-tree answer, and the diamond that
-## makes reads as a lattice rather than as an arbitrary choice about which opener owns it.
-## The two outer aura choices hang off neighbouring finisher skills. Each has two routes
-## in, but the two choices do not connect directly to each other.
-const BRANCH_EDGES: Array = [
-	[CENTER_BRANCH, 0],
-	[0, 1], [0, 2],
-	[1, 3], [1, 4], [2, 4], [2, 5],
-	[3, AURA_BRANCHES[0]], [4, AURA_BRANCHES[0]],
-	[4, AURA_BRANCHES[1]], [5, AURA_BRANCHES[1]],
-	[5, AURA_BRANCHES[2]],
-]
-
 ## Bigger nearer the trunk, so the eye reads the hierarchy before it reads the icons.
-const BRANCH_DIAMETERS: Dictionary = {0: 48.0, 1: 44.0, 2: 44.0, 3: 40.0, 4: 40.0, 5: 40.0}
+const AFFINITY_DIAMETER: float = 48.0
+const RING_DIAMETERS: Array[float] = [42.0, 40.0, 38.0]
+const AURA_DIAMETER: float = 42.0
+## Two nodes of neighbouring rings are joined when they are this close in angle. Generated
+## rather than written out (it used to be a hand-made edge list for exactly five spells), so a
+## colour's lines follow its rings, and every node but the outermost gets two ways in.
+const MAX_LINK_DEGREES: float = 12.0
 
+## Per colour, the joined pairs of branch indices (CENTER_BRANCH is the hub). _build_edges.
+var _edges: Dictionary = {}
 var _branch_lines: Dictionary = {}
 ## Guild id -> its two lines, to its first colour and to its second.
 var _guild_lines: Dictionary = {}
@@ -372,10 +351,11 @@ func _build_ui() -> void:
 	control_root.add_child(_skill_points_label)
 
 	for color: String in COLOR_NAMES:
+		_edges[color] = _build_edges(color)
 		# One Line2D per EDGE now. A branching colour is not a polyline, and a single Line2D
 		# can only ever draw one continuous run of points.
 		var edges: Array[Line2D] = []
-		for _edge: Array in BRANCH_EDGES:
+		for _edge: Array in _edges[color]:
 			var branch_line := Line2D.new()
 			branch_line.width = 3.0
 			branch_line.default_color = COLOR_HEX[color] * Color(1.0, 1.0, 1.0, 0.46)
@@ -408,12 +388,12 @@ func _build_ui() -> void:
 		affinity_info["is_affinity"] = true
 		_create_icon_node(color, 0, affinity_info)
 
-		var spells: Array = SpellDatabase.get_spells_for_color(color)
-		for spell_index: int in range(spells.size()):
-			var spell_info: Dictionary = spells[spell_index].duplicate()
+		# The branch index is the spell's N, so _branch_owned can build the id straight back.
+		for spell: Dictionary in SpellDatabase.get_spells_for_color(color):
+			var spell_info: Dictionary = spell.duplicate()
 			spell_info["is_affinity"] = false
-			spell_info["rank_requirement"] = GameSettings.affinity_spell_rank_requirements[spell_index]
-			_create_icon_node(color, spell_index + 1, spell_info)
+			spell_info["is_passive"] = SpellDatabase.is_passive(String(spell_info["id"]))
+			_create_icon_node(color, SpellDatabase.spell_index(String(spell_info["id"])), spell_info)
 
 		# The outer auras: two per colour, three for red. All visible, all rankable.
 		var auras: Array[Dictionary] = SpellDatabase.get_auras(color)
@@ -708,7 +688,8 @@ func _bind_hovered_to_slot(slot_index: int) -> void:
 	if record.is_empty():
 		return
 	var info: Dictionary = record["info"]
-	if bool(info.get("is_affinity", false)) or bool(info.get("is_aura", false)) or bool(info.get("is_center", false)) or bool(info.get("is_guild", false)):
+	if bool(info.get("is_affinity", false)) or bool(info.get("is_aura", false)) or bool(info.get("is_center", false)) \
+			or bool(info.get("is_guild", false)) or bool(info.get("is_passive", false)):
 		return
 	var player = PlayerRegistry.get_local()
 	if player == null or not player.has_method("assign_quick_slot"):
@@ -809,55 +790,39 @@ func _layout_nodes() -> void:
 	if is_instance_valid(_level_badge):
 		_level_badge.size = Vector2(58.0, 58.0) * icon_scale
 		_level_badge.position = center - _level_badge.size * 0.5
-	_layout_class_ring(center, lerpf(inner_radius, branch_radius, BRANCH_LAYOUT[0].y), icon_scale)
+	_layout_class_ring(center, lerpf(inner_radius, branch_radius, AFFINITY_REACH), icon_scale)
 
 	for color_index: int in range(COLOR_NAMES.size()):
 		var color: String = COLOR_NAMES[color_index]
 		var angle: float = -PI * 0.5 + TAU * float(color_index) / float(COLOR_NAMES.size())
-		var direction := Vector2(cos(angle), sin(angle))
 		# Every node's centre, kept so the edges can be drawn between them afterwards
 		# rather than guessed at a second time.
 		var points: Dictionary = {CENTER_BRANCH: center}
-
-		for branch_index: int in range(6):
-			var layout: Vector2 = BRANCH_LAYOUT[branch_index]
-			var node_angle: float = angle + deg_to_rad(layout.x)
-			var radius: float = lerpf(inner_radius, branch_radius, layout.y)
+		for record: Dictionary in _button_records:
+			if String(record["color"]) != color:
+				continue
+			var branch_index: int = int(record["branch_index"])
+			if branch_index == GUILD_BRANCH:
+				continue
+			var place: Vector3 = _node_place(color, branch_index)
+			if place.y < 0.0:
+				continue
+			var node_angle: float = angle + deg_to_rad(place.x)
+			# The spells run from the hub out to the branch radius; the auras sit past them,
+			# out at the rim, where the old fork was.
+			var radius: float = outer_radius if branch_index in AURA_BRANCHES else lerpf(inner_radius, branch_radius, place.y)
 			var point: Vector2 = center + Vector2(cos(node_angle), sin(node_angle)) * radius
 			points[branch_index] = point
 			node_centers["%s_%d" % [color, branch_index]] = point
-			var record: Dictionary = _find_record(color, branch_index)
-			if not record.is_empty():
-				var button: TextureButton = record["button"]
-				var diameter: float = float(BRANCH_DIAMETERS.get(branch_index, 40.0)) * icon_scale
-				button.size = Vector2(diameter, diameter)
-				button.position = point - button.size * 0.5
-				_place_badge(record, button)
-
-		# The fork: past the end of the branch and splayed to either side of it, so the
-		# two halves read as alternatives to each other rather than as two more steps.
-		var fork_radius: float = outer_radius
-		for half: int in range(AURA_BRANCHES.size()):
-			# Splayed narrowly, INSIDE the outer row's own spread: the fork is the tip of
-			# the colour, and a fork wider than the row it grows out of reads as a sixth
-			# and seventh spell rather than as a choice between two endings.
-			var splay: float = deg_to_rad(AURA_SPLAY[half])
-			var fork_direction := Vector2(cos(angle + splay), sin(angle + splay))
-			var fork_point: Vector2 = center + fork_direction * fork_radius * AURA_REACH[half]
-			var fork_record: Dictionary = _find_record(color, AURA_BRANCHES[half])
-			# A colour without this aura (only red has a third) has no node and no line to it.
-			if fork_record.is_empty():
-				continue
-			points[AURA_BRANCHES[half]] = fork_point
-			node_centers["%s_%d" % [color, AURA_BRANCHES[half]]] = fork_point
-			var fork_button: TextureButton = fork_record["button"]
-			fork_button.size = Vector2(44.0, 44.0) * icon_scale
-			fork_button.position = fork_point - fork_button.size * 0.5
-			_place_badge(fork_record, fork_button)
+			var button: TextureButton = record["button"]
+			button.size = Vector2.ONE * place.z * icon_scale
+			button.position = point - button.size * 0.5
+			_place_badge(record, button)
 
 		var edge_lines: Array = _branch_lines[color]
-		for edge_index: int in range(BRANCH_EDGES.size()):
-			var edge: Array = BRANCH_EDGES[edge_index]
+		var color_edges: Array = _edges[color]
+		for edge_index: int in range(color_edges.size()):
+			var edge: Array = color_edges[edge_index]
 			var line: Line2D = edge_lines[edge_index]
 			if points.has(edge[0]) and points.has(edge[1]):
 				line.points = PackedVector2Array([points[edge[0]], points[edge[1]]])
@@ -904,6 +869,59 @@ func _layout_nodes() -> void:
 		var current_record: Dictionary = _find_record(COLOR_NAMES[_selected_color_index], _selected_branch_index)
 		if not current_record.is_empty():
 			_position_selection_ring(current_record["button"])
+
+## Where a node of `color` sits: x the angle off the colour's axis in degrees, y how far out
+## (0-1 between hub and rim; the auras' is the rim itself, see _layout_nodes) and z its
+## diameter at 720p. y is negative for a branch the colour does not have.
+func _node_place(color: String, branch_index: int) -> Vector3:
+	if branch_index == 0:
+		return Vector3(0.0, AFFINITY_REACH, AFFINITY_DIAMETER)
+	var rings: Array = SpellDatabase.get_rings(color)
+	if branch_index in AURA_BRANCHES:
+		# In the gaps of the outer ring: the Attunement in the first, the Manifestation in the
+		# last, and red's second Manifestation on the axis.
+		var half: int = AURA_BRANCHES.find(branch_index)
+		if rings.is_empty():
+			return Vector3(0.0, -1.0, 0.0)
+		var outer: Array = RING_ANGLES.get((rings[rings.size() - 1] as Array).size(), [0.0])
+		var aura_angle: float = 0.0
+		if half == 0 and outer.size() > 1:
+			aura_angle = (float(outer[0]) + float(outer[1])) * 0.5
+		elif half == 1 and outer.size() > 1:
+			aura_angle = (float(outer[outer.size() - 2]) + float(outer[outer.size() - 1])) * 0.5
+		return Vector3(aura_angle, 1.0, AURA_DIAMETER)
+	for ring: int in rings.size():
+		var members: Array = rings[ring]
+		var slot: int = members.find(branch_index)
+		if slot < 0:
+			continue
+		var angles: Array = RING_ANGLES.get(members.size(), [0.0])
+		return Vector3(float(angles[mini(slot, angles.size() - 1)]), RING_REACH[mini(ring, RING_REACH.size() - 1)],
+			RING_DIAMETERS[mini(ring, RING_DIAMETERS.size() - 1)])
+	return Vector3(0.0, -1.0, 0.0)
+
+
+## The lines of one colour, as pairs of branch indices: the hub to the affinity, the affinity
+## to every node of the first ring, and each node to those of the ring before it that are
+## within MAX_LINK_DEGREES - the auras to the outer ring the same way. Reachability walks
+## exactly these (_is_reachable), so what the player sees joined IS what joins.
+func _build_edges(color: String) -> Array:
+	var edges: Array = [[CENTER_BRANCH, 0]]
+	var previous: Array = [0]
+	var rings: Array = SpellDatabase.get_rings(color).duplicate()
+	var aura_ring: Array = []
+	for half: int in range(SpellDatabase.get_auras(color).size()):
+		aura_ring.append(AURA_BRANCHES[half])
+	rings.append(aura_ring)
+	for ring: Array in rings:
+		for branch_index: Variant in ring:
+			var here: float = _node_place(color, int(branch_index)).x
+			for parent: Variant in previous:
+				if int(parent) == 0 or absf(_node_place(color, int(parent)).x - here) <= MAX_LINK_DEGREES:
+					edges.append([int(parent), int(branch_index)])
+		previous = ring
+	return edges
+
 
 ## The rank badge sits just under its node. Its own child of the board rather than a
 ## child of the button, because a TextureButton lays its children out to fill itself.
@@ -1102,7 +1120,7 @@ func _shows_mana_pip(_info: Dictionary, state: String, _rank: int) -> bool:
 ## is a circle: always on, never on the bar. `bright` is an owned node, drawn untinted.
 func _node_material(info: Dictionary, bright: bool) -> ShaderMaterial:
 	var kind: String = _node_kind(info)
-	if kind == KIND_AURA or kind == KIND_AFFINITY or kind == KIND_GUILD:
+	if kind == KIND_AURA or kind == KIND_AFFINITY or kind == KIND_GUILD or bool(info.get("is_passive", false)):
 		return IconStyle.circle_material(bright)
 	return IconStyle.rounded_material(bright)
 
@@ -1279,8 +1297,9 @@ func _show_details(color: String, branch_index: int, info: Dictionary) -> void:
 		var rank: int = int(player.get_spell_rank(spell_id))
 		var status: String = ""
 		if rank <= 0:
-			# Not owned yet: the affinity gate is the thing standing in the way.
-			status = "Unlock for %d point" % GameSettings.spell_rank_point_cost
+			# Not owned yet: the ring's gate, if anything, is what stands in the way.
+			var gate: String = String(player.spell_gate_blocker(spell_id)) if player.has_method("spell_gate_blocker") else ""
+			status = gate if gate != "" else "Unlock for %d point" % GameSettings.spell_rank_point_cost
 		else:
 			# Owned: what matters is what the NEXT rank costs and what is stopping it.
 			var blocker: String = String(player.spell_rank_blocker(spell_id))
@@ -1293,14 +1312,25 @@ func _show_details(color: String, branch_index: int, info: Dictionary) -> void:
 			status += "  (free: debug)"
 		var slot: int = _slot_of(player, spell_id)
 		var binding: String
-		if InputHint.gamepad:
+		if SpellDatabase.is_passive(spell_id):
+			binding = "Passive - always on"
+		elif InputHint.gamepad:
 			binding = ("Slot %d - %s next slot" % [slot, InputHint.key("next_slot")]) if slot > 0 else ("Unbound - %s to put on the hotbar" % InputHint.key("next_slot"))
 		else:
 			binding = ("Key %d" % slot) if slot > 0 else "Unbound - press 1-%d" % Player.QUICK_SLOT_COUNT
-		_detail_status.text = "%s  %s  |  %s  |  Points %d  |  Cooldown %.1fs" % [
-			COLOR_SYMBOL[color], status, binding, _skill_points(player), SpellDatabase.get_cooldown(spell_id),
+		var timing: String = "" if SpellDatabase.is_passive(spell_id) else "  |  Cooldown %.1fs" % SpellDatabase.get_cooldown(spell_id)
+		_detail_status.text = "%s  %s  |  %s  |  Points %d%s" % [
+			COLOR_SYMBOL[color], status, binding, _skill_points(player), timing,
 		]
-		_detail_body.text = info["desc"]
+		# What kind of skill it is, in front of what it does: "charges your next heavy attack"
+		# is the one fact about these that the description cannot carry in passing.
+		var trigger: String = SpellDatabase.next_attack(spell_id)
+		var prefix: String = ""
+		match trigger:
+			"light": prefix = "Charges your next light attack. "
+			"heavy": prefix = "Charges your next heavy attack. "
+			"any": prefix = "Charges your next attack. "
+		_detail_body.text = prefix + String(info["desc"])
 
 func _hide_details() -> void:
 	_hovered_record.clear()
@@ -1363,6 +1393,12 @@ func _on_node_pressed(color: String, branch_index: int, info: Dictionary) -> voi
 		# to click at in the first place.
 		if not _is_reachable(player, color, branch_index):
 			return
+		# The same check the board draws "locked" from. The first rank used to skip it, so a
+		# node shown as out of reach could be bought on the click anyway.
+		var gate: String = String(player.spell_rank_blocker(spell_id)) if player.has_method("spell_rank_blocker") else ""
+		if gate != "":
+			_flash_status(gate)
+			return
 		if _pay(player, GameSettings.spell_rank_point_cost):
 			SignalBus.spell_unlocked.emit(color, spell_id)
 			update_ui()
@@ -1417,19 +1453,27 @@ func _pay(player: Node, points: int) -> bool:
 
 ## Whether a node can be bought AT ALL yet: is anything joined to it already owned?
 ##
-## This is the rule the fan layout was drawn for. A colour is a graph now, and BRANCH_EDGES
-## is that graph, so reachability is a walk over the edges the player can already see
+## This is the rule the fan layout was drawn for. A colour is a graph now, and _edges (built
+## by _build_edges) is that graph, so reachability is a walk over the edges the player can see
 ## rather than a second set of numbers to keep in step with the picture.
 ##
 ## The affinity is joined to the hub, so it is always reachable and every colour still opens
 ## the same way. The aura fork hangs off the middle finisher, which is why taking a
 ## aura means finishing a colour rather than rushing it.
+##
+## A spell is ALSO found by investment alone: once the colour has what the spell's ring asks
+## for (GameSettings.color_ring_investment), its whole ring is in view. So a neighbour only
+## ever reveals a node early - no particular skill is anything's prerequisite.
 func _is_reachable(player: Node, color: String, branch_index: int) -> bool:
 	if GameSettings.debug_free_skills:
 		return true
 	if branch_index == CENTER_BRANCH:
 		return true
-	for edge: Array in BRANCH_EDGES:
+	var spell_id: String = SpellDatabase.make_id(color, branch_index)
+	if SpellDatabase.has_spell(spell_id) and player.has_method("color_investment") \
+			and int(player.color_investment(color)) >= GameSettings.ring_investment_requirement(SpellDatabase.get_ring(spell_id)):
+		return true
+	for edge: Array in _edges.get(color, []):
 		var neighbour: int = -99
 		if edge[0] == branch_index:
 			neighbour = edge[1]
@@ -1475,16 +1519,13 @@ func _guild_investment_met(player: Node, info: Dictionary) -> bool:
 	)
 
 
-## The node of `color` a guild node hangs off: the outer one on the guild's side of it. Each
+## The node of `color` a guild node hangs off: the outer aura on the guild's side of it. Each
 ## pair in GUILD_NODES is in lane order, so the guild sits past its first colour's axis and
-## short of its second's - the fork splayed forwards for the first (red's Lightning Orb,
-## further round still, where it has one) and the one splayed back for the second.
-func _guild_anchor(color: String, first: bool) -> int:
-	if not first:
-		return AURA_BRANCHES[0]
-	if not _find_record(color, AURA_BRANCHES[2]).is_empty():
-		return AURA_BRANCHES[2]
-	return AURA_BRANCHES[1]
+## short of its second's - the aura in the forward gap for the first, the one in the back gap
+## for the second. Red's Lightning Orb sits on the axis now, so it is never an anchor: a line
+## from it would cross red's own Manifestation.
+func _guild_anchor(_color: String, first: bool) -> int:
+	return AURA_BRANCHES[1] if first else AURA_BRANCHES[0]
 
 
 ## Whether the player already holds the node at `branch_index` of `color`. The hub counts as
@@ -1517,16 +1558,19 @@ func _aura_id_for_branch(color: String, branch_index: int) -> String:
 	return String(auras[half]["id"])
 
 
-## What the colour-investment ladder asks of this node, and whether it has been paid.
+## Whether the colour has what this spell node's next rank asks for (its ring for the first,
+## the ladder after - Player.spell_gate_blocker, the very check the click makes).
 ##
 ## Connectivity says WHERE you may go; this says how deep into the colour you have to be to
-## go there. Two questions, one ladder - see GameSettings.color_investment_ladder.
+## go there.
 func _investment_met(player: Node, color: String, branch_index: int) -> bool:
 	if GameSettings.debug_free_skills:
 		return true
-	if branch_index < 1 or branch_index > 5:
+	var spell_id: String = SpellDatabase.make_id(color, branch_index)
+	if not SpellDatabase.has_spell(spell_id) or not player.has_method("spell_gate_blocker"):
 		return true
-	return player.color_investment(color) >= GameSettings.color_investment_requirement(branch_index)
+	var blocker: String = String(player.spell_gate_blocker(spell_id))
+	return blocker == "" or blocker == "Maximum rank"
 
 
 func _gate_met(player: Node, color: String, info: Dictionary) -> bool:
@@ -1645,10 +1689,10 @@ func _is_placeholder_mark(offset: Vector2, branch_index: int) -> bool:
 			return absf(abs_x + abs_y - 20.0) < 3.0
 		5:
 			return absf(offset.length() - 18.0) < 3.0 or absf(offset.length() - 9.0) < 2.0
-		6:
+		20:
 			# Attunement: a solid core. The stat line - dense, inert, all of it inside you.
 			return offset.length() < 13.0
-		7:
+		21:
 			# Manifestation: a core with something in orbit around it. The visible half of
 			# the fork, drawn as the thing it actually is.
 			return offset.length() < 6.0 or (absf(offset.length() - 17.0) < 2.5 and offset.y < -2.0)
