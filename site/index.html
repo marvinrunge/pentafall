@@ -140,7 +140,8 @@
   .pip:focus-visible, .btn:focus-visible, button.framed:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 
   .stage { position: relative; display: grid; grid-template-columns: 1.7fr 1fr; gap: 0; border-radius: var(--radius); overflow: hidden; background: var(--bg-raised); border: 1px solid var(--line); }
-  .stage-img { position: relative; aspect-ratio: 16 / 9; overflow: hidden; }
+  /* fills the row beside the colour's details, which run taller than 16:9 with twelve spells */
+  .stage-img { position: relative; min-height: 420px; overflow: hidden; }
   .stage-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transform: scale(1.04); transition: opacity .6s ease, transform 1.6s ease; }
   .stage-img img.on { opacity: 1; transform: scale(1); }
   .stage-info { padding: 36px 34px; display: flex; flex-direction: column; justify-content: center; border-left: 3px solid var(--accent); transition: border-color .4s; }
@@ -199,6 +200,7 @@
   @media (max-width: 960px) {
     .split { grid-template-columns: 1fr; gap: 40px; }
     .stage { grid-template-columns: 1fr; }
+    .stage-img { min-height: 0; aspect-ratio: 16 / 9; }
     .stage-info { border-left: 0; border-top: 3px solid var(--accent); }
     .features-grid { grid-template-columns: repeat(2, 1fr); }
     .gallery { grid-template-columns: repeat(2, 1fr); }
@@ -268,15 +270,15 @@
       <span class="eyebrow">The game</span>
       <h2>The crystal must not fall</h2>
       <p class="lede">A crystal stands at the centre of a pentagon, and five lanes lead to it, one for each colour of mana. Each wave the colours send their warbands. Melee screens hold the front, archers form a shell behind them and mages cast from the core.</p>
-      <p class="lede">You fight in third person with your weapon and the spells of the colours you choose. Between waves your team spends its shared mana at Upkeep. If the crystal falls, the run is over.</p>
+      <p class="lede">You pick one of five classes and fight in third person with its weapon and the spells of the colours you choose. Between waves your team spends its shared mana at Upkeep. If the crystal falls, the run is over.</p>
       <div class="stats">
         <div class="stat"><b>5</b><span>players in co-op</span></div>
-        <div class="stat"><b>30</b><span>skills to rank up</span></div>
-        <div class="stat"><b>5</b><span>bosses, 3 phases each</span></div>
+        <div class="stat"><b>5</b><span>hero classes</span></div>
+        <div class="stat"><b>70</b><span>colour skills to rank up</span></div>
       </div>
     </div>
-    <button class="framed reveal" data-full="images/menu.jpg" aria-label="Enlarge: the crystal under siege">
-      <img src="images/menu.jpg" alt="Warbands of every colour attack the crystal among standing stones" loading="lazy">
+    <button class="framed reveal" data-full="images/screenshots/siege_wide.jpg" aria-label="Enlarge: the crystal under siege">
+      <img src="images/screenshots/siege_wide.jpg" alt="Every colour's warband storms the crystal at the heart of the pentagon" loading="lazy">
     </button>
   </div>
 </section>
@@ -311,6 +313,7 @@
         <dl>
           <div><dt>Boss</dt><dd id="c-boss"></dd></div>
           <div><dt>Spells</dt><dd class="tags" id="c-spells"></dd></div>
+          <div><dt>Tower</dt><dd id="c-tower"></dd></div>
           <div><dt>Enchantment</dt><dd id="c-ench"></dd></div>
         </dl>
       </div>
@@ -333,7 +336,17 @@
       <div class="card reveal">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 21 9l-3.4 10.5H6.4L3 9z"/><path d="M12 2.5v9.5M3 9l9 3 9-3M6.4 19.5 12 12l5.6 7.5"/></svg>
         <h3>A pentagon skill tree</h3>
-        <p>Thirty skills across five colours, each with five ranks. Invest in two neighbouring colours to unlock their guild node.</p>
+        <p>Seventy skills across five colours, each with five ranks, in three rings that open as you invest. Invest in two neighbouring colours to unlock their guild node.</p>
+      </div>
+      <div class="card reveal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="m13 19 6-6M16 16l4 4M19 21l2-2"/><path d="M14.5 6.5 18 3h3v3l-3.5 3.5"/><path d="m5 14 4 4M7 17l-3 3M3 19l2 2"/></svg>
+        <h3>Five classes</h3>
+        <p>Warrior, Knight, Barbarian, Archer or Mage. Each has its own weapon, its own way to defend itself and four class skills on top of the colours.</p>
+      </div>
+      <div class="card reveal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21V8h12v13"/><path d="M5 8V4h2.5v2h2V4h5v2h2V4H19v4"/><path d="M4 21h16M10.5 21v-4a1.5 1.5 0 0 1 3 0v4M12 11v2"/></svg>
+        <h3>A tower for every colour</h3>
+        <p>The Ivory Tower shields your allies, the Glacial Fortress slows and freezes, Bontu's Monument raises the dead, the Goblin Sharpshooter shoots fast and hard, and the Hornet Nest draws the wave and stings back.</p>
       </div>
       <div class="card reveal">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3 4 5 6.6 5 9.5A5 5 0 0 1 7 12.5C7 9.6 9 7 12 3z"/><path d="M10 14.5a2 2 0 0 0 2 2"/></svg>
@@ -355,6 +368,11 @@
         <h3>Nights are dark</h3>
         <p>A full day and night cycle. After sunset you see by the crystal's light, by torches and glowing mushrooms, and by your own spells.</p>
       </div>
+      <div class="card reveal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="16.5" rx="4.2" ry="3.6"/><ellipse cx="5.5" cy="10.5" rx="1.9" ry="2.4"/><ellipse cx="9.5" cy="6" rx="1.9" ry="2.5"/><ellipse cx="14.5" cy="6" rx="1.9" ry="2.5"/><ellipse cx="18.5" cy="10.5" rx="1.9" ry="2.4"/></svg>
+        <h3>Wild beasts</h3>
+        <p>Away from the lanes, every biome keeps its own beasts, whatever the waves are doing: spinebacks, ravagers and terrors in the colours of their land.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -363,15 +381,18 @@
   <div class="wrap">
     <div class="reveal">
       <span class="eyebrow">Gallery</span>
-      <h2>From the loading screens</h2>
+      <h2>In game</h2>
     </div>
     <div class="gallery">
-      <button class="framed reveal" data-full="images/splash.jpg" aria-label="Enlarge: title art"><img src="images/splash.jpg" alt="A lone warrior walks toward the crystal" loading="lazy"></button>
-      <button class="framed reveal" data-full="images/loading_red.jpg" aria-label="Enlarge: red"><img src="images/loading_red.jpg" alt="Red" loading="lazy"></button>
-      <button class="framed reveal" data-full="images/loading_blue.jpg" aria-label="Enlarge: blue"><img src="images/loading_blue.jpg" alt="Blue" loading="lazy"></button>
-      <button class="framed reveal" data-full="images/loading_green.jpg" aria-label="Enlarge: green"><img src="images/loading_green.jpg" alt="Green" loading="lazy"></button>
-      <button class="framed reveal" data-full="images/loading_black.jpg" aria-label="Enlarge: black"><img src="images/loading_black.jpg" alt="Black" loading="lazy"></button>
-      <button class="framed reveal" data-full="images/screens_in_game.jpg" aria-label="Enlarge: in-game screens"><img src="images/screens_in_game.jpg" alt="Boot splash, main menu, loading screen and defeat screen in the game" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/towers_line.jpg" aria-label="Enlarge: the five towers"><img src="images/screenshots/towers_line.jpg" alt="The five colours' towers stand before the crystal as the White warband attacks" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/heroes_line.jpg" aria-label="Enlarge: the five heroes"><img src="images/screenshots/heroes_line.jpg" alt="The five hero classes hold the crystal while every lane fights around it" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/siege_dusk.jpg" aria-label="Enlarge: dusk"><img src="images/screenshots/siege_dusk.jpg" alt="The crystal glows over the fight at dusk" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/siege_front.jpg" aria-label="Enlarge: the knight"><img src="images/screenshots/siege_front.jpg" alt="The knight holds the White lane against the holy host and the Paladin" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/siege_barbarian.jpg" aria-label="Enlarge: the barbarian"><img src="images/screenshots/siege_barbarian.jpg" alt="The barbarian swings his greatsword into the restless dead" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/siege_mage.jpg" aria-label="Enlarge: the mage"><img src="images/screenshots/siege_mage.jpg" alt="The mage casts into the tide's soldiers" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/beast_hunt.jpg" aria-label="Enlarge: a beast hunt"><img src="images/screenshots/beast_hunt.jpg" alt="The knight and the archer take on a Spineback Terror" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/warband_red.jpg" aria-label="Enlarge: the red warband"><img src="images/screenshots/warband_red.jpg" alt="Goblin hordes and the Fire Giant march down the volcanic slopes" loading="lazy"></button>
+      <button class="framed reveal" data-full="images/screenshots/warband_blue.jpg" aria-label="Enlarge: the blue warband"><img src="images/screenshots/warband_blue.jpg" alt="The Frost Giant leads the tide's soldiers along the mangrove coast" loading="lazy"></button>
     </div>
   </div>
 </section>
@@ -407,20 +428,25 @@
 <script>
   const COLOURS = {
     white: { name: "White", accent: "var(--w)", biome: "Golden groves under open skies",
-      boss: "The Paladin", ench: "Sphere of Safety",
-      spells: ["Exalted Strike", "Circle of Protection", "Reprisal Ward", "Wrath of God", "Rally the Fallen"] },
+      boss: "The Paladin", ench: "Sphere of Safety", tower: "Ivory Tower: shields the allies and Myrs around it",
+      spells: ["Exalted Strike", "Circle of Protection", "Reprisal Ward", "Wrath of God", "Rally the Fallen",
+        "Glorious Charge", "Smite the Monstrous", "Sunlance", "Mark of Sanctity", "Worship", "Banishing Light"] },
     blue: { name: "Blue", accent: "var(--u)", biome: "Mangrove coasts and windswept shores",
-      boss: "The Frost Giant", ench: "Propaganda",
-      spells: ["Unsummon", "Frost Breath", "Suction", "Wall of Frost", "Displace"] },
+      boss: "The Frost Giant", ench: "Propaganda", tower: "Glacial Fortress: ice shots that slow, and every fourth freezes",
+      spells: ["Unsummon", "Frost Breath", "Suction", "Wall of Frost", "Displace",
+        "Mirror Image", "Crippling Chill", "Ice Cage", "Time Ebb", "Counterspell", "Curse of the Swine"] },
     black: { name: "Black", accent: "var(--b)", biome: "Drowned willow swamps",
-      boss: "The Zombie Lord", ench: "Exquisite Blood",
-      spells: ["Doom Blade", "Contagion", "Kill", "Wall of Souls", "Zombify"] },
+      boss: "The Zombie Lord", ench: "Animate Dead", tower: "Bontu's Monument: deaths near it raise a ghoul",
+      spells: ["Doom Blade", "Contagion", "Deathtouch", "Wall of Souls", "Zombify",
+        "Unholy Strength", "Bone Splinters", "Undying", "Animate Dead", "Gravewalk", "Demonic Pact"] },
     red: { name: "Red", accent: "var(--r)", biome: "Volcanic slopes and goblin caves",
-      boss: "The Fire Giant", ench: "Furnace of Rath",
-      spells: ["Fireball", "Fire Dash", "Rain of Ember", "Fire Cone", "Lightning Bolt"] },
+      boss: "The Fire Giant", ench: "Furnace of Rath", tower: "Goblin Sharpshooter: very fast, very deadly, and it falls to anything",
+      spells: ["Fireball", "Fire Dash", "Rain of Ember", "Fire Cone", "Lightning Bolt",
+        "Fling", "Blood Frenzy", "Powder Keg", "Grapeshot", "Fork"] },
     green: { name: "Green", accent: "var(--g)", biome: "Old-growth forest and giant mushrooms",
-      boss: "The Treant", ench: "Overgrowth",
-      spells: ["Titanic Brawl", "Giant Growth", "Fog", "Roar", "Ironbark"] },
+      boss: "The Treant", ench: "Overgrowth", tower: "Hornet Nest: draws the wave and stings whoever hits it",
+      spells: ["Titanic Brawl", "Giant Growth", "Fog", "Roar", "Ironbark",
+        "Become Immense", "Entangling Vines", "Kraul Harpooner", "Awaken", "Overrun", "Call of the Herd"] },
   };
 
   const stage = document.getElementById("stage");
@@ -437,6 +463,7 @@
     document.getElementById("c-biome").textContent = c.biome;
     document.getElementById("c-boss").textContent = c.boss;
     document.getElementById("c-ench").textContent = c.ench;
+    document.getElementById("c-tower").textContent = c.tower;
     document.getElementById("c-spells").innerHTML = c.spells.map(s => `<span>${s}</span>`).join("");
   }
   pips.forEach(p => p.addEventListener("click", () => show(p.dataset.c)));
