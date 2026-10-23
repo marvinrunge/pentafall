@@ -1,0 +1,29 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/generated/bontus_monument/bontus_monument.glb" id="1_model"]
+
+[node name="BontusMonument" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]
+transform = Transform3D(-4.2, 0, 0, 0, 4.2, 0, 0, 0, -4.2, 0, 2.1, 0)
+
+[node name="Muzzle" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.864, -0.42)
+
+[node name="Glow" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.8, 2.6)
+light_color = Color(0.6, 0.32, 0.78, 1)
+light_energy = 2.4
+distance_fade_enabled = true
+distance_fade_begin = 40.0
+distance_fade_length = 10.0
+omni_range = 6.0
+
+[node name="Eyes" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.906, -0.588)
+light_color = Color(0.6, 0.32, 0.78, 1)
+light_energy = 0.9
+distance_fade_enabled = true
+distance_fade_begin = 30.0
+distance_fade_length = 10.0
+omni_range = 1.8

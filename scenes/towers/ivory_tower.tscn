@@ -1,0 +1,17 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/generated/ivory_tower/ivory_tower.glb" id="1_model"]
+
+[node name="IvoryTower" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]
+transform = Transform3D(-4.5, 0, 0, 0, 4.5, 0, 0, 0, -4.5, 0, 2.25, 0)
+
+[node name="Glow" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.4, 2.2)
+light_color = Color(1.0, 0.94, 0.72, 1)
+light_energy = 1.6
+distance_fade_enabled = true
+distance_fade_begin = 40.0
+distance_fade_length = 10.0
+omni_range = 6.5

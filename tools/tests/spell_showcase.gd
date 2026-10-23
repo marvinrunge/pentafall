@@ -4,9 +4,10 @@ extends "res://tools/tests/vfx_stage.gd"
 ## docs/SPELL_VFX_PLAN.md asks for.
 ##
 ## Run with (windowed - a headless run draws nothing; on Linux xvfb-run works):
-##   godot --rendering-driver opengl3 --path . res://tools/tests/spell_showcase.tscn -- <out_prefix> [white,red] [rank5] [--glow]
+##   godot --rendering-driver opengl3 --path . res://tools/tests/spell_showcase.tscn -- <out_prefix> [white,red] [rank5] [only=white_12,red_11] [--glow]
 ## Writes <out_prefix>_<colour>.png: one row per spell, one column per moment. The colour
-## list narrows the run; without it all five sheets are written.
+## list narrows the run; without it all five sheets are written. `only=` keeps those spells
+## alone, each on its colour's sheet.
 ##
 ## A real Player casts through `_run_spell_effect`, the server's own entry point, against
 ## real enemies, so whatever the game builds for a spell is what is photographed. Each tile
@@ -40,7 +41,15 @@ const SPELL_MOMENTS: Dictionary = {
 	"black_11": [0.2, 0.8, 2.0],
 	"red_7": [0.12, 0.5, 2.0],
 	"white_10": [0.3, 1.2, 3.0],
+	# The towers: standing, then their first shots, shields and stings.
+	"white_12": [0.2, 1.1, 3.2],
+	"blue_12": [0.2, 1.1, 2.4],
+	"black_12": [0.2, 1.1, 2.4],
+	"red_11": [0.2, 0.6, 1.5],
+	"green_12": [0.2, 1.1, 3.2],
 }
+## The tower spells, framed on the tower where the crosshair put it.
+const TOWERS: Array[String] = ["white_12", "blue_12", "black_12", "red_11", "green_12"]
 
 const ChargeFx := preload("res://scripts/charge_fx.gd")
 const ChargedHits := preload("res://scripts/charged_hits.gd")
@@ -76,9 +85,12 @@ func _shoot_all() -> void:
 	if not args.is_empty() and not args[0].begins_with("--"):
 		prefix = args[0]
 	var colours: Array[String] = COLOURS.duplicate()
+	var only: PackedStringArray = []
 	for arg: String in args:
 		if arg.begins_with("rank"):
 			_rank = clampi(int(arg.substr(4)), 1, GameSettings.spell_max_rank)
+		elif arg.begins_with("only="):
+			only = arg.substr(5).split(",")
 		elif arg.split(",")[0] in COLOURS:
 			colours.clear()
 			for colour: String in arg.split(","):
@@ -98,7 +110,9 @@ func _shoot_all() -> void:
 
 	for colour: String in colours:
 		var spells: Array[String] = SpellDatabase.spells_of(colour).filter(func(id: String) -> bool:
-			return not SpellDatabase.is_passive(id))
+			return not SpellDatabase.is_passive(id) and (only.is_empty() or only.has(id)))
+		if spells.is_empty():
+			continue
 		var sheet := Image.create(TILE.x * MOMENTS.size(), TILE.y * spells.size(), false, Image.FORMAT_RGB8)
 		for row: int in range(spells.size()):
 			var spell_id: String = spells[row]
@@ -124,6 +138,8 @@ func _shoot(spell_id: String, after: float) -> Image:
 		_camera.look_at(STAGE + Vector3(0.0, 1.1, -0.4))
 	_camera.current = true
 	await _cast(spell_id)
+	if TOWERS.has(spell_id):
+		_frame_tower()
 	if _is_charge(spell_id):
 		await _swing_charge(spell_id, after)
 	else:
@@ -298,6 +314,18 @@ func _frame_camera(spell_id: String) -> void:
 				from = STAGE + Vector3(4.2, 2.8, 1.8)
 	_camera.global_position = from
 	_camera.look_at(at)
+
+
+## A tower stands where the crosshair put it, its front to the enemies: three-quarters from
+## the front, close enough to read the model and its first shots.
+func _frame_tower() -> void:
+	var tower: Node3D = get_tree().get_first_node_in_group("towers") as Node3D
+	if tower == null:
+		return
+	var front: Vector3 = -tower.global_basis.z
+	var side: Vector3 = tower.global_basis.x
+	_camera.global_position = tower.global_position + front * 6.5 + side * 5.0 + Vector3(0.0, 3.2, 0.0)
+	_camera.look_at(tower.global_position + Vector3(0.0, 2.0, 0.0))
 
 
 func _enemy(offset: Vector3) -> EnemyBase:

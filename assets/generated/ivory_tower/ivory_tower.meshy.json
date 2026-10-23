@@ -1,0 +1,23 @@
+{
+  "generator": "Meshy Image to 3D API v1",
+  "task_id": "01a16853-15df-77ee-8081-840200f32050",
+  "status": "SUCCEEDED",
+  "consumed_credits": 15,
+  "request": {
+    "ai_model": "meshy-t2",
+    "model_type": "smart-topology",
+    "target_polycount": 6000,
+    "should_texture": true,
+    "enable_pbr": true,
+    "texture_resolution": "2k",
+    "origin_at": "bottom",
+    "target_formats": [
+      "glb",
+      "fbx"
+    ],
+    "moderation": true
+  },
+  "concept_image": "docs/screen_art/source/ivory_tower_reference.png",
+  "concept_prompt": "docs/screen_art/source/tower_references.md (Gemini 3 Pro Image)",
+  "license_review_required": true
+}

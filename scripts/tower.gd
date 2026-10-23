@@ -15,8 +15,9 @@ extends StaticBody3D
 ## rides on its own synchronizer. How many of one kind a player has standing is the casting
 ## player's business (Player.place_tower), not the tower's.
 ##
-## The look is `scenes/towers/<id>.tscn` when that exists - the meshes the user is making from
-## the cards - and a placeholder built here until then.
+## The look is `scenes/towers/<id>.tscn` - the Meshy model of the tower's reference
+## (docs/screen_art/source/tower_references.md), its front turned to where the caster aimed -
+## and a placeholder built here for a tower without one.
 ##
 ## Preloaded by path rather than given a `class_name`: see scripts/icon_style.gd.
 
@@ -42,6 +43,11 @@ var _charges: int = 0
 ## Hornet Nest: attacker instance id -> msec its next sting is due.
 var _stung: Dictionary = {}
 var _bar: MeshInstance3D = null
+## How tall and wide the look stands and where its shots leave, local to the tower: the
+## placeholder's until a scene's meshes and its `Muzzle` marker say otherwise (_fit_to).
+var _height: float = 3.0
+var _radius: float = 0.8
+var _muzzle_at: Vector3 = Vector3(0.0, 2.8, 0.0)
 
 
 ## A tower of `id` at `p_rank`, credited to `caster`. Not yet in the tree; MainController's
@@ -73,14 +79,14 @@ func _ready() -> void:
 	add_to_group("decoys")
 	collision_layer = 2
 	collision_mask = 0
+	_build_visual()
 	var shape := CollisionShape3D.new()
 	var cylinder := CylinderShape3D.new()
-	cylinder.radius = 0.8
-	cylinder.height = 3.0
+	cylinder.radius = _radius
+	cylinder.height = _height
 	shape.shape = cylinder
-	shape.position = Vector3(0.0, 1.5, 0.0)
+	shape.position = Vector3(0.0, _height * 0.5, 0.0)
 	add_child(shape)
-	_build_visual()
 	_build_bar()
 	_build_synchronizer()
 	if tower_id == "bontus_monument" and Net.is_server():
@@ -106,9 +112,31 @@ func _build_visual() -> void:
 	if ResourceLoader.exists(path):
 		var scene: PackedScene = load(path) as PackedScene
 		if scene != null:
-			add_child(scene.instantiate())
+			var look := scene.instantiate() as Node3D
+			add_child(look)
+			_fit_to(look)
 			return
 	add_child(_placeholder())
+
+
+## The top of the scene's meshes is the tower's height, and the narrower side of its footprint
+## sizes the body enemies walk into - kept under 1.3 m so a melee enemy (2 m reach, measured
+## from the centre) still strikes it from where it stops. Its `Muzzle` marker, where it has one
+## (the fortress's crystal, the sharpshooter's crossbow), is where shots leave - near the top
+## if not.
+func _fit_to(look: Node3D) -> void:
+	var bounds := AABB()
+	var first: bool = true
+	for node: Node in look.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := node as MeshInstance3D
+		var box: AABB = (global_transform.affine_inverse() * mesh_node.global_transform) * mesh_node.get_aabb()
+		bounds = box if first else bounds.merge(box)
+		first = false
+	if not first and bounds.end.y > 0.5:
+		_height = bounds.end.y
+		_radius = clampf(minf(bounds.size.x, bounds.size.z) * 0.42, 0.6, 1.3)
+	var marker := look.get_node_or_null("Muzzle") as Node3D
+	_muzzle_at = to_local(marker.global_position) if marker != null else Vector3(0.0, _height * 0.9, 0.0)
 
 
 ## Until the mesh from the card arrives: a stone column, a band of the colour's light at the
@@ -163,7 +191,7 @@ func _build_bar() -> void:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	_bar.material_override = mat
-	_bar.position = Vector3(0.0, 3.6, 0.0)
+	_bar.position = Vector3(0.0, _height + 0.6, 0.0)
 	add_child(_bar)
 
 
@@ -249,7 +277,7 @@ func _nearest_enemy(radius: float) -> Node3D:
 
 
 func _muzzle() -> Vector3:
-	return global_position + Vector3(0.0, 2.8, 0.0)
+	return to_global(_muzzle_at)
 
 
 func _shield_allies() -> void:
@@ -305,7 +333,7 @@ func _on_death_near(at: Vector3) -> void:
 	if not is_inside_tree() or at.distance_to(global_position) > GameSettings.tower_bontu_radius * _area():
 		return
 	_charges += 1
-	NetFx.impact(global_position + Vector3(0.0, 2.6, 0.0), _tint(), 0.4)
+	NetFx.impact(_muzzle(), _tint(), 0.4)
 	if _charges < GameSettings.tower_bontu_charges:
 		return
 	_charges = 0
@@ -329,11 +357,11 @@ func take_damage(amount: float, source: Node3D = null, _is_melee: bool = false, 
 	if not Net.is_server() or health <= 0.0:
 		return
 	health -= amount * Player.anthem_damage_taken_mult(self)
-	NetFx.damage_number(global_position + Vector3(0.0, 3.2, 0.0), amount, Color(0.85, 0.85, 0.95), "")
+	NetFx.damage_number(global_position + Vector3(0.0, _height + 0.2, 0.0), amount, Color(0.85, 0.85, 0.95), "")
 	if tower_id == "hornet_nest" and source is EnemyBase and is_instance_valid(source):
 		_sting(source)
 	if health <= 0.0:
-		NetFx.impact(global_position + Vector3(0.0, 1.5, 0.0), _tint(), 1.4)
+		NetFx.impact(global_position + Vector3(0.0, _height * 0.5, 0.0), _tint(), 1.4)
 		queue_free()
 
 

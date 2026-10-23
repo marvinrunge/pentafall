@@ -1047,11 +1047,15 @@ one Exalted charge, not two.
 **Still placeholders, waiting on the user:**
 - **Icons** for all 34 - each borrows the nearest existing one (`ICON_FILES` lists its own file
   first, so dropping it in is the whole change).
-- **Tower meshes** - `scenes/towers/<tower_id>.tscn` is used when it exists (ivory_tower,
-  glacial_fortress, bontus_monument, goblin_sharpshooter, hornet_nest); until then a stone column
-  with a crown in the colour's light.
 - **Boar** (Curse of the Swine) - `GameSettings.spell_blue_swine_scene`; until it exists the green
   beast at 0.4. **Golem** (Awaken on a stone) - the treant tinted stone grey. Both are Meshy
   meshes that need an approved reference image and the spend approved first.
 - **Sounds** - every round-two event borrows the nearest recording (`SoundBank`, one line each).
 - **Awaken leaves its tree or stone standing** - the treant or golem rises beside it.
+
+**The tower meshes are in** (2026-10-23): Meshy models of the approved references
+(`docs/screen_art/source/tower_references.md`) in `scenes/towers/<tower_id>.tscn`, 3.2-4.5 m
+tall, the front (gate, crystal, snout, crossbow) turned to where the caster aimed and a light in
+the colour on the caster's side for the night. `Tower` takes its height, its body's width and the
+point its shots leave (a `Muzzle` marker) from the scene; the stone column is the fallback for a
+tower without one. `tools/tests/tower_shot.tscn` shoots all five at noon, dusk and night.

@@ -1,0 +1,20 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/generated/glacial_fortress/glacial_fortress.glb" id="1_model"]
+
+[node name="GlacialFortress" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]
+transform = Transform3D(-3.8, 0, 0, 0, 3.8, 0, 0, 0, -3.8, 0, 1.9, 0)
+
+[node name="Muzzle" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.61, -0.76)
+
+[node name="Glow" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.9, 1.0)
+light_color = Color(0.5, 0.78, 1.0, 1)
+light_energy = 1.6
+distance_fade_enabled = true
+distance_fade_begin = 40.0
+distance_fade_length = 10.0
+omni_range = 6.0

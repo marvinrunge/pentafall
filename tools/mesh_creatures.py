@@ -1,7 +1,8 @@
-"""Meshes the Curse of the Swine boar and the Awaken golem from their approved Gemini
-references (docs/screen_art/source/creature_references.md).
+"""Meshes the round-two models from their approved Gemini references - the Curse of the Swine boar,
+the Awaken golem (creature_references.md) and the five towers (tower_references.md, both in
+docs/screen_art/source).
 
-usage: python tools/mesh_creatures.py [--go] [boar|stone_golem ...]
+usage: python tools/mesh_creatures.py [--go] name [name ...]
 
 Same request as the nature set and the goblin caves (meshy_request in
 tools/nature/nature_pipeline.py): image-to-3D on Smart Topology (meshy-t2), 2k PBR,
@@ -33,7 +34,22 @@ CREATURES = {
     # One at a time and close to the player; Mixamo wants the arms away from the body.
     "stone_golem": ("stone_golem_reference.png", "5438fc00df1187e857f2269d791683acb8f771d6e55a80d8e6338bdc9e25e807",
                     10000, {"pose_mode": "a-pose"}),
+    # The five round-two towers (docs/screen_art/source/tower_references.md), static. Up to
+    # three of a kind per player stand at once, so they stay lean; the busier silhouettes
+    # (the sharpshooter's stilts, the fortress's battlements) get more.
+    "ivory_tower": ("ivory_tower_reference.png", "f60097ec5a86b8e860faf7d3b3e668c36a3c8f57444c715f78d811175d8b32c4",
+                    6000, {}),
+    "glacial_fortress": ("glacial_fortress_reference.png", "fda020baa9dbba361cd3692513aa33cb762550d0b2a9cf6ac107534c34d142bc",
+                         8000, {}),
+    "bontus_monument": ("bontus_monument_reference.png", "74cb5e3ef7a9c9194bf49b1194992827b7ab4b7dda67fbbbb0210cf426d128a2",
+                        6000, {}),
+    "goblin_sharpshooter": ("goblin_sharpshooter_reference.png", "a343706e6a65256d588c32f7b888d22fda7dd570766bb93e4abbb1ed6099e50a",
+                            10000, {}),
+    "hornet_nest": ("hornet_nest_reference.png", "f4e23cff8929ed2ad9557936d8b705ee49541645108633682069371f7b3c309a",
+                    8000, {}),
 }
+## The ones that get rigged (creature_references.md); the towers stand still and need no FBX.
+RIGGED = ("boar", "stone_golem")
 
 
 def mesh(manifest, name, go, key):
@@ -53,7 +69,7 @@ def mesh(manifest, name, go, key):
                                      base64.b64encode(data).decode("ascii"))
     request.update(extra)
     # The FBX is what Mixamo takes; the Blender beast rig imports it too.
-    request["target_formats"] = ["glb", "fbx"]
+    request["target_formats"] = ["glb", "fbx"] if name in RIGGED else ["glb"]
     if not go:
         print(name, json.dumps({k: v for k, v in request.items() if k != "image_url"}))
         return
@@ -91,7 +107,8 @@ def mesh(manifest, name, go, key):
             "consumed_credits": task.get("consumed_credits"),
             "request": {k: v for k, v in request.items() if k != "image_url"},
             "concept_image": f"docs/screen_art/source/{file}",
-            "concept_prompt": "docs/screen_art/source/creature_references.md (Gemini 3 Pro Image)",
+            "concept_prompt": "docs/screen_art/source/%s (Gemini 3 Pro Image)"
+                              % ("creature_references.md" if name in RIGGED else "tower_references.md"),
             "license_review_required": True,
         }, handle, indent=2)
     os.remove(task_file)
@@ -100,7 +117,9 @@ def mesh(manifest, name, go, key):
 
 def main():
     go = "--go" in sys.argv
-    names = [a for a in sys.argv[1:] if a in CREATURES] or list(CREATURES)
+    names = [a for a in sys.argv[1:] if a in CREATURES]
+    if not names:
+        sys.exit("Name what to mesh: " + ", ".join(CREATURES))
     manifest = pipeline.load_manifest()
     key = pipeline.require_key("MESHY_API_KEY") if go else ""
     for name in names:
