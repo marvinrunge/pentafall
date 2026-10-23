@@ -6,15 +6,15 @@
 height = 5.5
 radius = 0.4
 
-[node name="NatureGreenTallFir" type="Node3D" unique_id=1855850530]
+[node name="NatureGreenTallFir" type="Node3D" unique_id=762967849]
 
-[node name="Mesh" type="MeshInstance3D" parent="." unique_id=1680136162]
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=2124031532]
 mesh = ExtResource("1_0b8ii")
 
-[node name="Body" type="StaticBody3D" parent="." unique_id=1395759743]
+[node name="Body" type="StaticBody3D" parent="." unique_id=1902981712]
 collision_layer = 16
 collision_mask = 0
 
-[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=786268060]
-transform = Transform3D(0.9994, -0.0343, -0.0002, 0.0343, 0.9994, 0.0067, 0.0, -0.0067, 1.0, 0.6229, 2.2483, 0.0012)
+[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=412384931]
+transform = Transform3D(0.9996986, 0.024542373, -0.0006091387, -0.024549931, 0.99939084, -0.024804758, 0, 0.024812235, 0.99969214, 0.14070107, 2.2483249, -0.066867776)
 shape = SubResource("CylinderShape3D_5u8vn")

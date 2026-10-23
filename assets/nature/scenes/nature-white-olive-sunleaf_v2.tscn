@@ -3,18 +3,18 @@
 [ext_resource type="ArrayMesh" path="res://assets/nature/meshes/nature-white-olive-sunleaf_v2.res" id="1_11550"]
 
 [sub_resource type="CylinderShape3D" id="CylinderShape3D_i75t7"]
-height = 4.1
+height = 4.1000004
 radius = 0.4
 
-[node name="NatureWhiteOliveSunleafV2" type="Node3D" unique_id=1421503591]
+[node name="NatureWhiteOliveSunleafV2" type="Node3D" unique_id=490939361]
 
-[node name="Mesh" type="MeshInstance3D" parent="." unique_id=323621622]
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=284740658]
 mesh = ExtResource("1_11550")
 
-[node name="Body" type="StaticBody3D" parent="." unique_id=1415092083]
+[node name="Body" type="StaticBody3D" parent="." unique_id=1990315793]
 collision_layer = 16
 collision_mask = 0
 
-[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=16699487]
-transform = Transform3D(0.9964, 0.0818, 0.023, -0.085, 0.9593, 0.2693, 0.0, -0.2702, 0.9628, -0.5357, 1.4666, 0.0921)
+[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=272557837]
+transform = Transform3D(0.97993064, 0.19514489, 0.040674467, -0.19933876, 0.959314, 0.19995186, 0, -0.20404695, 0.9789611, -0.70999336, 1.4665939, -0.646111)
 shape = SubResource("CylinderShape3D_i75t7")

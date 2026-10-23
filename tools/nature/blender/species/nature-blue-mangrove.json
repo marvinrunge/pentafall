@@ -1,5 +1,5 @@
 {
-  "_doc": "Recipe for tools/nature/blender/build_trees.py. Lengths in metres, angles in degrees. Mangrove on arching stilt roots, Blue.",
+  "_doc": "Recipe for tools/nature/blender/build_trees.py. Lengths in metres, angles in degrees. Mangrove on arching stilt roots, Blue. The trunk stands low on its roots (start_z): any higher and it reads as hovering over the water.",
   "seed": 47,
   "form": "deciduous",
   "height_m": 7.0,
@@ -14,7 +14,7 @@
     "lean": 4,
     "segments": 5,
     "flare": 1.0,
-    "start_z": 1.2
+    "start_z": 0.8
   },
   "roots": {
     "count": 9,
@@ -22,8 +22,8 @@
       0.0,
       0.25
     ],
-    "spread": 2.6,
-    "arch": 0.6,
+    "spread": 2.3,
+    "arch": 0.45,
     "radius": 0.09,
     "segments": 6
   },

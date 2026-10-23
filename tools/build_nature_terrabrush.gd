@@ -269,8 +269,14 @@ func _bake_mesh(asset: Dictionary, packed: PackedScene) -> ArrayMesh:
 	else:
 		factor = target[0] / maxf(width, 0.0001)
 	var centre := bounds.get_center()
+	# A tree stands on its bark, not on whatever hangs lowest: a willow's curtain and a
+	# drooping olive reach below the trunk's foot, and put on the ground by them the trunk
+	# floated up to 1.3 m - more at TerraBrush's random size. Leaves below that go into the
+	# ground.
+	var bark_bottom := _bark_bottom(parts)
+	var base_y := bark_bottom if bark_bottom < INF else bounds.position.y
 	var fix := Transform3D(Basis.from_scale(Vector3.ONE * factor),
-		-Vector3(centre.x, bounds.position.y, centre.z) * factor - Vector3(0, _sink_m(asset), 0))
+		-Vector3(centre.x, base_y, centre.z) * factor - Vector3(0, _sink_m(asset), 0))
 
 	var importer := ImporterMesh.new()
 	var glow: bool = asset.get("glow", false)
@@ -290,6 +296,21 @@ func _bake_mesh(asset: Dictionary, packed: PackedScene) -> ArrayMesh:
 	importer.generate_lods(25.0, 60.0, [])
 	root.free()
 	return importer.get_mesh()
+
+
+## The lowest bark vertex of the imported scene, in the root's space - INF when nothing in
+## it is bark (a Meshy model; every procedural tree names its trunk material `*_bark`).
+func _bark_bottom(parts: Array) -> float:
+	var lowest := INF
+	for part: Array in parts:
+		var instance := part[0] as MeshInstance3D
+		for surface in instance.mesh.get_surface_count():
+			var material := instance.get_active_material(surface)
+			if material == null or not material.resource_name.ends_with("_bark"):
+				continue
+			for vertex: Vector3 in instance.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]:
+				lowest = minf(lowest, ((part[1] as Transform3D) * vertex).y)
+	return lowest
 
 
 ## Extra air under the trunk the sink allows for: TerraBrush's ground height under a

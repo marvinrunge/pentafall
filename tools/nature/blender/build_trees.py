@@ -55,6 +55,17 @@ GOLDEN_ANGLE = math.radians(137.5)
 # Leaf cards cut where the tile alpha drops below this - the same threshold the foliage
 # cards and tools/alpha_key.gd use.
 ALPHA_CUTOFF = 0.3
+# A card's bottom edge sits on the branch (TreeMesh.card), so a tile has to have its stem
+# at the bottom. These were drawn with it at the top - a frond arching down, a twig hanging
+# from its corner - and put on as they are their twigs grew towards the trunk. They go
+# into the atlas upside down. Sets used only "hanging" (willow, moss) are meant to be drawn
+# that way and are not listed.
+STEM_AT_TOP = {
+    "leaves_swamp-cypress_03.png", "leaves_swamp-cypress_04.png",
+    "leaves_olive-sunleaf_01.png",
+    "leaves_silver-birch_01.png", "leaves_silver-birch_02.png",
+    "leaves_silver-birch_03.png", "leaves_silver-birch_04.png",
+}
 
 
 # --------------------------------------------------------------------------- helpers
@@ -146,6 +157,8 @@ def leaf_atlas(recipe, name):
         image.pixels.foreach_get(pixels)
         pixels = pixels.reshape(size, size, 4)
         bpy.data.images.remove(image)
+        if file in STEM_AT_TOP:
+            pixels = pixels[::-1].copy()
         shift, saturation, value = sets[leaf_set]
         if shift or saturation != 1.0 or value != 1.0:
             hsv = rgb_to_hsv(pixels[..., :3])
@@ -219,7 +232,10 @@ class TreeMesh:
         self.card_normals = {}   # face -> normal for each of its loops
         self.card_centres = []
 
-    def tube(self, points, radii, ring, wind_from, wind_to):
+    def tube(self, points, radii, ring, wind_from, wind_to, cap=False):
+        """A bark tube along `points`. `cap` closes the far end with a low cone - for a
+        trunk, whose open end is as wide as a limb and shows as a sawn-off stump where the
+        limbs fork off it."""
         tile = self.recipe["bark_tile_m"]
         count = len(points)
         tangents = []
@@ -259,6 +275,19 @@ class TreeMesh:
                 for loop, (u, v, w) in zip(face.loops, ((u0, vs[i], w0), (u1, vs[i], w0), (u1, vs[i + 1], w1), (u0, vs[i + 1], w1))):
                     loop[self.uv].uv = (u, v)
                     loop[self.col] = (w, 0.0, 0.0, 1.0)
+        if cap:
+            tip = self.bm.verts.new(points[-1] + tangents[-1] * radii[-1] * 0.8)
+            v_tip = vs[-1] + radii[-1] * 0.8 / tile
+            for j in range(ring):
+                k = (j + 1) % ring
+                face = self.bm.faces.new((rings[-1][j], rings[-1][k], tip))
+                face.material_index = 0
+                face.smooth = True
+                u0 = j / ring * circumference_scale
+                u1 = (j + 1) / ring * circumference_scale
+                for loop, (u, v) in zip(face.loops, ((u0, vs[-1]), (u1, vs[-1]), ((u0 + u1) / 2, v_tip))):
+                    loop[self.uv].uv = (u, v)
+                    loop[self.col] = (wind_to, 0.0, 0.0, 1.0)
 
     def card(self, base, up, facing, width, height, wind=1.0, leaf_set=None):
         up = up.normalized()
@@ -415,7 +444,7 @@ def grow_deciduous(tree, recipe, rng):
     tips = []
 
     def branch(points, radii, depth, wind_from, wind_to):
-        tree.tube(points, radii, rings[min(depth, len(rings) - 1)], wind_from, wind_to)
+        tree.tube(points, radii, rings[min(depth, len(rings) - 1)], wind_from, wind_to, cap=depth == 0)
         length = sum((points[i + 1] - points[i]).length for i in range(len(points) - 1))
         # Crossed pairs (layers: 2): a lone card seen edge-on is a hard streak; two at
         # right angles always show one face.

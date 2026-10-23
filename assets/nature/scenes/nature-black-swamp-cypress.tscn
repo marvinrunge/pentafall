@@ -6,15 +6,15 @@
 height = 5.5
 radius = 0.7
 
-[node name="NatureBlackSwampCypress" type="Node3D" unique_id=462167641]
+[node name="NatureBlackSwampCypress" type="Node3D" unique_id=941941734]
 
-[node name="Mesh" type="MeshInstance3D" parent="." unique_id=1071735110]
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=490094123]
 mesh = ExtResource("1_aeaov")
 
-[node name="Body" type="StaticBody3D" parent="." unique_id=1791042060]
+[node name="Body" type="StaticBody3D" parent="." unique_id=242319757]
 collision_layer = 16
 collision_mask = 0
 
-[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=1220515874]
-transform = Transform3D(0.9986, 0.0529, -0.0006, -0.0529, 0.9985, -0.0116, 0.0, 0.0116, 0.9999, -0.3989, 2.246, 0.2255)
+[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=1139618800]
+transform = Transform3D(0.99859875, 0.052916523, -0.0006127763, -0.052920073, 0.9985318, -0.011563054, 0, 0.01157928, 0.999933, -0.39892513, 2.2459626, 0.2255322)
 shape = SubResource("CylinderShape3D_ecrfb")

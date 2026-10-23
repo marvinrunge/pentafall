@@ -6,15 +6,15 @@
 height = 4.7
 radius = 0.6
 
-[node name="NatureBlueMangrove" type="Node3D" unique_id=360801983]
+[node name="NatureBlueMangrove" type="Node3D" unique_id=1090256868]
 
-[node name="Mesh" type="MeshInstance3D" parent="." unique_id=365282028]
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=529690582]
 mesh = ExtResource("1_qdsix")
 
-[node name="Body" type="StaticBody3D" parent="." unique_id=1394098080]
+[node name="Body" type="StaticBody3D" parent="." unique_id=1246496662]
 collision_layer = 16
 collision_mask = 0
 
-[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=1018721035]
-transform = Transform3D(0.9964, -0.0836, 0.0115, 0.0844, 0.9871, -0.1358, 0.0, 0.1363, 0.9907, 0.2827, 1.8198, 0.0984)
+[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=1930091787]
+transform = Transform3D(0.998054, 0.062138766, -0.0051834406, -0.06235458, 0.9945997, -0.0829667, 0, 0.08312847, 0.9965389, 0.15965071, 1.8373091, 0.5466281)
 shape = SubResource("CylinderShape3D_ij6av")

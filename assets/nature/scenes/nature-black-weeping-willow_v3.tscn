@@ -6,15 +6,15 @@
 height = 5.5
 radius = 0.6
 
-[node name="NatureBlackWeepingWillowV3" type="Node3D" unique_id=1318606297]
+[node name="NatureBlackWeepingWillowV3" type="Node3D" unique_id=525284875]
 
-[node name="Mesh" type="MeshInstance3D" parent="." unique_id=1557658452]
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=683062731]
 mesh = ExtResource("1_x7sj5")
 
-[node name="Body" type="StaticBody3D" parent="." unique_id=768372505]
+[node name="Body" type="StaticBody3D" parent="." unique_id=1335474809]
 collision_layer = 16
 collision_mask = 0
 
-[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=1979372323]
-transform = Transform3D(0.9641, -0.2651, -0.0146, 0.2655, 0.9627, 0.0531, 0.0, -0.0551, 0.9985, 0.9567, 2.1473, 1.0282)
+[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=1664163541]
+transform = Transform3D(0.98622614, -0.15759836, -0.0502074, 0.16540262, 0.9396926, 0.29936558, 0, -0.30354658, 0.9528166, 0.7185062, 2.0841546, 0.52052444)
 shape = SubResource("CylinderShape3D_8ya55")

@@ -6,15 +6,15 @@
 height = 5.5
 radius = 0.25
 
-[node name="NatureWhiteSilverBirchV3" type="Node3D" unique_id=1176226340]
+[node name="NatureWhiteSilverBirchV3" type="Node3D" unique_id=1481473409]
 
-[node name="Mesh" type="MeshInstance3D" parent="." unique_id=1582497752]
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=1884598872]
 mesh = ExtResource("1_beonq")
 
-[node name="Body" type="StaticBody3D" parent="." unique_id=2102589299]
+[node name="Body" type="StaticBody3D" parent="." unique_id=467567356]
 collision_layer = 16
 collision_mask = 0
 
-[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=277718891]
-transform = Transform3D(0.9997, -0.0249, 0.0026, 0.025, 0.9945, -0.102, 0.0, 0.102, 0.9948, 0.2155, 2.2348, 0.0919)
+[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=1052003340]
+transform = Transform3D(0.99968696, -0.02489172, 0.0025518143, 0.02502218, 0.9944747, -0.10195017, 0, 0.101982094, 0.99478626, 0.21552657, 2.2348053, 0.09185544)
 shape = SubResource("CylinderShape3D_ukw5o")

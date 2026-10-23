@@ -6,15 +6,15 @@
 height = 4.1
 radius = 0.4
 
-[node name="NatureWhiteOliveSunleaf" type="Node3D" unique_id=258148033]
+[node name="NatureWhiteOliveSunleaf" type="Node3D" unique_id=502411631]
 
-[node name="Mesh" type="MeshInstance3D" parent="." unique_id=2107029178]
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=1301193644]
 mesh = ExtResource("1_8ocl7")
 
-[node name="Body" type="StaticBody3D" parent="." unique_id=2068604637]
+[node name="Body" type="StaticBody3D" parent="." unique_id=140146806]
 collision_layer = 16
 collision_mask = 0
 
-[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=2105934556]
-transform = Transform3D(0.9595, -0.2816, -0.0056, 0.2817, 0.9593, 0.0191, 0.0, -0.02, 0.9998, 0.276, 1.4666, -0.1863)
+[node name="Shape" type="CollisionShape3D" parent="Body" unique_id=926028974]
+transform = Transform3D(0.9778745, -0.20522173, 0.04056429, 0.2091923, 0.959314, -0.18961877, 0, 0.1939091, 0.9810195, 0.40162522, 1.4665936, -0.1594615)
 shape = SubResource("CylinderShape3D_oolkx")
