@@ -6,6 +6,7 @@ const WildlifeManager := preload("res://scripts/wildlife_manager.gd")
 const FogOfWar := preload("res://scripts/fog_of_war.gd")
 const Tower := preload("res://scripts/tower.gd")
 const BeastTrophy := preload("res://scripts/beast_trophy.gd")
+const CrystalMotes := preload("res://scripts/crystal_motes.gd")
 
 @export var player_scene: PackedScene = preload("res://scenes/misc/player.tscn")
 @export var myr_scene: PackedScene = preload("res://scenes/misc/myr.tscn")
@@ -74,6 +75,8 @@ func _ready() -> void:
 		_crystal_base_position = crystal_visual.position
 		_style_crystal_visual()
 		_build_crystal_lights()
+		# Its mana drifting off it in all five colours - a child, so it goes out with it.
+		crystal_visual.add_child(CrystalMotes.new())
 		SoundBank.attach_loop(&"crystal_ambience", crystal_visual)
 
 	# Instantiate Base UI

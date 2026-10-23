@@ -168,6 +168,17 @@ func _shots() -> Dictionary:
 		"cam": Vector3(22.0, -3.0, 2.6), "look": Vector3(10.5, 0.0, 2.6), "actors": towers,
 	}
 
+	# The crystal alone, close enough to judge its mesh and the motes round it: by day and at
+	# night, when it and its motes are most of the light there is.
+	shots["crystal_close"] = {
+		"lane": "White", "time": 15.0, "fov": 50.0,
+		"cam": Vector3(15.0, 4.0, 5.5), "look": Vector3(0.0, 0.0, 5.3), "actors": [],
+	}
+	shots["crystal_night"] = {
+		"lane": "White", "time": 23.0, "fov": 50.0,
+		"cam": Vector3(15.0, 4.0, 5.5), "look": Vector3(0.0, 0.0, 5.3), "actors": [],
+	}
+
 	# Every colour's warband in its own biome: the whole column behind its boss from high over
 	# the lane - the paths are the open ground, the forests either side swallow a camera - and
 	# the front ranks close and low.

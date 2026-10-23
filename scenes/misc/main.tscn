@@ -17,7 +17,7 @@
 [ext_resource type="Script" uid="uid://deo0gxkmk2ahd" path="res://addons/sky_3d/src/Sky3D.gd" id="9_ppysr"]
 [ext_resource type="Script" uid="uid://b4tkplvh7fq40" path="res://addons/sky_3d/src/SkyDome.gd" id="10_of6xu"]
 [ext_resource type="Script" uid="uid://cjmkcj8hwm7ts" path="res://addons/sky_3d/src/TimeOfDay.gd" id="11_rywwc"]
-[ext_resource type="PackedScene" uid="uid://diuwaujmte4h" path="res://assets/structures/base-cristal/Meshy_AI_Ein_riesiger_schweben_0523220202_texture.fbx" id="20_crystal"]
+[ext_resource type="PackedScene" uid="uid://b48gxma75ls1a" path="res://assets/structures/base-cristal/base_crystal.glb" id="20_crystal"]
 [ext_resource type="Texture2D" uid="uid://vcdlt1sstpxr" path="res://addons/terrabrush/Assets/Textures/Grass001/Grass001_Albedo.png" id="33_rg1j2"]
 [ext_resource type="Texture2D" uid="uid://coyqln8wfkumu" path="res://addons/terrabrush/Assets/Textures/BrownMud03/BrownMud03_Albedo.png" id="33_txvyh"]
 [ext_resource type="Texture2D" uid="uid://cxm427y6job51" path="res://addons/terrabrush/Assets/Textures/Grass001/Grass001_Height.png" id="34_7uu3w"]
