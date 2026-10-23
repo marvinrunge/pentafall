@@ -9,8 +9,9 @@ extends "res://tools/tests/key_art_shot.gd"
 ##   ... -- --probe     prints every hero class's and beast's animation clips
 ##
 ## On top of KeyArtShot's actors: kind "class" is a hero class's own visual (its id in
-## "color"), kind "beast" is a biome's beast, and any actor may name its own "lane" to be
-## placed in that lane's coordinates instead of the shot's.
+## "color"), kind "beast" is a biome's beast, kind "tower" a round-two tower's look (its id
+## in "color", front to where it faces), and any actor may name its own "lane" to be placed
+## in that lane's coordinates instead of the shot's.
 
 ## A bow held drawn: the string at the hand and an arrow on it, with no PlayerAnimator
 ## behind it to say so.
@@ -151,6 +152,22 @@ func _shots() -> Dictionary:
 		"cam": Vector3(17.0, -2.5, 1.9), "look": Vector3(6.0, 0.0, 1.8), "actors": line,
 	}
 
+	# The five towers in an arc across the White lane before the crystal, fronts to the lane,
+	# its front rank on them and the other lanes fighting behind.
+	var towers: Array = []
+	for actor: Dictionary in _siege(false):
+		if actor.get("lane", "") != "White":
+			towers.append(actor)
+	var ids: Array[String] = ["hornet_nest", "glacial_fortress", "ivory_tower", "bontus_monument", "goblin_sharpshooter"]
+	for i: int in ids.size():
+		towers.append({"kind": "tower", "color": ids[i], "lane": "White",
+			"at": Vector2(11.5 - absf(float(i) - 2.0) * 0.9, (float(i) - 2.0) * 3.9), "face": "out"})
+	towers.append_array(_warband("White", 16.5, 1, 5, 2.4, 0.0, true, "White"))
+	shots["towers_line"] = {
+		"lane": "White", "time": 15.0, "fov": 52.0,
+		"cam": Vector3(22.0, -3.0, 2.6), "look": Vector3(10.5, 0.0, 2.6), "actors": towers,
+	}
+
 	# Every colour's warband in its own biome: the whole column behind its boss from high over
 	# the lane - the paths are the open ground, the forests either side swallow a camera - and
 	# the front ranks close and low.
@@ -251,6 +268,9 @@ func _place(lane: String, actor: Dictionary) -> void:
 	var node: Node3D = _staged.back()
 	if actor["kind"] == "class":
 		_dress_hero(node, String(actor["color"]))
+	elif actor["kind"] == "tower":
+		# A tower's front is its -Z, the way Tower turns it to where the caster aimed.
+		node.rotate_y(PI)
 
 
 ## The live parts a hero's visual only gets from PlayerAnimator: the archer's string and
@@ -274,6 +294,8 @@ func _unit_visual(kind: String, color: String) -> Node3D:
 	match kind:
 		"class":
 			return (load(ClassDatabase.visual_scene(color)) as PackedScene).instantiate()
+		"tower":
+			return (load("res://scenes/towers/%s.tscn" % color) as PackedScene).instantiate()
 		"beast":
 			var visual: Node3D = EnemyBase.BeastDatabase.visual_scene(color).instantiate()
 			for node: Node in visual.find_children("*", "MeshInstance3D", true, false):
