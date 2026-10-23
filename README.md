@@ -23,8 +23,8 @@ lane borders its two allies. Each wave the colours march their warbands down the
 Melee screens hold the front, archers form a shell behind them and mages cast from the
 core. Neighbouring colours can arrive together and charge as one.
 
-You fight in third person with your weapon and the spells of the colours you choose.
-Everyone in the party levels at the same time. Between waves the team spends its shared
+You pick one of five classes and fight in third person with its weapon and the spells of
+the colours you choose. Everyone in the party levels at the same time. Between waves the team spends its shared
 mana at Upkeep. If the crystal falls, the run is over.
 
 <p align="center">
@@ -35,9 +35,18 @@ mana at Upkeep. If the crystal falls, the run is over.
 
 - **Co-op for one to five players.** Host a game, join one, or play solo. With five
   players, each one usually holds the lane of their own colour.
-- **Thirty skills across five colours.** Each colour has five active spells and two auras,
-  and every skill has five ranks. Wrath of God, Frost Breath, Doom Blade, Fireball,
-  Giant Growth and more.
+- **Five classes.** The Warrior's fast axe combos, the Knight's sword and shield, the
+  Barbarian's greatsword, whose heavy swings nothing can interrupt, the Archer's longbow and
+  the Mage's bolts in the colour of their path. Each has its own way to defend itself and four class skills on
+  top of the colours.
+- **Seventy skills across five colours.** Each colour has eleven or twelve spells and two
+  or three auras, every one with five ranks, in three rings that open as you invest.
+  Wrath of God, Frost Breath, Doom Blade, Fireball and Giant Growth sit beside Glorious
+  Charge, Time Ebb, Demonic Pact, Grapeshot and Call of the Herd, and some skills charge
+  your next attack instead of casting.
+- **A tower for every colour.** The Ivory Tower shields your allies, the Glacial Fortress
+  slows and freezes, Bontu's Monument raises the dead, the Goblin Sharpshooter shoots fast
+  and hard, and the Hornet Nest draws the wave and stings back.
 - **Guild synergies.** Invest in two neighbouring colours to unlock that pair's guild
   node, such as Azorius, Dimir or Rakdos. Each one links how the two colours play.
 - **Shared economy.** XP and levels belong to the whole team, so nobody can steal a kill.
@@ -71,6 +80,8 @@ Each colour has its own biome, its own warband and its own boss.
 </table>
 
 ## In game
+
+![The five colours' towers stand before the crystal as the White warband attacks](site/images/screenshots/towers_line.jpg)
 
 <table>
   <tr>
