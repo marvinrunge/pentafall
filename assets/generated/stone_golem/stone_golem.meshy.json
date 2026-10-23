@@ -1,0 +1,24 @@
+{
+  "generator": "Meshy Image to 3D API v1",
+  "task_id": "01a1622f-f44a-714f-aa70-a0c705aa02c1",
+  "status": "SUCCEEDED",
+  "consumed_credits": 15,
+  "request": {
+    "ai_model": "meshy-t2",
+    "model_type": "smart-topology",
+    "target_polycount": 10000,
+    "should_texture": true,
+    "enable_pbr": true,
+    "texture_resolution": "2k",
+    "origin_at": "bottom",
+    "target_formats": [
+      "glb",
+      "fbx"
+    ],
+    "moderation": true,
+    "pose_mode": "a-pose"
+  },
+  "concept_image": "docs/screen_art/source/stone_golem_reference.png",
+  "concept_prompt": "docs/screen_art/source/creature_references.md (Gemini 3 Pro Image)",
+  "license_review_required": true
+}

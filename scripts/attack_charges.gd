@@ -19,6 +19,7 @@ extends RefCounted
 
 const ChargedHits := preload("res://scripts/charged_hits.gd")
 const AttackLoad := preload("res://scripts/attack_load.gd")
+const ChargeFx := preload("res://scripts/charge_fx.gd")
 
 enum Weight { NONE, LIGHT, HEAVY }
 
@@ -124,16 +125,13 @@ func armed_ids() -> Array:
 	return _armed.keys()
 
 
-## One bit per colour that has a charge waiting (white 1, blue 2, black 4, red 8, green 16) -
-## published with the player's own state so every screen can show the weapon carrying it.
+## One bit per charge waiting (ChargeFx.bit_of: a bit of its own for each charge with a look of
+## its own, a shared one for the rest) - published with the player's own state so every screen
+## can draw the weapon carrying WHICH charge, not just that it carries one.
 func armed_bits() -> int:
 	var bits: int = 0
 	for spell_id: String in _armed:
-		var index: int = SpellDatabase.COLORS.find(SpellDatabase.get_color(spell_id))
-		if index >= 0:
-			bits |= 1 << index
-		elif spell_id == "guild_gruul":
-			bits |= 1 << 3
+		bits |= ChargeFx.bit_of(spell_id)
 	return bits
 
 

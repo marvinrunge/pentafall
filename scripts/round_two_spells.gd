@@ -243,7 +243,6 @@ static func gravewalk(caster: Player) -> void:
 	for enemy: Node3D in caster._enemies_in_radius(at, radius):
 		caster._deal_damage(enemy, damage, false)
 	caster._spawn_spell_fx("black_10", at, radius)
-	NetFx.ring(at, Player.FX_BLACK, radius)
 
 
 ## Demonic Pact, the server half: the debt. The cooldowns it clears live on the caster's own
@@ -341,8 +340,7 @@ static func grapeshot(caster: Player) -> void:
 		if not is_instance_valid(victim):
 			continue
 		var to: Vector3 = victim.global_position + Vector3(0.0, 1.0, 0.0)
-		NetFx.beam(from, (to - from).normalized(), from.distance_to(to), Color(1.0, 0.55, 0.2))
-		NetFx.impact(to, Color(1.0, 0.5, 0.2), 0.5)
+		caster._spawn_spell_fx("red_9_shot", from, from.distance_to(to), to - from)
 		caster._deal_damage(victim, damage, false)
 	caster._spawn_spell_fx("red_9", caster.global_position, 1.0)
 
@@ -393,7 +391,7 @@ static func kraul_harpooner(caster: Player) -> void:
 	var enemy: Node3D = caster.aim_target(range_units)
 	if enemy is EnemyBase:
 		var reach: Vector3 = enemy.global_position + Vector3(0.0, 1.0, 0.0)
-		NetFx.beam(from, (reach - from).normalized(), from.distance_to(reach), Color(0.35, 0.7, 0.25))
+		caster._spawn_spell_fx("green_8_chain", from, from.distance_to(reach), reach - from)
 		if (enemy as EnemyBase).is_boss():
 			caster._notify("Too big to drag")
 			return
@@ -406,7 +404,7 @@ static func kraul_harpooner(caster: Player) -> void:
 		caster._notify("Nothing to hook")
 		return
 	var at: Vector3 = hit["position"]
-	NetFx.beam(from, (at - from).normalized(), from.distance_to(at), Color(0.35, 0.7, 0.25))
+	caster._spawn_spell_fx("green_8_chain", from, from.distance_to(at), at - from)
 	if _scenery_kind(hit["collider"] as Node) == "":
 		caster._notify("Hook a tree or a standing stone")
 		return

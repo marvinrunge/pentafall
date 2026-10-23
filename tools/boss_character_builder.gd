@@ -80,6 +80,19 @@ const ANIM_SETS := {
 		# when it died instead of falling.
 		"death": ANIM_ROOT + "common/death_collapse.fbx",
 	},
+	# Awaken's stone golem (green_9). Mixamo's Creature Pack, downloaded on the golem itself,
+	# so nothing in it is retargeted but the borrowed hit. The ally plays idle, run and walk
+	# (TemporaryAlly._find_clips); roar is kept for the moment it rises.
+	"golem": {
+		"walk": ANIM_ROOT + "golem/walk.fbx",
+		"run": ANIM_ROOT + "golem/run.fbx",
+		"idle": ANIM_ROOT + "golem/idle.fbx",
+		"attack": ANIM_ROOT + "golem/attack.fbx",
+		"special": ANIM_ROOT + "golem/special_jump_attack.fbx",
+		"roar": ANIM_ROOT + "golem/roar.fbx",
+		"hit": ANIM_ROOT + "common/hit_react_gut.fbx",
+		"death": ANIM_ROOT + "golem/death.fbx",
+	},
 }
 
 ## Which boss each source file was downloaded FOR - the model uploaded to Mixamo when the
@@ -99,11 +112,12 @@ const CLIP_MADE_FOR := {
 	"mutant/": "treant",
 	"sword_shield/": "white_paladin",
 	"zombie/": "zombie_lord",
+	"golem/": "stone_golem",
 	"common/hit_react_gut.fbx": "frost_giant",
 	"common/death_collapse.fbx": "treant",
 }
 
-const LOOPING_CLIPS := ["walk"]
+const LOOPING_CLIPS := ["walk", "run", "idle"]
 
 ## Bone names used to find "where the feet are" for the grounding correction
 ## below. LeftToeBase/RightToeBase are the lowest bones in the chain.
@@ -143,6 +157,9 @@ const BOSSES := {
 		"shield_transform": Transform3D(Vector3(0.0025285517, -0.0015146458, -0.008455541), Vector3(-0.008435118, 0.0012291237, -0.002742618), Vector3(0.001624539, 0.008739508, -0.0010797097), Vector3(0, 0.0008557099, 0)),
 	},
 	"zombie_lord": {"mesh": "res://assets/enemies/bosses/zombie_lord/zombie_lord.fbx", "set": "zombie"},
+	# Not a boss: Awaken's golem (TemporaryAlly), built the same way because it is the same
+	# kind of thing - a Mixamo-rigged Meshy model with a Mixamo clip set.
+	"stone_golem": {"mesh": "res://assets/enemies/bosses/stone_golem/stone_golem.fbx", "set": "golem"},
 }
 
 ## The bone a boss weapon hangs from. Every boss is Mixamo-rigged, so it is the same name on all.

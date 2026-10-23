@@ -89,6 +89,8 @@ static func profile(spell_id: String, rank: int) -> Dictionary:
 			out["cone_widen"] = GameSettings.spell_green_immense_cone_widen
 			out["size_mult"] = GameSettings.spell_green_immense_size_mult
 			out["burst_radius"] = GameSettings.spell_green_immense_burst_radius * GameSettings.rank_area_mult(rank)
+			# Nothing it does happens at the impact; its look does (ChargeFx).
+			out["impact"] = true
 		"green_7":
 			out["impact"] = true
 		"guild_gruul":
@@ -163,14 +165,17 @@ static func on_struck(enemy: EnemyBase, source: Node, ids: PackedStringArray, fa
 				# Smite the Monstrous: the heavy blow that breaks a boss's special mid-cast.
 				if not fatal and (enemy.is_boss() or enemy.is_miniboss):
 					enemy.interrupt_special(source)
+				_look("white_7", enemy.global_position)
 			"white_9":
 				enemy.apply_sanctity_mark(GameSettings.spell_white_sanctity_duration * GameSettings.rank_duration_mult(rank))
+				_look("white_9", enemy.global_position)
 			"blue_7":
 				enemy.apply_crippling_chill(id.ends_with(FINAL_SUFFIX),
 					GameSettings.spell_blue_crippling_chill_freeze * GameSettings.rank_duration_mult(rank))
 			"blue_8":
 				if not fatal:
 					enemy.encase(GameSettings.spell_blue_ice_cage_duration * GameSettings.rank_duration_mult(rank))
+					_look("blue_8", enemy.global_position)
 			"blue_9":
 				if not fatal:
 					enemy.send_to_origin(GameSettings.spell_blue_time_ebb_boss_slow * GameSettings.rank_duration_mult(rank))
@@ -180,6 +185,8 @@ static func on_struck(enemy: EnemyBase, source: Node, ids: PackedStringArray, fa
 				if source is Player:
 					damage *= (source as Player).get_spell_damage_multiplier()
 				enemy.attach_powder_keg(source, GameSettings.spell_red_powder_keg_fuse, damage, radius, fatal)
+				if not fatal:
+					_look("red_8", enemy.global_position)
 
 
 ## The once-per-attack payloads, on the server, where the attack landed: `at` the impact point,
@@ -198,6 +205,8 @@ static func resolve_impact(caster: Player, ids: PackedStringArray, at: Vector3, 
 				_bone_splinters(caster, rank, at)
 			"green_7":
 				_entangling_vines(caster, rank, at)
+			"green_6":
+				_look("green_6", at, GameSettings.spell_green_immense_burst_radius * caster.area_mult_at_rank(rank))
 			"black_6":
 				caster.lose_life(caster.max_hp * GameSettings.spell_black_unholy_life_per_hit, false)
 
@@ -219,7 +228,7 @@ static func _sunlance(caster: Player, rank: int, at: Vector3, direction: Vector3
 		caster._deal_damage(enemy, damage, false)
 		if enemy is EnemyBase and is_instance_valid(enemy):
 			(enemy as EnemyBase).apply_blind(blind)
-	NetFx.beam(at + Vector3(0.0, 1.0, 0.0), direction, length, Color(1.0, 0.95, 0.7))
+	_look("white_8", at, length, direction)
 	NetFx.sound(&"spell_sunlance", at)
 
 
@@ -233,15 +242,15 @@ static func _bone_splinters(caster: Player, rank: int, at: Vector3) -> void:
 			break
 		if corpse.global_position.distance_to(at) > radius:
 			continue
-		var from: Vector3 = corpse.global_position + Vector3(0.0, 0.6, 0.0)
+		var from: Vector3 = corpse.global_position
 		EnemyBase.consume_corpse(corpse)
 		left -= 1
 		var victim: Node3D = _nearest_enemy(caster, from, GameSettings.spell_black_bone_splinters_seek)
-		NetFx.impact(from, Color(0.85, 0.8, 0.7), 0.6)
 		if victim == null:
+			_look("black_7", from)
 			continue
-		var to: Vector3 = victim.global_position + Vector3(0.0, 1.0, 0.0)
-		NetFx.beam(from, (to - from).normalized(), from.distance_to(to), Color(0.88, 0.84, 0.74))
+		var to: Vector3 = victim.global_position
+		_look("black_7", from, from.distance_to(to), to - from)
 		caster._deal_damage(victim, damage, false)
 	NetFx.sound(&"spell_bone_splinters", at)
 
@@ -253,8 +262,7 @@ static func _entangling_vines(caster: Player, rank: int, at: Vector3) -> void:
 	for enemy: Node3D in caster._enemies_in_radius(at, radius):
 		if enemy is EnemyBase and not (enemy as EnemyBase).is_immune_to_control():
 			(enemy as EnemyBase).apply_root(duration)
-	NetFx.ring(at, Color(0.3, 0.72, 0.22), radius)
-	NetFx.impact(at, Color(0.26, 0.6, 0.2), radius * 0.6)
+	_look("green_7", at, radius)
 	NetFx.sound(&"spell_entangling_vines", at)
 
 
@@ -267,3 +275,9 @@ static func _nearest_enemy(caster: Player, from: Vector3, within: float) -> Node
 			best_distance = distance
 			best = enemy
 	return best
+
+
+## A charged hit's own look (ChargeFx.hit) at `at`, on every screen. `size` and `dir` are what
+## that look needs: a lance's length and heading, a splinter's flight, the roots' spread.
+static func _look(id: String, at: Vector3, size: float = 1.0, dir: Vector3 = Vector3.ZERO) -> void:
+	NetFx.spell("charge_hit/" + id, at, size, 0, dir)

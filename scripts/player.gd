@@ -3509,6 +3509,9 @@ func _update_status_fx() -> void:
 		bits |= StatusFx.PHOENIX
 	if is_giant:
 		bits |= StatusFx.GIANT
+	# Demonic Pact's debt, while kills are still owed.
+	if _pact_timer > 0.0 and _pact_kills_left > 0:
+		bits |= StatusFx.PACT
 	status_fx = bits
 
 

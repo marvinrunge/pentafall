@@ -160,11 +160,12 @@ static func cast_white_exalted_strike(caster: Player) -> void:
 
 
 ## Every "your next attack ..." spell of round two (SpellDatabase `next_attack`): the cast only
-## arms the charge; what it does is ChargedHits'. The flash and the sound are the cast's.
+## arms the charge; what it does is ChargedHits'. The sound is the cast's, and the look is the
+## charge's own gathering at the weapon (ChargeFx.arm), which then stays on it (StatusFx).
 static func cast_next_attack(caster: Player, spell_id: String) -> void:
 	caster.arm_next_attack(spell_id, caster._casting_rank)
 	caster._play_sound(cast_sound(spell_id), caster.global_position)
-	caster._spawn_cast_flash(_charge_tint(spell_id), 1.6)
+	caster._spawn_spell_fx("charge_arm/" + spell_id, caster.global_position, 1.0)
 
 
 ## The SoundBank event a round-two spell is heard by: "spell_" and its name, lower-case, words
@@ -173,15 +174,6 @@ static func cast_next_attack(caster: Player, spell_id: String) -> void:
 static func cast_sound(spell_id: String) -> StringName:
 	var name: String = SpellDatabase.get_display_name(spell_id).to_lower().replace("'", "").replace(" ", "_")
 	return StringName("spell_" + name)
-
-
-static func _charge_tint(spell_id: String) -> Color:
-	match SpellDatabase.get_color(spell_id):
-		"white": return Color(1.0, 0.95, 0.72)
-		"blue": return Color(0.5, 0.78, 1.0)
-		"black": return Color(0.6, 0.3, 0.78)
-		"red": return Color(1.0, 0.45, 0.2)
-	return Color(0.45, 0.9, 0.38)
 
 
 ## white_2. A base shield PER TARGET, grown a little for every ally beyond the first -

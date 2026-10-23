@@ -37,6 +37,7 @@ const MAGE_VISUAL_SCENES := {
 const BeastDatabase := preload("res://scripts/beast_database.gd")
 ## The payload half of a charged player attack (on_hit in take_damage).
 const ChargedHits := preload("res://scripts/charged_hits.gd")
+const EnemyStateFx := preload("res://scripts/enemy_state_fx.gd")
 
 # Shared across every EnemyBase instance so the corpse cap applies project-wide.
 static var _corpses: Array[EnemyBase] = []
@@ -3729,6 +3730,7 @@ func take_damage(amount: float, source: Node3D = null, is_melee: bool = false, e
 	# Deathtouch (black_3): the same decision as the capsule's, for every attack and every class.
 	if health > 0.0 and not charged.is_empty() and ChargedHits.executes(self, source, charged):
 		NetFx.damage_number(spawn_pos + Vector3(0.0, 0.4, 0.0), 0.0, Color(0.6, 0.2, 0.8), "Deathtouch")
+		NetFx.spell("charge_hit/black_3", global_position, 1.0, 0)
 		health = 0.0
 	if not charged.is_empty():
 		ChargedHits.on_struck(self, source, charged, health <= 0.0)
@@ -4893,6 +4895,7 @@ func _tick_round_two(delta: float) -> bool:
 		apply_slow(0.2, GameSettings.spell_blue_swine_slow)
 		if _swine_timer <= 0.0:
 			_set_r2(R2_SWINE, false)
+			NetFx.spell("enemy_state/swine_out", global_position, 1.0, 0)
 	if _encase_timer > 0.0:
 		_encase_timer -= delta
 		freeze_timer = maxf(freeze_timer, 0.1)
@@ -4966,10 +4969,10 @@ func _sanctity_reward(source: Node3D) -> void:
 func apply_crippling_chill(final: bool, freeze: float) -> void:
 	if final:
 		apply_equipment_freeze(freeze)
-		NetFx.impact(global_position + Vector3(0.0, 1.0, 0.0), Color(0.6, 0.85, 1.0), 1.0)
+		NetFx.spell("charge_hit/blue_7_final", global_position, 1.0, 0)
 	else:
 		apply_frost_slow(GameSettings.spell_blue_crippling_chill_slow)
-		NetFx.impact(global_position + Vector3(0.0, 1.0, 0.0), Color(0.6, 0.85, 1.0), 0.5)
+		NetFx.spell("charge_hit/blue_7", global_position, 1.0, 0)
 
 
 ## Ice Cage: frozen inside a block of ice the others have to walk around. A boss is slowed.
@@ -5001,7 +5004,7 @@ func _end_encase() -> void:
 		_ice_block.queue_free()
 	_ice_block = null
 	_set_r2(R2_ENCASED, false)
-	NetFx.impact(global_position + Vector3(0.0, 1.0, 0.0), Color(0.7, 0.9, 1.0), 1.2)
+	NetFx.spell("enemy_state/encased_out", global_position, 1.0, 0)
 
 
 ## Time Ebb: back to where it first stood. A boss, a miniboss or a beast is only slowed.
@@ -5010,14 +5013,17 @@ func send_to_origin(boss_slow: float) -> void:
 		return
 	if is_boss() or is_miniboss or is_beast() or not origin_position.is_finite():
 		apply_frost_slow(boss_slow)
+		# Only slowed: the sand swirls back into it instead of carrying it home (ChargeFx).
+		NetFx.spell("charge_hit/blue_9", global_position, 0.0, 0)
 		return
-	NetFx.ring(global_position, Color(0.45, 0.7, 1.0), 1.4)
+	# Sand streaming home along the way it came, gathering where it spawned (ChargeFx).
+	var home: Vector3 = origin_position + Vector3(0.0, 0.1, 0.0)
+	NetFx.spell("charge_hit/blue_9", global_position, global_position.distance_to(home), 0, home - global_position)
 	leave_formation()
 	velocity = Vector3.ZERO
 	knockback_velocity = Vector3.ZERO
-	global_position = origin_position + Vector3(0.0, 0.1, 0.0)
+	global_position = home
 	_watch_position = global_position
-	NetFx.ring(global_position, Color(0.45, 0.7, 1.0), 1.4)
 	update_path(true)
 
 
@@ -5068,7 +5074,7 @@ func _end_banish() -> void:
 	add_to_group("enemies")
 	collision_layer = 4
 	_set_r2(R2_BANISHED, false)
-	NetFx.ring(global_position, Color(1.0, 0.95, 0.7), 1.6)
+	NetFx.spell("enemy_state/banished_out", global_position, 1.0, 0)
 	update_path(true)
 
 
@@ -5079,7 +5085,7 @@ func polymorph(duration: float) -> void:
 	_swine_timer = maxf(_swine_timer, duration)
 	_cancel_special()
 	_set_r2(R2_SWINE, true)
-	NetFx.impact(global_position + Vector3(0.0, 0.8, 0.0), Color(0.55, 0.8, 1.0), 1.0)
+	NetFx.spell("enemy_state/swine_in", global_position, 1.0, 0)
 
 
 ## Fling: seized and thrown in an arc to `to`, bursting in flame where it lands. Server only;
@@ -5155,89 +5161,13 @@ func _sync_round_two_look() -> void:
 				old.queue_free()
 
 
+## The held look for one round-two state bit (EnemyStateFx): Banishing Light's prism, the
+## boar, the ice, the keg, the mark.
 func _build_r2_look(bit: int) -> Node3D:
 	match bit:
-		R2_BANISHED:
-			return _glow_column(Color(1.0, 0.95, 0.72), 0.9, 3.2)
-		R2_SWINE:
-			var scene: PackedScene = load(GameSettings.spell_blue_swine_scene) as PackedScene \
-				if ResourceLoader.exists(GameSettings.spell_blue_swine_scene) else null
-			if scene == null:
-				scene = BeastDatabase.visual_scene("Green")
-			var boar: Node3D = scene.instantiate()
-			boar.scale = Vector3.ONE * GameSettings.spell_blue_swine_scale
-			return boar
-		R2_ENCASED:
-			var ice := MeshInstance3D.new()
-			var mesh := BoxMesh.new()
-			mesh.size = Vector3(1.6, 2.2, 1.6)
-			ice.mesh = mesh
-			ice.position = Vector3(0.0, 1.1, 0.0)
-			var mat := StandardMaterial3D.new()
-			mat.albedo_color = Color(0.7, 0.88, 1.0, 0.42)
-			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			mat.roughness = 0.08
-			mat.emission_enabled = true
-			mat.emission = Color(0.4, 0.65, 0.9)
-			mat.emission_energy_multiplier = 0.35
-			ice.material_override = mat
-			return ice
-		R2_KEG:
-			var keg := MeshInstance3D.new()
-			var barrel := CylinderMesh.new()
-			barrel.top_radius = 0.22
-			barrel.bottom_radius = 0.22
-			barrel.height = 0.5
-			keg.mesh = barrel
-			keg.position = Vector3(0.0, 1.3, -0.3)
-			var wood := StandardMaterial3D.new()
-			wood.albedo_color = Color(0.42, 0.26, 0.13)
-			keg.material_override = wood
-			var spark := OmniLight3D.new()
-			spark.light_color = Color(1.0, 0.55, 0.2)
-			spark.light_energy = 1.2
-			spark.omni_range = 2.0
-			spark.position = Vector3(0.0, 0.35, 0.0)
-			keg.add_child(spark)
-			return keg
-		R2_SANCTIFIED:
-			var halo := OmniLight3D.new()
-			halo.light_color = Color(1.0, 0.92, 0.6)
-			halo.light_energy = 1.4
-			halo.omni_range = 2.6
-			halo.position = Vector3(0.0, 2.2, 0.0)
-			return halo
+		R2_BANISHED: return EnemyStateFx.held("banished")
+		R2_SWINE: return EnemyStateFx.held("swine")
+		R2_ENCASED: return EnemyStateFx.held("encased")
+		R2_KEG: return EnemyStateFx.held("keg")
+		R2_SANCTIFIED: return EnemyStateFx.held("sanctified")
 	return null
-
-
-## A soft column of light - no hard rim (memory: VFX without hard edges): an unshaded
-## cylinder fading out at the top and the bottom, and a light inside it.
-static func _glow_column(tint: Color, radius: float, height: float) -> Node3D:
-	var root := Node3D.new()
-	var column := MeshInstance3D.new()
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius
-	mesh.height = height
-	mesh.cap_top = false
-	mesh.cap_bottom = false
-	column.mesh = mesh
-	column.position = Vector3(0.0, height * 0.5, 0.0)
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
-	mat.albedo_color = Color(tint.r, tint.g, tint.b, 0.28)
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.proximity_fade_enabled = true
-	mat.proximity_fade_distance = 0.6
-	column.material_override = mat
-	column.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	root.add_child(column)
-	var light := OmniLight3D.new()
-	light.light_color = tint
-	light.light_energy = 1.8
-	light.omni_range = radius * 4.0
-	light.position = Vector3(0.0, 1.2, 0.0)
-	root.add_child(light)
-	return root

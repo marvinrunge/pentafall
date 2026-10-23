@@ -22,6 +22,10 @@ const GROUND_CRACKS_SHADER: Shader = preload("res://assets/shaders/ground_cracks
 const GROUND_SLASH_SHADER: Shader = preload("res://assets/shaders/ground_slash.gdshader")
 const VOID_BLADE_SHADER: Shader = preload("res://assets/shaders/void_blade.gdshader")
 const FLAME_JET_SHADER: Shader = preload("res://assets/shaders/flame_jet.gdshader")
+const ChargeFx := preload("res://scripts/charge_fx.gd")
+const EnemyStateFx := preload("res://scripts/enemy_state_fx.gd")
+const MoveFx := preload("res://scripts/move_fx.gd")
+const BuffFx := preload("res://scripts/buff_fx.gd")
 
 ## The rune figure each colour draws in its circles (magic_circle.gdshader's `pattern`).
 const CIRCLE_PATTERN: Dictionary = {"white": 0, "blue": 1, "black": 2, "red": 3, "green": 4}
@@ -66,7 +70,8 @@ static func play(scene: Node, payload: Dictionary, owner: Node3D) -> void:
 		return
 	match spell:
 		"white_1":
-			_on_ground(scene, magic_circle("white", WHITE_GOLD, 1.4, 0.7, 0.18), at)
+			# No circle: an instant buff on the caster, and the circle is for casts that hold a
+			# place (docs/SPELL_VFX_ROUND_TWO.md). The pillar is Exalted's own.
 			_on_owner(owner, light_pillar(WHITE_GOLD, 0.5, 3.2, 0.5, 1.4))
 			_on_owner(owner, rising_motes(Player.FX_WHITE, 0.7, 26, 0.9))
 			_on_owner(owner, SpellFx.cast_glow(Player.FX_WHITE, 2.2))
@@ -76,7 +81,7 @@ static func play(scene: Node, payload: Dictionary, owner: Node3D) -> void:
 		"white_2_ally":
 			_on_owner(owner, shield_dome(WHITE_GOLD, 1.3, 1.1, DOME_HEX), at)
 		"white_3":
-			_on_ground(scene, magic_circle("white", WHITE_GOLD, 1.6, 0.6, 0.15), at)
+			# The dome is the look; the circle under it was every other cast's too.
 			_on_owner(owner, shield_dome(WHITE_GOLD, 1.4, 1.0, DOME_RUNES, DOME_HEIGHT + 0.1))
 			_on_owner(owner, SpellFx.cast_glow(Player.FX_WHITE, 2.4))
 		"white_4":
@@ -85,8 +90,7 @@ static func play(scene: Node, payload: Dictionary, owner: Node3D) -> void:
 			_on_ground(scene, rally(size), at)
 			_on_owner(owner, SpellFx.cast_glow(Player.FX_WHITE, 2.8))
 		"white_5_revive":
-			_on_ground(scene, light_pillar(WHITE_GOLD, 0.8, 9.0, 1.2, 1.4, 2.0), at)
-			_on_ground(scene, rising_motes(Player.FX_WHITE, 0.9, 30, 1.4), at)
+			_on_ground(scene, BuffFx.rally(0.9), at)
 		"blue_1":
 			_on_ground(scene, magic_circle("blue", Player.FX_BLUE, 1.3, 0.3, 0.12, 1.5), at)
 		"blue_2":
@@ -142,15 +146,13 @@ static func play(scene: Node, payload: Dictionary, owner: Node3D) -> void:
 		"green_1":
 			_on_ground(scene, titanic_slam(size), at)
 		"green_2":
-			_on_ground(scene, magic_circle("green", Player.FX_GREEN, size, 0.8, 0.3, 0.5), at)
+			# The leaves whirling up are Giant Growth's; the circle and the pillar were shared.
 			_on_owner(owner, leaf_spiral(size * 0.45, 2.6 * maxf(size / 2.2, 1.0)))
-			_on_owner(owner, light_pillar(Player.FX_GREEN, 0.5, 5.0, 0.6, 0.9, 2.2))
 		"green_3":
 			_on_ground(scene, magic_circle("green", Player.FX_GREEN, 1.3, 0.4, 0.2), at)
 		"green_4":
 			_on_ground(scene, roar(size), at)
 		"green_5":
-			_on_ground(scene, magic_circle("green", EARTH.lerp(Player.FX_GREEN, 0.35), 1.4, 0.6, 0.2), at)
 			_on_owner(owner, splinters(EARTH, 1.0, 34))
 			_on_owner(owner, dust_ring(1.2, 0.6))
 		_:
@@ -160,6 +162,18 @@ static func play(scene: Node, payload: Dictionary, owner: Node3D) -> void:
 ## Round two (docs/SKILL_DESIGN.md): built from the same pieces as the first twenty-five - the
 ## colour's rune circle, a light pillar, a burst - until any of them earns art of its own.
 static func _play_round_two(scene: Node, spell: String, at: Vector3, size: float, payload: Dictionary, owner: Node3D) -> void:
+	# A next-attack charge being armed, and where a charged hit lands: ChargeFx's, one look per
+	# charge. "charge_arm/<id>", "charge_hit/<id>".
+	if spell.begins_with("charge_arm/"):
+		_on_owner(owner, ChargeFx.arm(spell.get_slice("/", 1)))
+		return
+	if spell.begins_with("charge_hit/"):
+		_on_ground(scene, ChargeFx.hit(spell.get_slice("/", 1), size, payload.get("dir", Vector3.ZERO)), at)
+		return
+	# An enemy going into or coming out of a held state (EnemyStateFx): "enemy_state/<moment>".
+	if spell.begins_with("enemy_state/"):
+		_on_ground(scene, EnemyStateFx.moment(spell.get_slice("/", 1)), at)
+		return
 	# A tower going up, in its colour: "tower_rise/<colour>".
 	if spell.begins_with("tower_rise"):
 		var colour: String = spell.get_slice("/", 1)
@@ -173,45 +187,54 @@ static func _play_round_two(scene: Node, spell: String, at: Vector3, size: float
 			_on_ground(scene, SpellFx.shockwave(Color(0.85, 0.38, 0.12), size * 1.3, 0.35), at)
 			SoundBank.play_at(&"spell_fireball_impact", at)
 		"white_6":
-			_on_ground(scene, magic_circle("white", WHITE_GOLD, 1.2, 0.2, 0.1, 2.0), at)
-			_on_ground(scene, dust_ring(1.4, 0.7), at)
+			_on_owner(owner, MoveFx.glorious_charge(GameSettings.spell_white_charge_duration))
 		"white_10":
 			_on_ground(scene, magic_circle("white", WHITE_GOLD, size, GameSettings.spell_white_worship_duration, 0.4, 0.3), at)
-			_on_ground(scene, light_pillar(WHITE_GOLD, size * 0.5, 5.0, GameSettings.spell_white_worship_duration, 0.6, 1.2), at)
+			_on_ground(scene, BuffFx.worship(size, GameSettings.spell_white_worship_duration), at)
 		"white_11":
-			_on_ground(scene, magic_circle("white", WHITE_GOLD, size, 0.8, 0.2, 1.0), at)
-			_on_ground(scene, light_pillar(WHITE_GOLD, size * 0.8, 9.0, 1.0, 1.6, -2.0), at)
+			# The prisms closing over each enemy are the spell (EnemyStateFx.banished); the
+			# pillar from the sky it had was Wrath of God's.
+			_on_ground(scene, magic_circle("white", WHITE_GOLD, size, 0.6, 0.15, 1.0), at)
 		"blue_6":
-			_on_ground(scene, blink(Player.FX_BLUE, true), at)
+			# The copies' own arrival is the look (SummonFx); Displace's blink was Displace's.
+			_on_owner(owner, SpellFx.cast_glow(Player.FX_BLUE, 1.6))
 		"blue_10":
 			_on_ground(scene, magic_circle("blue", Player.FX_BLUE, 1.6, 0.3, 0.1, -2.0), at)
 		"blue_11":
 			_on_ground(scene, magic_circle("blue", Player.FX_BLUE, size, 0.6, 0.25, 1.0), at)
-		"black_6", "black_11":
-			_on_ground(scene, magic_circle("black", Player.FX_BLACK, 1.5, 0.6, 0.2), at)
-			_on_owner(owner, light_pillar(Player.FX_BLACK, 0.5, 3.4, 0.6, 1.2, 1.4))
+		"black_6":
+			_on_owner(owner, BuffFx.unholy_strength())
+		"black_11":
+			_on_ground(scene, BuffFx.demonic_pact(), at)
 		"black_8":
-			_on_ground(scene, magic_circle("black", Player.FX_BLACK, size, 0.5, 0.15, 2.0), at)
-			_on_ground(scene, light_pillar(Player.FX_BLACK, 0.9, 6.0, 0.8, 1.6, 1.6), at)
+			_on_owner(owner, BuffFx.undying(size))
 		"black_9":
-			_on_ground(scene, raise_dead(), at)
+			# The corpse standing up is the look (SummonFx, "raised"); Zombify keeps raise_dead.
+			pass
 		"black_10_from":
-			_on_ground(scene, blink(Player.FX_BLACK, false), at)
+			_on_ground(scene, MoveFx.grave_sink(), at)
 		"black_10":
-			_on_ground(scene, blink(Player.FX_BLACK, true), at)
-			_on_ground(scene, raise_dead(), at)
+			_on_ground(scene, MoveFx.grave_burst(size), at)
 		"red_6":
 			_on_ground(scene, flame_burst(1.6), at)
-		"red_7", "red_9", "red_10":
-			_on_ground(scene, magic_circle("red", RED_CIRCLE, 1.3, 0.2, 0.1, 2.0), at)
-		"green_8", "green_10":
+		"red_7":
+			_on_owner(owner, BuffFx.blood_frenzy())
+		"red_9":
+			_on_owner(owner, BuffFx.grapeshot_blast())
+		"red_9_shot":
+			_on_ground(scene, BuffFx.grape_volley(size, payload.get("dir", Vector3.FORWARD)), at)
+		"red_10":
+			_on_owner(owner, BuffFx.fork())
+		"green_8":
 			_on_ground(scene, dust_ring(1.6, 0.8), at)
-		"green_9":
-			_on_ground(scene, magic_circle("green", Player.FX_GREEN, size, 0.8, 0.3, 0.5), at)
-			_on_ground(scene, leaf_spiral(size * 0.5, 4.0), at)
-		"green_11":
-			_on_ground(scene, magic_circle("green", Player.FX_GREEN, 2.0, 0.7, 0.3, 0.5), at)
-			_on_ground(scene, leaf_spiral(1.2, 3.0), at)
+		"green_8_chain":
+			_on_ground(scene, MoveFx.harpoon_chain(size, payload.get("dir", Vector3.FORWARD)), at)
+		"green_10":
+			_on_owner(owner, MoveFx.overrun(GameSettings.spell_green_overrun_duration))
+		"green_9", "green_11":
+			# The circle where it is called; the creature's own arrival (SummonFx) is the rest -
+			# the leaves Awaken and Call of the Herd both threw were one look for two skills.
+			_on_ground(scene, magic_circle("green", Player.FX_GREEN, minf(size, 2.0), 0.8, 0.3, 0.5), at)
 
 
 static func _colour_tint(colour: String) -> Color:
@@ -522,14 +545,13 @@ static func wrath_of_god(radius: float) -> Node3D:
 	return root
 
 
-## Rally the Fallen: a column of light the caster stands in, poured UP rather than down -
-## raising, not striking - over a circle of the rally's reach.
+## Rally the Fallen: streaks of light rising off the ground round the caster - raising, not
+## striking - over a circle of the rally's reach. The column of light it had was Wrath of God's.
 static func rally(radius: float) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Rally"
-	root.add_child(light_pillar(WHITE_GOLD, 1.0, 14.0, 1.3, 1.4, 2.0))
 	root.add_child(magic_circle("white", WHITE_GOLD, minf(radius, 4.0), 1.0, 0.3, 0.4))
-	root.add_child(rising_motes(Player.FX_WHITE, 1.4, 50, 1.6))
+	root.add_child(BuffFx.rally(minf(radius, 4.0) * 0.6))
 	root.tree_entered.connect(func() -> void:
 		root.get_tree().create_timer(3.0).timeout.connect(root.queue_free), CONNECT_ONE_SHOT)
 	return root
@@ -842,40 +864,52 @@ static func doom_blade(length: float, facing: Vector3) -> Node3D:
 	process.color_ramp = ramp
 	blade.add_child(trail)
 
-	var scar_material := ShaderMaterial.new()
-	scar_material.shader = GROUND_SLASH_SHADER
-	scar_material.set_shader_parameter("length", length)
-	scar_material.set_shader_parameter("glow_color", Player.FX_BLACK)
-	scar_material.set_shader_parameter("reach", 0.0)
-	scar_material.set_shader_parameter("seed", randf() * 100.0)
-	var scar_box := BoxMesh.new()
-	scar_box.size = Vector3(1.6, AttackIndicator.PROJECT_UP + AttackIndicator.PROJECT_DOWN, length)
-	var scar := MeshInstance3D.new()
-	scar.mesh = scar_box
-	scar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# The scar runs along the node's local +Z, the projection box centred on it.
-	scar.position = Vector3(0.0, (AttackIndicator.PROJECT_UP - AttackIndicator.PROJECT_DOWN) * 0.5, length * 0.5)
-	scar_material.set_shader_parameter("projection_offset", scar.position)
-	scar_material.set_shader_parameter("projection_up", AttackIndicator.PROJECT_UP)
-	scar_material.set_shader_parameter("projection_down", AttackIndicator.PROJECT_DOWN)
-	scar_material.render_priority = SpellFx.FX_RENDER_PRIORITY
-	scar.material_override = scar_material
-	root.add_child(scar)
-
 	var travel: float = clampf(length / 40.0, 0.18, 0.4)
+	root.add_child(ground_scar(length, Player.FX_BLACK, travel, 1.0))
 	root.tree_entered.connect(func() -> void:
 		# +Z along the aim: the scar runs along local +Z, the blade travels with it.
 		root.look_at(root.global_position - facing, Vector3.UP)
 		var tween: Tween = root.create_tween()
 		tween.tween_property(blade, "position:z", length, travel)
-		tween.parallel().tween_method(_setter(scar_material, "reach"), 0.0, 1.0, travel)
 		tween.tween_callback(func() -> void: trail.emitting = false)
 		tween.tween_method(_setter(material, "fade"), 1.0, 0.0, 0.25)
-		tween.parallel().tween_method(_setter(scar_material, "heat"), 1.0, 0.0, 1.0)
-		tween.tween_interval(1.2)
-		tween.tween_method(_setter(scar_material, "fade"), 1.0, 0.0, 0.8)
+		# Until the scar has faded (ground_scar's own timeline: cool 1.0, 1.2, fade 0.8).
+		tween.tween_interval(2.8)
 		tween.tween_callback(root.queue_free), CONNECT_ONE_SHOT)
 	return root
+
+
+## A line burnt into the ground along the node's local +Z, `length` long: it runs out over
+## `travel`, glows `tint` and cools over `cool`, and the scar lingers a little after. Doom
+## Blade's path.
+static func ground_scar(length: float, tint: Color, travel: float, cool: float = 1.0) -> Node3D:
+	var material := ShaderMaterial.new()
+	material.shader = GROUND_SLASH_SHADER
+	material.set_shader_parameter("length", length)
+	material.set_shader_parameter("glow_color", tint)
+	material.set_shader_parameter("reach", 0.0)
+	material.set_shader_parameter("seed", randf() * 100.0)
+	var box := BoxMesh.new()
+	box.size = Vector3(1.6, AttackIndicator.PROJECT_UP + AttackIndicator.PROJECT_DOWN, length)
+	var scar := MeshInstance3D.new()
+	scar.name = "GroundScar"
+	scar.mesh = box
+	scar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# The projection box centred on the line.
+	scar.position = Vector3(0.0, (AttackIndicator.PROJECT_UP - AttackIndicator.PROJECT_DOWN) * 0.5, length * 0.5)
+	material.set_shader_parameter("projection_offset", scar.position)
+	material.set_shader_parameter("projection_up", AttackIndicator.PROJECT_UP)
+	material.set_shader_parameter("projection_down", AttackIndicator.PROJECT_DOWN)
+	material.render_priority = SpellFx.FX_RENDER_PRIORITY
+	scar.material_override = material
+	scar.tree_entered.connect(func() -> void:
+		var tween: Tween = scar.create_tween()
+		tween.tween_method(_setter(material, "reach"), 0.0, 1.0, travel)
+		tween.tween_method(_setter(material, "heat"), 1.0, 0.0, cool)
+		tween.tween_interval(1.2)
+		tween.tween_method(_setter(material, "fade"), 1.0, 0.0, 0.8)
+		tween.tween_callback(scar.queue_free), CONNECT_ONE_SHOT)
+	return scar
 
 
 ## A flat crescent in the XZ plane, bulging toward +Z, built as a strip: UV.x runs tip to

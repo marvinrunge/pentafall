@@ -103,6 +103,17 @@ var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 const RETARGET_INTERVAL := 0.4
 const IDLE_CLIP := "idle"
+## Awaken's golem: its model, and how tall it stands - about the ring's stones.
+const GOLEM_SCENE := "res://scenes/bosses/stone_golem.tscn"
+const GOLEM_HEIGHT := 2.8
+## The height the builder stands every model it makes at (BossCharacterBuilder.BOSS_TARGET_HEIGHT).
+const GOLEM_BUILT_HEIGHT := 1.7
+## The golem's arrival: the start of its roar, played faster, before anything else plays.
+const ARRIVAL_CLIP := "roar"
+const ARRIVAL_SPEED := 1.8
+const ARRIVAL_HOLD := 1.3
+const SummonFx := preload("res://scripts/summon_fx.gd")
+var _arrival_until_ms: int = 0
 ## True while a ghoul with nothing to chase is on its way back to the player who raised it.
 ## Kept between frames so it has two edges: it sets off past the far radius and only stops
 ## inside the near one, instead of stuttering along a single line.
@@ -159,6 +170,13 @@ func _ready() -> void:
 	_build_visual()
 	_build_health_bar()
 	_build_synchronizer()
+	# Every screen builds the summon, so every screen plays its arrival - nothing travels.
+	if SummonFx.arrives(kind):
+		SummonFx.arrive(self, _visual, kind)
+		# The golem stands up roaring before it walks.
+		if kind == "golem" and _anim != null and _anim.has_animation(ARRIVAL_CLIP):
+			_anim.play(ARRIVAL_CLIP, 0.1, ARRIVAL_SPEED)
+			_arrival_until_ms = Time.get_ticks_msec() + int(ARRIVAL_HOLD * 1000.0)
 
 
 ## Where it is and how fast it is going, from the server to everyone else.
@@ -263,19 +281,27 @@ func _build_visual() -> void:
 ## The model and clips of a beast (Call of the Herd), a treant or a golem (Awaken). A beast is
 ## its biome's species in its biome's skin, in metres like every beast (BeastDatabase); the
 ## treant is the green boss's own model, smaller, in the skin of the biome it was woken in; the
-## golem, until it has a model of its own, is that treant turned to the grey of the stones.
+## golem is its own model (BossCharacterBuilder's stone_golem), the ring's stone and moss as
+## they are, GOLEM_HEIGHT tall.
 func _build_creature_visual() -> void:
 	var scene: PackedScene = null
 	var scale: float = visual_scale
 	if kind == "beast":
 		scene = EnemyBase.BeastDatabase.visual_scene(biome_color)
+	elif kind == "golem" and ResourceLoader.exists(GOLEM_SCENE):
+		scene = load(GOLEM_SCENE) as PackedScene
+		# The built scene stands GOLEM_BUILT_HEIGHT tall at its own root scale.
+		scale = 0.0
 	else:
 		scene = BossDatabase.get_visual_scene("Green")
 		scale = 100.0 * BossDatabase.get_model_scale("Green", 2.5) * GameSettings.spell_green_awaken_scale * visual_scale
 	if scene == null:
 		return
 	_visual = scene.instantiate()
-	_visual.scale = Vector3.ONE * scale
+	if scale > 0.0:
+		_visual.scale = Vector3.ONE * scale
+	else:
+		_visual.scale *= GOLEM_HEIGHT / GOLEM_BUILT_HEIGHT * visual_scale
 	add_child(_visual)
 	for node: Node in _visual.find_children("*", "MeshInstance3D", true, false):
 		var mesh_instance := node as MeshInstance3D
@@ -295,8 +321,11 @@ func _build_creature_visual() -> void:
 
 
 ## The skin a creature wears: a beast its biome's (BeastDatabase.VARIANTS), a treant the
-## biome it was woken in drawn the same way, a golem stone grey.
+## biome it was woken in drawn the same way, a golem its own stone - or, should its model be
+## missing, the treant's turned stone grey.
 func _creature_skin(source: Material) -> Material:
+	if kind == "golem" and ResourceLoader.exists(GOLEM_SCENE):
+		return source
 	if kind == "golem":
 		if not source is StandardMaterial3D:
 			return source
@@ -427,6 +456,8 @@ func _build_health_bar() -> void:
 ## of its run instead of running on the spot.
 func _update_animation() -> void:
 	if _anim == null or _move_clip == "":
+		return
+	if Time.get_ticks_msec() < _arrival_until_ms:
 		return
 	if attack_serial != _seen_attack_serial:
 		_seen_attack_serial = attack_serial

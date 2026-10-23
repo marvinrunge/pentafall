@@ -1,6 +1,7 @@
 # Spell VFX Plan
 
-A phased plan for making the 25 spells look authored rather than placeheld. Each phase
+A phased plan for making the 25 spells look authored rather than placeheld. The 34 skills of
+round two have their own plan in `docs/SPELL_VFX_ROUND_TWO.md`. Each phase
 ships something visible on its own — no phase leaves the game half-dressed while the next
 one is built.
 
