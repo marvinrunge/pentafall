@@ -50,6 +50,25 @@ SETS = {
         "equip-leonin-scimitar", "equip-explorers-scope", "equip-nim-deathmantle", "equip-bonesplitter",
         "equip-vorrac-battlehorns", "equip-lightning-greaves", "equip-skullclamp", "equip-sword-of-fire-and-ice",
     ],
+    # Skill backlog round two (docs/SKILL_DESIGN.md), two colours a sheet, two rows each; the
+    # last cell of a colour's rows is a spare for a later skill.
+    "skills_white_blue": [
+        "glorious-charge", "smite-the-monstrous", "sunlance", "mark-of-sanctity",
+        "worship", "banishing-light", "ivory-tower", "swords-to-plowshares",
+        "mirror-image", "crippling-chill", "ice-cage", "time-ebb",
+        "counterspell", "curse-of-the-swine", "glacial-fortress", "turn-to-frog",
+    ],
+    "skills_black_red": [
+        "deathtouch", "unholy-strength", "bone-splinters", "undying",
+        "animate-dead", "gravewalk", "demonic-pact", "bontus-monument",
+        "fling", "blood-frenzy", "powder-keg", "grapeshot",
+        "fork", "goblin-sharpshooter", "chain-lightning", "goblin-bombardment",
+    ],
+    "skills_green": [
+        "become-immense", "entangling-vines", "kraul-harpooner",
+        "awaken", "overrun", "call-of-the-herd",
+        "hornet-nest", "prey-upon", "rancor",
+    ],
 }
 # How far either side of a third the gutter is looked for, as a share of the sheet.
 SEARCH = 0.06
