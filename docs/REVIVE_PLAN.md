@@ -4,7 +4,9 @@ Reviving a downed teammate has, in practice, never worked: nobody sees where the
 lying, and whoever gets there and kneels for the channel is surrounded and killed - in this game
 standing still for three seconds is death, ranged enemies above all.
 
-Planned 2026-10-24, not implemented yet. Independent of the other plans.
+Planned and implemented 2026-10-24 (part 1): `scripts/downed_mark.gd` draws the mark,
+`Minimap._draw` and `TeamFrames` use it, `Player.down_total` is what the countdown empties from;
+test `tools/tests/team_frames.tscn`.
 
 ## What exists
 

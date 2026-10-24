@@ -69,6 +69,11 @@ var _local_ready: bool = false
 var _ready_peers: Dictionary = {}
 ## peer ids that have already voted on a colour, so nobody votes twice.
 var _voters: Dictionary = {}
+## What the myrs did in the wave just finished (docs/MYR_GUARDS_PLAN.md): one line under the
+## header, worked out on every peer from the myrs' replicated stats and the Graveyard, against
+## the totals at the previous Upkeep.
+var _myr_summary: Label
+var _myr_snapshot: Dictionary = {"mana": 0, "fled": 0, "dead": {}}
 
 
 func _ready() -> void:
@@ -112,6 +117,7 @@ func _on_upkeep_started(duration: float) -> void:
 	_local_ready = false
 	_ready_peers.clear()
 	_voters.clear()
+	_summarise_myrs()
 	show()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_refresh()
@@ -121,6 +127,51 @@ func _on_upkeep_started(duration: float) -> void:
 	get_tree().create_timer(0.5).timeout.connect(func() -> void:
 		if _active and is_instance_valid(_ready_button) and get_viewport().gui_get_focus_owner() == null:
 			_ready_button.grab_focus())
+
+
+## The myrs' line for the wave just finished: the mana they brought home, how often they had
+## to run, and who fell. Hidden when they did nothing at all - a run with no myrs yet.
+func _summarise_myrs() -> void:
+	var now: Dictionary = myr_totals()
+	var mana: int = int(now["mana"]) - int(_myr_snapshot["mana"])
+	var fled: int = int(now["fled"]) - int(_myr_snapshot["fled"])
+	var fallen: PackedStringArray = PackedStringArray()
+	var dead: Dictionary = now["dead"]
+	for record_id: int in dead:
+		if not (_myr_snapshot["dead"] as Dictionary).has(record_id):
+			fallen.append(String(dead[record_id]))
+	_myr_snapshot = now
+	var parts: PackedStringArray = PackedStringArray()
+	if mana > 0:
+		parts.append("brought home %d mana" % mana)
+	if fled > 0:
+		parts.append("ran from danger %d time%s" % [fled, "" if fled == 1 else "s"])
+	if not fallen.is_empty():
+		parts.append("lost " + ", ".join(fallen))
+	if _myr_summary != null:
+		_myr_summary.text = "Myrs last wave: " + "; ".join(parts) if not parts.is_empty() else ""
+		_myr_summary.visible = not parts.is_empty()
+
+
+## Everything the myrs have done this run, the living and the Graveyard together - a returned
+## myr carries its stats back out, so nothing is counted twice.
+func myr_totals() -> Dictionary:
+	var mana: int = 0
+	var fled: int = 0
+	for myr: Node in get_tree().get_nodes_in_group("myrs"):
+		if bool(myr.get("is_dying")):
+			continue
+		mana += int(myr.get("mana_delivered"))
+		fled += int(myr.get("times_fled"))
+	var dead: Dictionary = {}
+	for record: Dictionary in RunState.graveyard:
+		mana += int(record.get("mana_delivered", 0))
+		fled += int(record.get("times_fled", 0))
+		var shown: String = String(record.get("name", ""))
+		if shown.strip_edges() == "":
+			shown = String(Myr.ROLE_NAMES.get(String(record.get("role", Myr.ROLE_WORKER)), "Myr"))
+		dead[int(record.get("id", 0))] = shown
+	return {"mana": mana, "fled": fled, "dead": dead}
 
 
 ## Ends Upkeep and starts the next wave. Any proposal still open simply lapses and its
@@ -202,7 +253,7 @@ func _request_myr() -> void:
 		return
 	var main_controller: Node = get_tree().current_scene
 	if main_controller != null and main_controller.has_method("spawn_myr"):
-		main_controller.spawn_myr()
+		main_controller.spawn_myr({"invested": GameSettings.myr_mana_cost})
 	_announce("Built a myr for %d" % GameSettings.myr_mana_cost)
 
 
@@ -491,6 +542,14 @@ func _build_ui() -> void:
 	_timer_label.add_theme_font_size_override("font_size", 18)
 	_timer_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.3))
 	header.add_child(_timer_label)
+
+	_myr_summary = Label.new()
+	_myr_summary.name = "MyrSummary"
+	_myr_summary.add_theme_font_size_override("font_size", 13)
+	_myr_summary.add_theme_color_override("font_color", Color(0.72, 0.86, 0.95))
+	_myr_summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_myr_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rows.add_child(_myr_summary)
 
 	# --- the items ------------------------------------------------------------
 	_shop_rows = HBoxContainer.new()

@@ -871,14 +871,23 @@ func _spawn_enemy(data: Variant) -> Node:
 	return enemy
 
 
-func spawn_myr() -> Node3D:
+## `data` is what the myr is built from, on every peer: its kind ("role") and, for one returned
+## from the Graveyard, the rest of its Myr.record(). A new one gets a fresh id here.
+func spawn_myr(data: Dictionary = {}) -> Node3D:
 	if not Net.is_server():
 		return null
 	# Enforced here rather than only on the button, so nothing else in the game can route
 	# around the cap by calling this directly.
-	if myr_count() >= GameSettings.myr_max_count:
+	var role: String = String(data.get("role", Myr.ROLE_WORKER))
+	if role == Myr.ROLE_WORKER and myr_count() >= GameSettings.myr_max_count:
 		return null
-	return $MyrNetSpawner.spawn({}) as Node3D
+	if role != Myr.ROLE_WORKER and guard_count() >= mana_sources.size():
+		return null
+	var args: Dictionary = data.duplicate()
+	args["role"] = role
+	if int(args.get("id", 0)) <= 0:
+		args["id"] = RunState.next_myr_id()
+	return $MyrNetSpawner.spawn(args) as Node3D
 
 
 ## The persistent half of a spell: zones, walls, summons and telegraphs.
@@ -1037,10 +1046,59 @@ static func _build_bolt_telegraph(radius: float, delay: float) -> Node3D:
 ## MyrNetSpawner keeps identical on every peer.
 func request_build_myr() -> void:
 	if Net.is_server():
-		if RunState.spend({"Colorless": GameSettings.myr_mana_cost}):
-			spawn_myr()
+		if myr_count() < GameSettings.myr_max_count and RunState.spend({"Colorless": GameSettings.myr_mana_cost}):
+			spawn_myr({"invested": GameSettings.myr_mana_cost})
 	else:
 		_rpc_build_myr.rpc_id(1)
+
+
+## A Myr Enforcer or a Lodestone Myr (docs/MYR_GUARDS_PLAN.md). Built unassigned, like a worker;
+## the base screen gives it a lane that has no guard yet.
+func request_build_guard(role: String) -> void:
+	if Net.is_server():
+		if role != Myr.ROLE_ENFORCER and role != Myr.ROLE_LODESTONE:
+			return
+		if guard_count() >= mana_sources.size():
+			return
+		var cost: int = guard_cost(role)
+		if RunState.spend({"Colorless": cost}):
+			spawn_myr({"role": role, "invested": cost})
+	else:
+		_rpc_build_guard.rpc_id(1, role)
+
+
+## What a guard costs right now. The Enforcer has affinity for artifacts: one less for every
+## worker myr standing, never below its floor.
+func guard_cost(role: String) -> int:
+	if role == Myr.ROLE_ENFORCER:
+		return maxi(GameSettings.myr_enforcer_cost_min, GameSettings.myr_enforcer_cost - myr_count())
+	return GameSettings.myr_lodestone_cost
+
+
+## Brings a myr back from the Graveyard (RunState.graveyard) at its full level, with its name
+## and stats, to its old lane if that will still have it.
+func request_return_myr(record_id: int) -> void:
+	if not Net.is_server():
+		_rpc_return_myr.rpc_id(1, record_id)
+		return
+	var record: Dictionary = RunState.graveyard_record(record_id)
+	if record.is_empty() or not can_return_myr(record):
+		return
+	if not RunState.spend({"Colorless": RunState.return_cost(record)}):
+		return
+	RunState.unbury(record_id)
+	var myr: Node3D = spawn_myr(record)
+	var lane: int = int(record.get("lane", -1))
+	if myr != null and lane >= 0:
+		_apply_myr_lane(myr, lane)
+
+
+## Whether there is room for `record` to come back: under the workers' cap, or - for a guard -
+## under the guards' (one per lane).
+func can_return_myr(record: Dictionary) -> bool:
+	if String(record.get("role", Myr.ROLE_WORKER)) == Myr.ROLE_WORKER:
+		return myr_count() < GameSettings.myr_max_count
+	return guard_count() < mana_sources.size()
 
 
 func request_myr_level(myr: Node3D) -> void:
@@ -1066,12 +1124,21 @@ func request_myr_name(myr: Node3D, display_name: String) -> void:
 func _apply_myr_level(myr: Node3D) -> void:
 	if myr == null or myr.level >= GameSettings.myr_max_level:
 		return
-	if RunState.spend({"Colorless": GameSettings.myr_level_cost * (myr.level + 1)}):
+	var cost: int = GameSettings.myr_level_cost * (myr.level + 1)
+	if RunState.spend({"Colorless": cost}):
+		myr.invested += cost
 		myr.set_level(myr.level + 1)
 
 
 func _apply_myr_lane(myr: Node3D, lane: int) -> void:
 	if myr == null or lane < 0 or lane >= mana_sources.size():
+		return
+	# A guard holds no well slot; a lane has room for one guard.
+	if myr.is_guard():
+		var holder: Node3D = lane_guard(lane)
+		if holder != null and holder != myr:
+			return
+		myr.assign_lane(lane, mana_sources[lane])
 		return
 	# The well caps how many Myrs can work it at once; sending a sixth is what wedged
 	# them against the model, so the assignment is refused before it starts.
@@ -1095,6 +1162,18 @@ func _rpc_build_myr() -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
+func _rpc_build_guard(role: String) -> void:
+	if Net.is_server():
+		request_build_guard(role)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_return_myr(record_id: int) -> void:
+	if Net.is_server():
+		request_return_myr(record_id)
+
+
+@rpc("any_peer", "call_remote", "reliable")
 func _rpc_myr_level(myr_name: String) -> void:
 	if Net.is_server():
 		_apply_myr_level(_myr_by_name(myr_name))
@@ -1113,10 +1192,27 @@ func _rpc_myr_name(myr_name: String, display_name: String) -> void:
 		myr.display_name = display_name.left(18)
 
 
-## Myrs alive right now. The group is the roster - there is no separate list to keep in
-## step with it.
+## Worker myrs alive right now - what the cap counts. The group is the roster - there is no
+## separate list to keep in step with it; the guards are in it too, and are not counted.
 func myr_count() -> int:
-	return get_tree().get_nodes_in_group("myrs").size()
+	var count: int = 0
+	for myr: Node in get_tree().get_nodes_in_group("myrs"):
+		if not myr.is_guard():
+			count += 1
+	return count
+
+
+## Guards alive right now (docs/MYR_GUARDS_PLAN.md) - one per lane at most.
+func guard_count() -> int:
+	return get_tree().get_nodes_in_group("myr_guards").size()
+
+
+## The living guard holding `lane`, or null.
+func lane_guard(lane: int) -> Node3D:
+	for guard: Node in get_tree().get_nodes_in_group("myr_guards"):
+		if int(guard.get("lane_index")) == lane and not bool(guard.get("is_dying")):
+			return guard as Node3D
+	return null
 
 
 ## Claims a harvest slot at `lane_index`'s well for `myr`, and hands the Myr the
@@ -1163,7 +1259,7 @@ func well_slot_count(lane_index: int) -> int:
 	if not Net.is_server():
 		var count: int = 0
 		for myr: Node in get_tree().get_nodes_in_group("myrs"):
-			if int(myr.get("lane_index")) == lane_index:
+			if int(myr.get("lane_index")) == lane_index and not myr.is_guard():
 				count += 1
 		return count
 	var holders: Array = _well_slot_holders.get(lane_index, [])
@@ -1185,12 +1281,17 @@ func _well_slot_offset(lane_index: int, slot_index: int) -> Vector3:
 	return offset
 
 
-func _spawn_myr(_data: Variant) -> Node:
+func _spawn_myr(data: Variant) -> Node:
 	if myr_scene == null:
 		return null
+	var info: Dictionary = data if data is Dictionary else {}
 	var myr: Node3D = myr_scene.instantiate()
 	myr.position = crystal_anchor.global_position + Vector3(0, 0.5, 0)
 	myr.set_meta("target_crystal", crystal_anchor)
+	# Its kind and - returned from the Graveyard - who it was, on every peer from the same
+	# arguments, before _ready reads them.
+	myr.set_meta("myr_role", String(info.get("role", Myr.ROLE_WORKER)))
+	myr.apply_record(info)
 	return myr
 
 

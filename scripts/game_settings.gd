@@ -2489,6 +2489,9 @@ const ENCHANTMENT_DESCRIPTIONS: Dictionary = {
 ## notices it (enemy_melee_detection_range), so it is gone before it is seen. Any enemy that
 ## has already picked it as its target sends it running from any distance (the ranged ones).
 @export var myr_flee_radius: float = 20.0
+## A wild beast is only run from this close - its own aggro radius and this margin - since it
+## keeps to its home and only goes for what comes near it.
+@export var myr_beast_flee_margin: float = 5.0
 ## ...and it goes back to work once nothing hostile has been inside THIS for myr_return_delay
 ## seconds. A second, wider radius so it does not dither on the edge of the first.
 @export var myr_return_radius: float = 28.0

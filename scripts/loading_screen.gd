@@ -184,5 +184,7 @@ func _tip() -> String:
 		"Hold block to take hits on your guard - you move slower while you do.",
 		"Nights are dark. The crystal's light and your spells are what you see by.",
 		"Myrs work the mana wells for you. Build them at the base by the crystal.",
+		"A guard myr at a well keeps its workers alive - they run behind it when enemies come.",
+		"A fallen myr goes to the Graveyard. Bring it back from the base at its level for a third of what it cost.",
 	]
 	return "TIP  -  " + tips[randi() % tips.size()]

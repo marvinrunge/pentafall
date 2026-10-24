@@ -6,7 +6,11 @@ all of it out loud. This plan puts that voice into the game: a little starting m
 short list of first objectives on the HUD, Minecraft-advancement style, that walks a player
 through the economy one step at a time.
 
-Planned 2026-10-24, not implemented yet. Independent of the other plans; the objectives that
+Planned and implemented 2026-10-24: `GameSettings.run_starting_mana_per_color`,
+`scripts/objective_database.gd` (the chain), `scripts/objective_tracker.gd` (the HUD list),
+`SignalBus.objective_progress` (raised where the local player acts), `UserSettings.show_objectives`
+/ `objectives_done`, and First Steps in the options' Gameplay tab; test
+`tools/tests/objectives.tscn`. Independent of the other plans; the objectives that
 need them (guards, revive) are simply added when those exist.
 
 ## 1. Starting mana

@@ -74,6 +74,8 @@ signal mission_announced(objective: String)
 ## This machine's own player did something a first-steps objective asks for (ObjectiveDatabase
 ## id). Raised only where the local player acted, so a teammate's action never ticks it.
 signal objective_progress(objective_id: String)
+## A myr went into the Graveyard or came back out of it (RunState.graveyard), on any peer.
+signal graveyard_changed()
 ## `label` overrides the formatted number when it is not empty - "Fogged", "Warded". The
 ## floating number is how this game says "something happened here", and a few effects have
 ## something to say that is not a quantity. One signal rather than a second parallel one, so

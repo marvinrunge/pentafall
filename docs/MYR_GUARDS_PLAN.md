@@ -5,6 +5,9 @@ Myrs are the team's economy and they cannot defend themselves. A myr spends ~112
 a lane, and anything that wanders past kills it. Solo, they die before their second trip
 and never pay for themselves; a levelled one takes its whole investment with it.
 
+Implemented 2026-10-24 - see "As built" at the end for where each part lives and where it
+differs from the plan. Test: `tools/tests/myr_guards.tscn`.
+
 This plan keeps myrs fully autonomous - assigned and watched from the base, never steered -
 and makes them worth building by keeping them alive and making a death recoverable.
 
@@ -135,3 +138,29 @@ Each step gets a test under `tools/tests/`, like the other systems.
 
 - A **relay** halfway down a lane: myrs deposit there, the mana flows on. Halves the walk.
 - A **solo** adjustment to myr health or cost.
+
+## As built (2026-10-24)
+
+- **Where:** all in `scripts/myr.gd` - a myr has a `role` (`worker`, `enforcer`, `lodestone`),
+  set from its spawn arguments. Workers flee (`_update_danger`, `State.FLEEING`); guards guard
+  (`_guard_process`, `State.GUARDING` / `FIGHTING`). `MainController` builds, assigns and returns
+  them (`request_build_guard`, `guard_cost`, `request_return_myr`, `lane_guard`); `RunState` holds
+  the Graveyard (`bury`, `unbury`, `return_cost`) and sends it to every peer with the rest of the
+  run's state. The base screen (`BaseUI`) has the two guard buttons, a stats column and the
+  Graveyard; the Upkeep panel has the myrs' line for the last wave (`UpkeepPanel._summarise_myrs`).
+- **Guards are myrs, not TemporaryAllies.** The plan said to reuse `TemporaryAlly`'s combat. A
+  guard turned out to share far more with a worker - lane, level, name, stats, the Graveyard, the
+  base screen's row, the enchantments, the synchroniser - than with a summon, and its combat
+  (walk up, swing on an interval, walk back) is a few dozen lines. So it is a myr with a role.
+  Guards are in the `myrs` group as well as `myr_guards`: enemies go for them, heals and shields
+  reach them. The worker cap (`myr_count`) and the wells' slots do not count them.
+- **Returning** works from the base screen at any time, like building a myr, not only at Upkeep.
+- **Guards level** like workers: +`myr_level_hp_bonus` health and +`myr_guard_level_damage_bonus`
+  damage per level.
+- **A wild beast** is only run from when it comes within its own aggro radius plus
+  `myr_beast_flee_margin`, or goes for the myr - one living near a well would otherwise keep that
+  well's myrs off it for good.
+- **Placeholders:** a guard is its lane's myr model, scaled up (`myr_enforcer_scale`,
+  `myr_lodestone_scale`) and lit in its own colour (`Myr.ROLE_TINTS`); its blow plays the harvest
+  clip, faster. Both go when the real models and an attack clip arrive (step 5).
+

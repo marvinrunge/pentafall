@@ -54,7 +54,9 @@ mana at Upkeep. If the crystal falls, the run is over.
   enchantments and extra skill points at Upkeep. In a team, enchantments need a majority
   vote.
 - **Myrs.** Little workers that harvest the mana wells for you. Build them at the base
-  beside the crystal.
+  beside the crystal. They run from danger, behind a guard myr - a Myr Enforcer or a
+  Lodestone Myr - if their lane has one. A fallen myr goes to the Graveyard and can be
+  brought back at its level.
 - **A boss every fifth wave.** The Paladin, Frost Giant, Zombie Lord, Fire Giant and
   Treant each fight in three phases. Every attack is marked on the ground before it
   lands, and bosses drop equipment for the whole team.

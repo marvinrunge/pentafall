@@ -64,6 +64,16 @@ var equipment_unlocked: Array[String] = []
 
 const EquipmentDatabase := preload("res://scripts/equipment_database.gd")
 
+# --- the Graveyard ------------------------------------------------------------
+
+## Every myr that has died this run and not been returned, as Myr.record() - its name, level,
+## lane, kind and stats. The base screen lists it; a myr is returned from it for a share of what
+## it cost (return_cost). Held here because it is the team's, outlives every myr in it, and has
+## to reach every peer and a late joiner like the rest of the run's state.
+var graveyard: Array = []
+## The next Myr.record_id. Server only.
+var _next_myr_id: int = 1
+
 
 ## Set whenever the server changes anything, cleared when the change goes out. Kills
 ## arrive far faster than a UI can read, so the pool is flushed at a fixed rate instead
@@ -81,13 +91,17 @@ func _process(delta: float) -> void:
 		return
 	_flush_timer = GameSettings.run_state_sync_interval
 	_dirty = false
-	_apply_state.rpc(team_xp, team_level, mana_pool, enchantments, points_awarded, equipment_unlocked)
+	_apply_state.rpc(team_xp, team_level, mana_pool, enchantments, points_awarded, equipment_unlocked, graveyard)
 
 
 ## The whole economy in one message. Small enough that sending it entire is cheaper than
 ## working out which field moved, and it cannot drift the way incremental updates can.
 @rpc("authority", "call_remote", "reliable")
-func _apply_state(xp: float, level: int, pool: Dictionary, ench: Dictionary, awarded: int = 0, equipment: Array = []) -> void:
+func _apply_state(xp: float, level: int, pool: Dictionary, ench: Dictionary, awarded: int = 0, equipment: Array = [],
+		buried: Array = []) -> void:
+	if buried != graveyard:
+		graveyard = buried
+		SignalBus.graveyard_changed.emit()
 	team_xp = xp
 	team_level = level
 	mana_pool = pool
@@ -114,7 +128,7 @@ func _apply_state(xp: float, level: int, pool: Dictionary, ench: Dictionary, awa
 func push_state_to(peer_id: int) -> void:
 	if not Net.is_active() or not Net.is_server():
 		return
-	_apply_state.rpc_id(peer_id, team_xp, team_level, mana_pool, enchantments, points_awarded, equipment_unlocked)
+	_apply_state.rpc_id(peer_id, team_xp, team_level, mana_pool, enchantments, points_awarded, equipment_unlocked, graveyard)
 
 
 func reset() -> void:
@@ -125,9 +139,58 @@ func reset() -> void:
 		mana_pool[color] = GameSettings.run_starting_mana_per_color
 		enchantments[color] = 0
 	equipment_unlocked.clear()
+	graveyard.clear()
+	_next_myr_id = 1
+	SignalBus.graveyard_changed.emit()
 	SignalBus.mana_changed.emit(mana_pool)
 	SignalBus.team_level_changed.emit(team_level, 0)
 	SignalBus.equipment_unlocked_changed.emit("")
+
+
+# --- the Graveyard ------------------------------------------------------------
+
+## A new Myr.record_id. Server only.
+func next_myr_id() -> int:
+	var id: int = _next_myr_id
+	_next_myr_id += 1
+	return id
+
+
+## A myr died: into the Graveyard with what it was. Server only, from Myr.die().
+func bury(record: Dictionary) -> void:
+	if not Net.is_server():
+		return
+	graveyard.append(record)
+	_dirty = true
+	SignalBus.graveyard_changed.emit()
+
+
+## Takes a myr out of the Graveyard to be returned, or {} when it is not there. Server only.
+func unbury(record_id: int) -> Dictionary:
+	if not Net.is_server():
+		return {}
+	for index: int in graveyard.size():
+		if int(graveyard[index].get("id", 0)) == record_id:
+			var record: Dictionary = graveyard[index]
+			graveyard.remove_at(index)
+			_dirty = true
+			SignalBus.graveyard_changed.emit()
+			return record
+	return {}
+
+
+func graveyard_record(record_id: int) -> Dictionary:
+	for record: Dictionary in graveyard:
+		if int(record.get("id", 0)) == record_id:
+			return record
+	return {}
+
+
+## What returning `record` from the Graveyard costs, colourless: a share of everything put into
+## it, never less than a new myr - so levelling one is never money lost to a single bad wave.
+static func return_cost(record: Dictionary) -> int:
+	var share: int = roundi(float(record.get("invested", 0)) * GameSettings.myr_return_cost_fraction)
+	return maxi(GameSettings.myr_mana_cost, share)
 
 
 # --- equipment ----------------------------------------------------------------

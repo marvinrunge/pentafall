@@ -1,6 +1,8 @@
 # Last Stand Plan
 
-Two changes to the end and the noise of a wave. Planned 2026-10-24, not implemented yet.
+Two changes to the end and the noise of a wave. Planned and implemented 2026-10-24: the trigger
+in `WaveManager._check_last_stand`, the reveal in `EnemyBase.revealed` and `Minimap._draw`, the
+unstick in `EnemyBase._check_storm_stuck`; test `tools/tests/last_stand.tscn`.
 
 1. **Last Stand** - the end of a wave is triggered by how much of it has been killed, not
    only by the clock. The last few enemies storm the crystal and are revealed on the
