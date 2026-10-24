@@ -83,10 +83,11 @@ With them goes what only they used: `_announce_group`, `_on_warband_charged`, `_
 
 ### Kept
 
-- The Last Stand line, if wanted (open question 1), replacing `"TIME'S UP - THE WAVE STORMS
-  THE CRYSTAL"`. Without it, `_announce` and `_net_announce` go too.
+- One short Last Stand line, `"THE WAVE MAKES ITS LAST STAND"`, replacing `"TIME'S UP - THE
+  WAVE STORMS THE CRYSTAL"` (so `_announce` and `_net_announce` stay). The time-limit storm
+  keeps its own wording.
 - Level-ups, equipment found, the mission, "Wave n begins / cleared", Upkeep, game over.
-- Boss phase banners (`"FIRE GIANT - KINDLED"`), unless open question 2 says otherwise.
+- Boss phase banners (`"FIRE GIANT - KINDLED"`).
 
 ### Also to touch
 
@@ -110,8 +111,8 @@ With them goes what only they used: `_announce_group`, `_on_warband_charged`, `_
 a few runs and drawn onto the map, they would show whether it is always the same stone or the
 same patch of forest, and the navmesh could be fixed exactly there.
 
-## Open questions
+## Decided (2026-10-24)
 
-1. Does the Last Stand get one short line ("THE WAVE MAKES ITS LAST STAND"), or none at all?
-2. Do the boss phase banners stay?
-3. 15% and at most 10 - right numbers?
+1. The Last Stand gets one short line on the banner and in the log.
+2. Boss phase banners stay.
+3. 15% of the wave, at most 10 enemies.
