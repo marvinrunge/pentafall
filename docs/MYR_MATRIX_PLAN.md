@@ -17,7 +17,7 @@ Three options were on the table:
 | Cost | hides the crystal, the one thing everybody looks at | one model, one spot | many assets; the stone ring is gameplay (Awaken, Vine Harpoon) and stays |
 | Job | decoration | the myr workshop | decoration |
 
-**Recommendation: standing at the hub**, a few metres beside the crystal, inside the stone ring
+**Not decided yet** - left to look at in the editor. The recommendation is **standing at the hub**, a few metres beside the crystal, inside the stone ring
 and out of the lanes' way. The crystal keeps floating free as the objective; the Matrix becomes
 the place the myrs belong to. The full Mirrodin hub stays a later, optional step.
 
@@ -71,5 +71,8 @@ colour - exactly what the crystal does with the team's pool.
 
 ## Open questions
 
-1. Standing at the hub (recommended) or floating over the crystal?
-2. Does the crystal get a name - Mirrodin's Core?
+1. Standing at the hub or floating over the crystal - to be looked at in the editor.
+
+## Decided (2026-10-24)
+
+- The crystal keeps its name for now; Mirrodin's Core is only noted as an option.

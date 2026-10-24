@@ -71,7 +71,10 @@ tick the newcomer's list for them. Team purchases count for the player who click
 4. Objectives 7 and 8 as their features land.
 5. A test: the chain advances on the right signals and never on a teammate's action.
 
+## Decided (2026-10-24)
+
+1. Objectives are **per player**.
+
 ## Open questions
 
-1. Per player (recommended) or one shared team list?
-2. Anything missing from the chain - equipping an item, killing an elite, visiting a guild camp?
+1. Anything missing from the chain - equipping an item, killing an elite, visiting a guild camp?

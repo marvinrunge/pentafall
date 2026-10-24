@@ -29,7 +29,11 @@ Planned 2026-10-24, not implemented yet. Independent of the other plans.
 - **One line** on the banner and in the log: *"Anna is down!"* - the one announcement worth the
   noise, because it asks for something.
 
-## 2. Surviving the channel
+## 2. Surviving the channel - not now
+
+**Decided 2026-10-24: nothing is built for this for now.** Finding the downed teammate comes
+first; the idea below stays here in case testing shows it is still needed.
+
 
 A **Revive Ward**, for everyone, no skill or enchantment needed - reviving is basic teamwork and
 should work without a build behind it:
@@ -53,10 +57,9 @@ area to kite them off first stays a real choice.
 1. Minimap mark with the countdown ring.
 2. Edge arrows.
 3. The "is down" line.
-4. The Revive Ward.
-5. A test: the ward pushes, reduces and drops at the right moments, and only while channelling.
+4. A test: the mark and the arrow appear for a downed teammate, count down, and go when they
+   are up or respawned.
 
 ## Open questions
 
-1. Is 50% the right reduction, or should the helper be untouchable for the 3 seconds?
-2. The "is down" line - wanted, given the cut to announcements?
+1. The "is down" line - wanted, given the cut to announcements?
