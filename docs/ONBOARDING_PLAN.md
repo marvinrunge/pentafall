@@ -74,7 +74,4 @@ tick the newcomer's list for them. Team purchases count for the player who click
 ## Decided (2026-10-24)
 
 1. Objectives are **per player**.
-
-## Open questions
-
-1. Anything missing from the chain - equipping an item, killing an elite, visiting a guild camp?
+2. No further objectives for now - the chain above is the whole list.

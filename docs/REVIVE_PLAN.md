@@ -17,17 +17,21 @@ Planned 2026-10-24, not implemented yet. Independent of the other plans.
   skill **Rally the Fallen** revives from range. So the enchantment that helps reviving exists -
   it is black's, not white's.
 - The minimap draws every player as the same green arrow, downed or not.
+- `TeamFrames` shows each teammate's class head with a health ring; downed, the head is greyed
+  and the ring counts down the seconds left.
 
 ## 1. Finding them
 
 - **Minimap:** a downed teammate is drawn as its own mark - a pulsing white-and-red cross with a
   ring around it that empties as `down_timer` runs out. Drawn through the fog: a teammate is
   always known.
-- **Screen edge:** an arrow at the edge of the screen pointing at each downed teammate off
-  screen, with the distance in metres and the same emptying ring. A small reusable HUD piece
-  (`EdgeMarker`), so the Last Stand reveal can use it too if wanted.
-- **One line** on the banner and in the log: *"Anna is down!"* - the one announcement worth the
-  noise, because it asks for something.
+- **Team frames:** the column of teammates down the left edge (`TeamFrames`) already greys a
+  downed teammate's head and turns its ring into the countdown - too quietly to be noticed in a
+  fight. A downed frame now **pulses**, carries the same cross as the minimap mark, and shows the
+  distance to them in metres underneath.
+
+No screen-edge arrows and no "is down" line on the banner or in the log (decided 2026-10-24):
+the map and the frames are enough.
 
 ## 2. Surviving the channel - not now
 
@@ -55,11 +59,6 @@ area to kite them off first stays a real choice.
 ## Order
 
 1. Minimap mark with the countdown ring.
-2. Edge arrows.
-3. The "is down" line.
-4. A test: the mark and the arrow appear for a downed teammate, count down, and go when they
+2. The pulsing team frame with cross and distance.
+3. A test: mark and frame highlight appear for a downed teammate, count down, and go when they
    are up or respawned.
-
-## Open questions
-
-1. The "is down" line - wanted, given the cut to announcements?
