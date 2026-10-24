@@ -83,9 +83,9 @@ With them goes what only they used: `_announce_group`, `_on_warband_charged`, `_
 
 ### Kept
 
-- One short Last Stand line, `"THE WAVE MAKES ITS LAST STAND"`, replacing `"TIME'S UP - THE
-  WAVE STORMS THE CRYSTAL"` (so `_announce` and `_net_announce` stay). The time-limit storm
-  keeps its own wording.
+- One short Last Stand line, `"THE WAVE MAKES ITS LAST STAND"`, when the kill threshold starts
+  the storm. A storm started by the time limit keeps `"TIME'S UP - THE WAVE STORMS THE
+  CRYSTAL"`. So `_announce` and `_net_announce` stay.
 - Level-ups, equipment found, the mission, "Wave n begins / cleared", Upkeep, game over.
 - Boss phase banners (`"FIRE GIANT - KINDLED"`).
 
