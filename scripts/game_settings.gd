@@ -1567,8 +1567,7 @@ func ring_investment_requirement(ring: int) -> int:
 # ============================================================
 # WAVES
 # ============================================================
-## Pause before the first battle group of a wave lands, which is also how long the player
-## has to read its warning banner.
+## Pause before the first battle group of a wave lands.
 @export var wave_initial_warning_time: float = 2.5
 ## Superseded by upkeep_duration - kept only as the pause before the very first wave.
 @export var wave_rest_period: float = 3.0
@@ -1592,6 +1591,21 @@ func ring_investment_requirement(ring: int) -> int:
 @export var wave_storm_speed_mult: float = 1.35
 ## The HUD shows the countdown for the last this-many seconds of the limit.
 @export var wave_deadline_warning: float = 30.0
+## The Last Stand (WaveManager._check_last_stand): once the whole wave is on the map and no more
+## than this share of it is left standing - and never more than `max_remaining` - what is left
+## storms the crystal at once and is revealed on the minimap, instead of hiding in the fog until
+## the time limit. Wave 1 (15 enemies) stands at 3 left; a late wave at 10.
+@export var wave_last_stand_fraction: float = 0.15
+@export var wave_last_stand_max_remaining: int = 10
+## A storming enemy that has stood still this long, away from the crystal, is caught on
+## something (a standing stone, a trunk) and is moved on along its way - see
+## EnemyBase._check_storm_stuck. Never killed: a kill nobody made would pay the team for nothing.
+@export var enemy_storm_stuck_seconds: float = 3.0
+## How far from the crystal a storming enemy may stand still without counting as stuck - the
+## ones at the crystal are standing there to hit it.
+@export var enemy_storm_stuck_crystal_distance: float = 14.0
+## How far along its path a stuck stormer is put.
+@export var enemy_storm_unstick_distance: float = 4.0
 
 
 ## The time limit of wave `wave_number` (1-based), seconds.
@@ -2300,6 +2314,10 @@ func wave_time_limit(wave_number: int) -> float:
 ## a rounding error, which is the opposite of the intent. What is left pays out only for
 ## the kills that were worth making - and pays visibly, see RunState.on_enemy_killed.
 @export var mana_per_basic: int = 0
+## What the pool starts a run with, in EVERY colour (docs/ONBOARDING_PLAN.md). One of each
+## rather than a lump of one: the five colours are in the pool from the first second, and a
+## myr costs colourless, so it still buys two - the first objective, before any elite has died.
+@export var run_starting_mana_per_color: int = 1
 @export var mana_per_elite: int = 4
 @export var mana_per_boss: int = 25
 ## A wild beast at 1x, in its biome's colour; grows with size like its XP. Which biome the team
@@ -2381,8 +2399,7 @@ func wave_time_limit(wave_number: int) -> float:
 ## the bosses now, and nothing else, so what a stack is worth can be read off the row.
 @export var enchantment_green_boss_mana: float = 0.15
 
-## The colour each lane reads as on screen. Same values the lane-warning banners use
-## (WaveManager._get_lane_color), lifted here so anything that has to tint itself by lane -
+## The colour each lane reads as on screen, here so anything that has to tint itself by lane -
 ## a loaded myr's glow, a banner, a well - can agree without copying them again.
 const LANE_TINTS: Dictionary = {
 	"White": Color(0.95, 0.95, 0.85),
@@ -2463,6 +2480,74 @@ const ENCHANTMENT_DESCRIPTIONS: Dictionary = {
 ## How far from the well's centre the harvest slots sit. Far enough that five bodies
 ## never overlap each other or the well's own collision.
 @export var myr_well_slot_radius: float = 2.3
+
+# --- Fleeing (docs/MYR_GUARDS_PLAN.md) --------------------------------------------------
+# A worker cannot fight, and at 2 m/s it cannot outrun anything either - so it leaves early.
+# Behind its lane's guard if it has a living one, home to the crystal if not; a loaded one
+# simply runs the rest of the way home and delivers.
+## A hostile enemy closer than this sends a worker running - further out than a melee enemy
+## notices it (enemy_melee_detection_range), so it is gone before it is seen. Any enemy that
+## has already picked it as its target sends it running from any distance (the ranged ones).
+@export var myr_flee_radius: float = 20.0
+## ...and it goes back to work once nothing hostile has been inside THIS for myr_return_delay
+## seconds. A second, wider radius so it does not dither on the edge of the first.
+@export var myr_return_radius: float = 28.0
+@export var myr_return_delay: float = 3.0
+## How much faster than its walk a fleeing myr runs.
+@export var myr_flee_speed_mult: float = 1.5
+## How often a myr looks around for danger, seconds. Server only.
+@export var myr_danger_check_interval: float = 0.25
+## A guard below this share of its health is no shelter; the workers run home instead.
+@export var myr_guard_shelter_min_health: float = 0.25
+## How far behind its guard - on the side away from the threat - a sheltering worker stands.
+@export var myr_guard_shelter_distance: float = 2.5
+
+# --- Guards ------------------------------------------------------------------------------
+# Myrs that do not harvest: assigned a lane like a worker, they stand at its well and take on
+# what threatens the workers there. At most one per lane, on a cap of their own (one per lane),
+# never in the ten workers' or the wells' slots. Bodyguards, not a defensive line: leashed to
+# their post, tuned for a few enemies and not a squad, and a storming wave walks past them.
+## How far from its post a guard will go after something, and how far the post stands from
+## the well, out towards where the enemies come from.
+@export var myr_guard_leash: float = 10.0
+@export var myr_guard_post_distance: float = 4.0
+## An enemy attacking one of the lane's workers is taken on this much further out than the leash.
+@export var myr_guard_rescue_leash_mult: float = 1.5
+@export var myr_guard_speed: float = 3.2
+## Reach of a guard's blow, from its centre, before its size is counted.
+@export var myr_guard_attack_range: float = 2.2
+## Extra damage per level past the first, as a share. Health grows by myr_level_hp_bonus, as
+## a worker's does.
+@export var myr_guard_level_damage_bonus: float = 0.15
+## Myr Enforcer: the tank and the shelter. Affinity for artifacts - it costs one less for every
+## worker myr the team has standing, never less than the floor.
+@export var myr_enforcer_hp: float = 250.0
+@export var myr_enforcer_damage: float = 12.0
+@export var myr_enforcer_attack_interval: float = 1.2
+@export var myr_enforcer_cost: int = 7
+@export var myr_enforcer_cost_min: int = 2
+## Enemies inside this that are attacking one of its workers are taunted onto the Enforcer,
+## through the same taunt Roar uses, for this long; re-applied while it fights.
+@export var myr_enforcer_taunt_radius: float = 8.0
+@export var myr_enforcer_taunt_duration: float = 3.0
+## How much bigger than a worker the placeholder model is drawn (the real one comes later).
+@export var myr_enforcer_scale: float = 1.5
+## Lodestone Myr: the fighter. Draws on the workers harvesting around it - a harvesting myr is
+## a tapped artifact - for more damage per blow, up to the cap.
+@export var myr_lodestone_hp: float = 120.0
+@export var myr_lodestone_damage: float = 20.0
+@export var myr_lodestone_attack_interval: float = 1.0
+@export var myr_lodestone_cost: int = 4
+@export var myr_lodestone_bonus_per_worker: float = 0.25
+@export var myr_lodestone_bonus_cap: float = 1.0
+@export var myr_lodestone_bonus_radius: float = 8.0
+@export var myr_lodestone_scale: float = 1.25
+
+# --- The Graveyard -----------------------------------------------------------------------
+## A dead myr - worker or guard - can be returned from the team's Graveyard for this share of
+## everything that was put into it (built and levelled), never less than a new myr. A maxed
+## worker (30 invested) comes back for 10.
+@export var myr_return_cost_fraction: float = 0.3333
 
 # ============================================================
 # PROJECTILES

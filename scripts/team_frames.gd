@@ -9,6 +9,10 @@ extends VBoxContainer
 ## host's VitalsSync, is_downed through _net_downed, and the down timer ticks on every peer
 ## (Player._physics_process), so a client's countdown runs with the host's. Solo there is
 ## nobody else, and the column is empty.
+##
+## A downed frame has to be noticed in the middle of a fight, so it does more than grey out: it
+## pulses, wears the same cross the minimap draws where they lie (DownedMark), and says how far
+## away they are.
 
 const IconStyle := preload("res://scripts/icon_style.gd")
 ## The stylised class heads, one per ClassDatabase id.
@@ -124,6 +128,7 @@ class _Frame:
 			_avatar.texture = load(path) as Texture2D if ResourceLoader.exists(path) else null
 		_name.text = String(player.call("display_name")) if player.has_method("display_name") else ""
 		var downed: bool = bool(player.get("is_downed"))
+		_ring.downed = downed
 		if downed:
 			var left: float = maxf(float(player.get("down_timer")), 0.0)
 			_down_total = maxf(_down_total, left)
@@ -131,8 +136,11 @@ class _Frame:
 			_ring.color = RING_DOWNED
 			_countdown.text = str(int(ceil(left)))
 			_countdown.visible = true
-			_avatar.modulate = DOWNED_TINT
-			_name.modulate = Color(1.0, 1.0, 1.0, 0.6)
+			_avatar.modulate = DOWNED_TINT.lerp(Color.WHITE, 0.35 * DownedMark.pulse())
+			_name.modulate = Color.WHITE
+			var distance: float = _distance_to(player)
+			if distance >= 0.0:
+				_name.text += "\n%d m" % int(round(distance))
 		else:
 			_down_total = 0.0
 			var max_hp: float = float(player.get("max_hp"))
@@ -143,6 +151,13 @@ class _Frame:
 			_name.modulate = Color.WHITE
 		_ring.queue_redraw()
 
+	## Metres from this machine's own player to `player`, or -1 when either has no position.
+	func _distance_to(player: Object) -> float:
+		var local: Node3D = PlayerRegistry.get_local()
+		if local == null or not (player is Node3D):
+			return -1.0
+		return local.global_position.distance_to((player as Node3D).global_position)
+
 
 ## The ring around a head: a dark track, and over it an arc from twelve o'clock clockwise
 ## that is as long as the share it is given - health, or the time left while down.
@@ -152,6 +167,8 @@ class _Ring:
 	var share: float = 1.0
 	var color: Color = RING_HEALTH
 	var width: float = RING_WIDTH
+	## Down: a pulsing halo outside the ring and the cross on its shoulder.
+	var downed: bool = false
 
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -163,3 +180,9 @@ class _Ring:
 		if share > 0.0:
 			var start: float = -PI * 0.5
 			draw_arc(centre, radius, start, start + TAU * share, maxi(8, int(64.0 * share)), color, width, true)
+		if downed:
+			var beat: float = DownedMark.pulse()
+			draw_arc(centre, radius + width * (1.0 + beat), 0.0, TAU, 64,
+				Color(DownedMark.CROSS_COLOR, 0.35 + 0.5 * beat), width, true)
+			var half: float = minf(size.x, size.y) * 0.17
+			DownedMark.draw_cross(self, Vector2(size.x - half, half), half)

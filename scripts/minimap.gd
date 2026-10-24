@@ -23,6 +23,10 @@ const SCOPE_COLORS: Dictionary = {
 	"Green": Color(0.45, 0.95, 0.4),
 }
 
+## The ring round a revealed enemy (one storming the crystal), and how fast it pulses.
+const REVEALED_COLOR := Color(1.0, 0.85, 0.35)
+const REVEALED_PULSE_HZ := 1.5
+
 const FOG_SHADER := preload("res://assets/shaders/minimap_fog.gdshader")
 ## The rounded corners' share of the side, as the picture had them (IconStyle.CORNER_RATIO).
 const FOG_CORNER_RATIO := 0.25
@@ -85,12 +89,16 @@ func _draw() -> void:
 	var local: Node = PlayerRegistry.get_local()
 	if local != null and local.has_method("equipment_value"):
 		scope = float(local.equipment_value("explorers_scope")) > 0.0
-	# Under the fog of war only what the team sees is drawn - Explorer's Scope's beasts aside.
+	# Under the fog of war only what the team sees is drawn - Explorer's Scope's beasts aside, and
+	# the enemies storming the crystal (EnemyBase.revealed): the last of a wave is never left for
+	# the team to hunt for in the fog.
 	var fog: Node = _fog()
+	var pulse: float = 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.001 * TAU * REVEALED_PULSE_HZ)
 	var enemies = get_tree().get_nodes_in_group("enemies")
 	for enemy in enemies:
 		var scoped: bool = scope and enemy is EnemyBase and (enemy as EnemyBase).is_beast()
-		if fog != null and not scoped and not fog.is_seen(enemy.global_position):
+		var revealed: bool = enemy is EnemyBase and (enemy as EnemyBase).revealed and not (enemy as EnemyBase).is_dying
+		if fog != null and not scoped and not revealed and not fog.is_seen(enemy.global_position):
 			continue
 		var pos = _world_to_map(enemy.global_position, center, scale_factor)
 		if scoped:
@@ -98,11 +106,19 @@ func _draw() -> void:
 			draw_circle(pos, 3.0 + 1.3 * beast._beast_size, SCOPE_COLORS.get(beast.enemy_data.color_identity, enemy_color))
 			continue
 		draw_circle(pos, 3.0, enemy_color)
+		if revealed:
+			draw_arc(pos, 5.0 + 2.0 * pulse, 0.0, TAU, 20, Color(REVEALED_COLOR, 0.45 + 0.55 * pulse), 1.5)
 		
 	# Draw Players
 	var players = get_tree().get_nodes_in_group("player")
 	for player in players:
 		var pos = _world_to_map(player.global_position, center, scale_factor)
+		# A teammate who is down is a cross with their time left round it, not an arrow - the
+		# one thing on the map that asks somebody to come (DownedMark, docs/REVIVE_PLAN.md).
+		if bool(player.get("is_downed")):
+			DownedMark.draw_countdown(self, pos, 9.0, DownedMark.share_left(player), 2.0)
+			DownedMark.draw_cross(self, pos, 5.5)
+			continue
 		
 		# Draw view direction indicator as a triangle (arrow)
 		var forward_3d = -player.global_transform.basis.z

@@ -54,7 +54,6 @@ class_name SquadDoctrine
 ##   break_on_damage   whether being hit is enough to make a member abandon its slot
 ##   leash             how far a member may be shoved from its slot before it gives up on
 ##                     the formation rather than walking back into a fight it has left
-##   banner            what the arrival is called on the warning banner
 const DEFAULT: Dictionary = {
 	"shape": "line",
 	"file_spacing": 2.2,
@@ -70,7 +69,6 @@ const DEFAULT: Dictionary = {
 	"break_radius": 26.0,
 	"break_on_damage": false,
 	"leash": 14.0,
-	"banner": "WARBAND",
 }
 
 ## One doctrine per colour, written to the colour pie rather than to a difficulty curve.
@@ -93,7 +91,6 @@ const DOCTRINES: Dictionary = {
 		"charge_mult": 1.15,
 		"break_radius": 16.0,
 		"leash": 10.0,
-		"banner": "PHALANX",
 	},
 	# Blue never wanted to be in the fight. Its melee screen advances normally and its
 	# casters hang a long way back behind it - a skirmish line rather than a block. The
@@ -112,7 +109,6 @@ const DOCTRINES: Dictionary = {
 		"charge_mult": 1.1,
 		"break_radius": 30.0,
 		"leash": 20.0,
-		"banner": "SKIRMISH LINE",
 	},
 	# A column, not a line: narrow and very deep, so Black arrives as something that keeps
 	# arriving. It shambles in slower than anything else and its ranks are ragged.
@@ -129,7 +125,6 @@ const DOCTRINES: Dictionary = {
 		"charge_seconds": 7.0,
 		"break_radius": 34.0,
 		"leash": 16.0,
-		"banner": "HORDE",
 	},
 	# Goblins do not hold formation, they hold it briefly. The shape exists only so the
 	# mob leaves the lane together; it comes apart less than halfway down (break_radius is
@@ -146,7 +141,6 @@ const DOCTRINES: Dictionary = {
 		"break_radius": 90.0,
 		"break_on_damage": true,
 		"leash": 12.0,
-		"banner": "WARBAND",
 	},
 	# An arrowhead with the casters in the pocket behind the point. Slow to arrive and
 	# very hard to turn: Green holds together nearly to the crystal and hits the hardest
@@ -164,7 +158,6 @@ const DOCTRINES: Dictionary = {
 		"charge_seconds": 9.0,
 		"break_radius": 20.0,
 		"leash": 18.0,
-		"banner": "STAMPEDE",
 	},
 }
 

@@ -49,6 +49,7 @@ const PAD: Dictionary = {
 const KEYBOARD: Dictionary = {
 	"interact": "E",
 	"equipment": "I",
+	"skill_tree": "P",
 	"accept": "Click",
 	"next_slot": "E",
 	"block": "RMB",
@@ -56,6 +57,7 @@ const KEYBOARD: Dictionary = {
 const GAMEPAD: Dictionary = {
 	"interact": "D-pad up",
 	"equipment": "L3 wheel",
+	"skill_tree": "L3 wheel",
 	"accept": "bottom",
 	"next_slot": "left",
 	"block": "lt",

@@ -111,8 +111,9 @@ it is already in. Formation is a way of *arriving*, not a way of fighting.
 A battle group of two or three colours does not walk straight in. Each squad marches to a
 **hold line** at `wave_rally_radius` from the crystal - just inside the mana wells - stands
 formed until the rest of the warband arrives, and then the whole group **charges** together
-with a speed bonus that outlasts the formation dissolving. The banner says so twice: once
-when the alliance masses, once when it charges.
+with a speed bonus that outlasts the formation dissolving. Neither the massing nor the charge
+is announced - the warbands are on the minimap (see "Fewer announcements" in
+`docs/LAST_STAND_PLAN.md`).
 
 The hold point is per squad, not one shared spot. Two neighbouring lanes are 72 degrees
 apart, so meeting exactly in the middle costs each squad a sideways detour about as long as
@@ -222,6 +223,22 @@ And a team could keep an early wave alive on purpose - kiting its enemies about 
 banked mana - and never let the run escalate. Wild beasts (`docs/BEASTS_PLAN.md`) are no part
 of a wave and are left alone.
 
+### The Last Stand
+
+The time limit is the backstop; the ordinary end of a wave is its **Last Stand**
+(`WaveManager._check_last_stand`, `docs/LAST_STAND_PLAN.md`). Once the whole wave is on the map
+and no more than `wave_last_stand_fraction` (15%) of it is left standing - never more than
+`wave_last_stand_max_remaining` (10), never fewer than one - the same storm starts at once, with
+its own banner ("THE WAVE MAKES ITS LAST STAND"; a storm from the time limit keeps "TIME'S UP").
+The team defends the crystal against the last of the wave instead of combing the fog for them.
+
+Every stormer and every straggler is `EnemyBase.revealed`: drawn on the minimap through the fog,
+with a pulsing ring. A stormer that stands still for `enemy_storm_stuck_seconds` away from the
+crystal is caught on something - a standing stone, a trunk - and is put
+`enemy_storm_unstick_distance` on along its way (`EnemyBase._check_storm_stuck`); the ordinary
+stranded watch only moves an enemy that cannot reach the crystal at all. Test:
+`tools/tests/last_stand.tscn`.
+
 The HUD shows the countdown for the last `wave_deadline_warning` (30) seconds only, top right
 (`WaveDeadlinePanel`): the server sends the limit once when it starts and `-1` when it clears
 (`SignalBus.wave_deadline_changed`, `WaveManager._net_deadline`), and every HUD counts down
@@ -242,7 +259,7 @@ on its own. Test: `tools/tests/wave_time_limit.tscn`.
 | which colour/class gets picked as the miniboss | `WaveManager._roll_miniboss` / `_assign_miniboss` |
 | the glow, or a Mage miniboss's special | `EnemyBase.apply_miniboss` / `_perform_miniboss_special` |
 | the wave bosses themselves - attacks, phases, modifiers | see `docs/BOSS_DESIGN.md` |
-| how long a wave may last, and the storm at the end of it | `GameSettings`' Time limit block; `WaveManager._tick_time_limit` |
+| how long a wave may last, and the storm at the end of it | `GameSettings`' Time limit block; `WaveManager._tick_time_limit`, `_check_last_stand` |
 
 ## Multiplayer
 
@@ -254,9 +271,8 @@ Two things that used to be planned locally on every peer now travel instead, bec
 client planning its own wave from its own random numbers agreed with the server about
 nothing:
 
-- **Warning banners** are raised by the server, when the thing they describe actually
-  happens, and relayed (`_net_announce`). A client used to be warned about lanes that were
-  never coming.
+- **The storm's banner** is raised by the server, when the storm actually starts, and relayed
+  (`_net_announce`). A client used to be warned about lanes that were never coming.
 - **The wave number** arrives with the wave (`_net_wave_started`). Nothing ever advanced it
   on a client, and `EnemyBase` scales maximum health off it on every peer - so a client was
   drawing wave-1 health bars over wave-20 enemies for the whole run.

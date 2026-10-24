@@ -405,6 +405,9 @@ var _menu_seen_frame: int = -10
 # --- Downed & Revive State ---
 var is_downed: bool = false
 var down_timer: float = 0.0
+## What down_timer started at in this fall, so a countdown can be drawn as a share of it
+## (the minimap's downed mark, TeamFrames).
+var down_total: float = 0.0
 ## Real seconds left of a jump's run-up (PlayerAnimator.begin_jump), -1 when none is under way.
 var _jump_runup_left: float = -1.0
 
@@ -2610,6 +2613,8 @@ func spend_skill_points(amount: int) -> bool:
 	skill_points -= amount
 	spent_skill_points += amount
 	SignalBus.skill_points_changed.emit(self, skill_points)
+	if self == PlayerRegistry.get_local():
+		SignalBus.objective_progress.emit("spend_skill_point")
 	return true
 
 
@@ -2779,6 +2784,7 @@ func _enter_downed(timer: float) -> void:
 	is_blocking = false
 	_stagger_timer = 0.0
 	down_timer = timer
+	down_total = timer
 	animator.play_death()
 
 
@@ -3264,6 +3270,7 @@ func _deliver_carried_mana() -> void:
 	else:
 		_request_harvest(color)
 	_notify("%s mana delivered" % color)
+	SignalBus.objective_progress.emit("harvest_by_hand")
 
 
 ## The closest well within reach, or null. Wells sit in the "mana_sources" group and carry
@@ -3336,6 +3343,7 @@ func _update_revive_channel(delta: float, in_range_of_someone: bool) -> void:
 	if _revive_channel_left <= 0.0:
 		_revive_channel_target = null
 		target.revive()
+		SignalBus.objective_progress.emit("revive_teammate")
 		_notification_text = "Revived Teammate!"
 		_notification_timer = 1.5
 		SignalBus.interact_prompt_changed.emit(_notification_text, true)

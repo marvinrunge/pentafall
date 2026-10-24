@@ -17,6 +17,7 @@ class Stand_In:
 	var max_hp: float = 100.0
 	var is_downed: bool = false
 	var down_timer: float = 0.0
+	var down_total: float = 0.0
 	var character_class: String = "knight"
 	var label: String = ""
 
@@ -75,12 +76,17 @@ func _run() -> void:
 	_check("the ring empties with the time left", is_equal_approx(first._ring.share, 5.2 / 12.0),
 		"%.2f" % first._ring.share)
 	_check("the head is dimmed while down", first._avatar.modulate != Color.WHITE)
+	_check("the frame wears the downed mark", first._ring.downed)
+	knight.down_total = 12.0
+	_check("the downed mark's countdown is the share left", is_equal_approx(DownedMark.share_left(knight), 5.2 / 12.0),
+		"%.2f" % DownedMark.share_left(knight))
 
 	knight.is_downed = false
 	knight.hp = knight.max_hp
 	await get_tree().process_frame
 	_check("back up: full ring, no countdown",
 		is_equal_approx(first._ring.share, 1.0) and not first._countdown.visible)
+	_check("back up: no downed mark", not first._ring.downed)
 
 	players.assign([mage])
 	await get_tree().process_frame

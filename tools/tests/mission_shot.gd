@@ -7,8 +7,8 @@ extends Node
 ##
 ## Shot at several points across the fade-in, the hold and the fade-out, because the two
 ## things most likely to be wrong about a timed banner are both invisible in a single frame:
-## whether it collides with the wave-1 lane warning that arrives 2.5s in, and whether it is
-## still up long enough after that to finish being read.
+## whether it collides with the lane-warning banner above it, and whether it is up long
+## enough to finish being read.
 
 ## Frames after boot to capture at. The banner fades in over 0.45s, holds 4.5s and fades out
 ## over 0.8s, so at 60fps its life is roughly frames 0-345 from the emit.

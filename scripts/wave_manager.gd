@@ -72,6 +72,11 @@ var in_upkeep: bool = false
 ## storms the crystal, and then seconds the storm has left. -1 while neither is running.
 var deadline_left: float = -1.0
 var storm_left: float = -1.0
+## How many enemies this wave has had in all - its planned units plus whatever they brought
+## onto the field (register_enemy). What the Last Stand's share is taken of.
+var wave_total: int = 0
+## Whether this wave's Last Stand has begun, so it begins once.
+var _last_stand_begun: bool = false
 
 var main_controller: Node3D
 
@@ -95,6 +100,8 @@ func start_next_wave() -> void:
 		return
 	pending_groups = _plan_wave(current_wave)
 	pending_enemies = _count_units(pending_groups)
+	wave_total = pending_enemies
+	_last_stand_begun = false
 	group_timer = float(pending_groups[0]["delay"]) if not pending_groups.is_empty() else 1.0
 	is_spawning = not pending_groups.is_empty()
 	print("Starting Wave: ", current_wave + 1)
@@ -136,7 +143,6 @@ func _deploy_next_group() -> void:
 	# them decides when the group is assembled.
 	for squad: Node in squads:
 		squad.warband = squads
-	_announce_group(group)
 
 	if pending_groups.is_empty():
 		_finish_spawning()
@@ -155,6 +161,7 @@ func _finish_spawning() -> void:
 		return
 	# The whole wave is on the map: from here it has its time limit to be dealt with.
 	_set_deadline(GameSettings.wave_time_limit(current_wave + 1))
+	_check_last_stand()
 
 
 # ============================================================
@@ -169,7 +176,7 @@ func _tick_time_limit(delta: float) -> void:
 		deadline_left -= delta
 		if deadline_left <= 0.0:
 			_set_deadline(-1.0)
-			_begin_storm()
+			_begin_storm("TIME'S UP - THE WAVE STORMS THE CRYSTAL")
 	elif storm_left >= 0.0:
 		storm_left -= delta
 		if storm_left <= 0.0:
@@ -177,9 +184,10 @@ func _tick_time_limit(delta: float) -> void:
 			_end_storm()
 
 
-## Time's up: every enemy of the wave still standing drops what it was doing and goes for the
-## crystal. Beasts are no part of a wave and carry on.
-func _begin_storm() -> void:
+## Time's up, or the wave's Last Stand: every enemy of the wave still standing drops what it
+## was doing and goes for the crystal. Beasts are no part of a wave and carry on. `message` is
+## the one line the banner says, which is how the team tells the two apart.
+func _begin_storm(message: String) -> void:
 	_disband_squads()
 	var stormers: int = 0
 	for enemy: Node in get_tree().get_nodes_in_group("enemies"):
@@ -190,7 +198,36 @@ func _begin_storm() -> void:
 		_end_storm()
 		return
 	storm_left = GameSettings.wave_storm_duration
-	_announce("", "TIME'S UP - THE WAVE STORMS THE CRYSTAL")
+	_announce(message)
+
+
+## The Last Stand (docs/LAST_STAND_PLAN.md): once the whole wave is on the map and only its
+## last few are standing, they storm the crystal now rather than when the time limit runs out.
+##
+## The end of a wave used to be a hunt: a soldier caught on a standing stone, or two archers
+## lost in the forest, and the team combed the fog for minutes until the limit - 240 s at wave
+## 1 - finally sent them in. The storm was already the answer; it only came far too late. The
+## time limit stays behind it, for a team that kites a wave on purpose and never gets this far.
+##
+## A share of the wave rather than a flat count: wave 1 is not much bigger than ten, and a flat
+## ten would end it before it began. Capped, so a late wave does not send thirty at once.
+func _check_last_stand() -> void:
+	if _last_stand_begun or in_upkeep or is_spawning or not _spawn_queue.is_empty():
+		return
+	# Not before the wave has its clock (it is all on the map), nor once it is storming anyway.
+	if deadline_left < 0.0 or storm_left >= 0.0 or active_enemies <= 0:
+		return
+	if active_enemies > last_stand_threshold(wave_total):
+		return
+	_last_stand_begun = true
+	_set_deadline(-1.0)
+	_begin_storm("THE WAVE MAKES ITS LAST STAND")
+
+
+## How few of a wave of `total` have to be left standing for its Last Stand. Never below one.
+static func last_stand_threshold(total: int) -> int:
+	var share: int = ceili(float(total) * GameSettings.wave_last_stand_fraction)
+	return maxi(1, mini(GameSettings.wave_last_stand_max_remaining, share))
 
 
 ## The storm is over and the wave counts as done. What is left of it stays on the map as
@@ -287,8 +324,11 @@ func _pump_spawn_queue() -> void:
 				squad.set_physics_process(true)
 		if Time.get_ticks_usec() - started >= budget_us:
 			break
-	if _spawn_queue.is_empty() and not is_spawning and active_enemies <= 0:
-		_trigger_next_wave()
+	if _spawn_queue.is_empty() and not is_spawning:
+		if active_enemies <= 0:
+			_trigger_next_wave()
+		else:
+			_check_last_stand()
 
 
 func _squad_still_queued(squad: Node) -> bool:
@@ -304,7 +344,6 @@ func _create_squad(color: String, lane_index: int, origin: Vector3, forward: Vec
 	add_child(squad)
 	squad.configure(color, lane_index, origin, forward, _crystal_position())
 	squad.rally_point = _rally_point(color, group["colors"])
-	squad.charge_started.connect(_on_warband_charged)
 	return squad
 
 
@@ -702,9 +741,12 @@ func _on_enemy_died() -> void:
 	_emit_wave_state()
 	if active_enemies <= 0 and not is_spawning and _spawn_queue.is_empty():
 		_trigger_next_wave()
+	else:
+		_check_last_stand()
 
 func register_enemy() -> void:
 	active_enemies += 1
+	wave_total += 1
 	_emit_wave_state()
 
 func _trigger_next_wave() -> void:
@@ -746,6 +788,7 @@ func debug_jump_to_wave(wave_number: int) -> void:
 		enemy.queue_free()
 	active_enemies = 0
 	current_wave = maxi(wave_number - 1, 0)
+	_last_stand_begun = false
 	print("Debug: jumping to wave ", current_wave + 1)
 	if in_upkeep:
 		SignalBus.upkeep_finished.emit()
@@ -809,78 +852,25 @@ func _net_wave_started(wave_number: int) -> void:
 ## Banners are raised by the SERVER, when the thing they describe actually happens, and
 ## relayed. They used to be emitted locally on every peer from a locally planned wave,
 ## which meant a client was told about lanes that were never coming.
-func _announce(lane_name: String, message: String) -> void:
+##
+## There is only the storm's left. Every battle group used to announce itself ("RED HORDE -
+## 12 STRONG", "ALLIANCE MASSING", "ALLIANCE CHARGES", "BOSS HAS ARRIVED"), five lanes of it
+## a wave, and none of it told the team anything to do: the warbands are on the minimap and a
+## boss brings its own health bar. The storm is the exception - it changes what every enemy
+## left is doing, all at once, and without a word it looks like a bug.
+func _announce(message: String) -> void:
 	if Net.is_active():
-		_net_announce.rpc(lane_name, message)
-	_show_announcement(lane_name, message)
+		_net_announce.rpc(message)
+	_show_announcement(message)
 
 
 @rpc("authority", "call_remote", "reliable")
-func _net_announce(lane_name: String, message: String) -> void:
-	_show_announcement(lane_name, message)
+func _net_announce(message: String) -> void:
+	_show_announcement(message)
 
 
-func _show_announcement(lane_name: String, message: String) -> void:
-	SignalBus.lane_warning_requested.emit(lane_name, message, _get_lane_color(lane_name))
-
-
-func _announce_group(group: Dictionary) -> void:
-	var colors: PackedStringArray = group["colors"]
-	var lane_name: String = String(colors[0]) if not colors.is_empty() else ""
-	var strength: int = 0
-	var has_boss: bool = false
-	var has_miniboss: bool = false
-	for plan: Dictionary in group["squads"]:
-		for unit: Dictionary in plan["units"]:
-			strength += 1
-			if String(unit["type"]) == "Boss":
-				has_boss = true
-			elif bool(unit.get("miniboss", false)):
-				has_miniboss = true
-
-	if has_boss:
-		# A boss gets its own wording rather than "RED LANE - BOSS ASSAULT". It is the one
-		# arrival the player has to stop what they are doing for, and it reads back in the
-		# Tab log as an event rather than as one more lane warning among fifty. A miniboss
-		# can never coincide with this - a Boss occupies its own dedicated group, never an
-		# ordinary squad's unit list.
-		_announce(lane_name, "%s BOSS HAS ARRIVED" % lane_name.to_upper())
-		return
-
-	# Appended to whichever wording follows rather than given its own branch - a miniboss
-	# can land inside either a solo colour's warband or an alliance, and it is worth
-	# calling out in both without duplicating the rest of the message.
-	var miniboss_suffix: String = " - MINIBOSS SIGHTED" if has_miniboss else ""
-
-	if colors.size() > 1:
-		_announce(lane_name, "%s ALLIANCE MASSING - %d STRONG%s" % [_color_list(colors), strength, miniboss_suffix])
-		return
-
-	var banner: String = String(SquadDoctrine.get_doctrine(lane_name).get("banner", "WARBAND"))
-	_announce(lane_name, "%s %s - %d STRONG%s" % [lane_name.to_upper(), banner, strength, miniboss_suffix])
-
-
-func _on_warband_charged(colors: PackedStringArray) -> void:
-	if colors.is_empty():
-		return
-	_announce(String(colors[0]), "%s ALLIANCE CHARGES" % _color_list(colors))
-
-
-func _color_list(colors: PackedStringArray) -> String:
-	var parts: PackedStringArray = PackedStringArray()
-	for color: String in colors:
-		parts.append(color.to_upper())
-	return " + ".join(parts)
-
-
-func _get_lane_color(lane_name: String) -> Color:
-	match lane_name:
-		"White": return Color(0.95, 0.95, 0.85)
-		"Blue": return Color(0.25, 0.55, 1.0)
-		"Black": return Color(0.65, 0.35, 0.8)
-		"Red": return Color(1.0, 0.25, 0.2)
-		"Green": return Color(0.25, 0.85, 0.35)
-		_: return Color.WHITE
+func _show_announcement(message: String) -> void:
+	SignalBus.lane_warning_requested.emit("", message, Color.WHITE)
 
 
 func _emit_wave_state() -> void:

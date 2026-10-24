@@ -293,6 +293,13 @@ var taunt_source: Node3D = null
 ## The wave's time ran out (WaveManager's time limit): storming the crystal, faster and deaf
 ## to everything else, until the storm ends - and for good after that, see become_straggler.
 var storm_timer: float = 0.0
+## Shown on every peer's minimap through the fog of war: set when the enemy starts storming,
+## so the last of a wave (and every straggler) can be found. Replicated.
+var revealed: bool = false
+## The storm's stuck watch (see _check_storm_stuck): where the last check found this stormer,
+## and how long it has stood about there.
+var _storm_watch_position: Vector3 = Vector3.INF
+var _storm_still_time: float = 0.0
 ## Left standing when its wave's storm ended: the wave was closed without it, so it is no
 ## longer the wave's to count (die() and exile() skip SignalBus.enemy_died for it). Server only.
 var straggler: bool = false
@@ -665,7 +672,7 @@ func _build_synchronizer() -> void:
 	# What only changes now and then: sent when it changes, reliably. Every one of these used
 	# to go out every frame, for every enemy, to every client, whether it had changed or not -
 	# health included, which for most of a wave is the same number it was a second ago.
-	for property: String in [":health", ":is_dying", ":contagion_timer", ":round_two_state"]:
+	for property: String in [":health", ":is_dying", ":contagion_timer", ":round_two_state", ":revealed"]:
 		config.add_property(NodePath(property))
 		config.property_set_replication_mode(NodePath(property), SceneReplicationConfig.REPLICATION_MODE_ON_CHANGE)
 	# Once per enemy, at death; the lean starts on whichever frame it lands.
@@ -3890,6 +3897,8 @@ func _check_recovery(delta: float) -> bool:
 	# for everything, and every enemy would be "off" it.
 	if NavigationServer3D.map_get_iteration_id(map) == 0:
 		return false
+	if _check_storm_stuck(map, interval):
+		return true
 	var stranded: bool = _update_stranded(map, interval)
 	_confirmed_on_path = not stranded and (_near_last_good_position() or _on_planned_path() or _in_formation_on_ground())
 	if _confirmed_on_path:
@@ -3923,15 +3932,78 @@ func _check_recovery(delta: float) -> bool:
 		print("Enemy NOT recovered (%s): %s at %s - no reachable navmesh nearby" % [reason, name, global_position])
 		return false
 	print("Enemy recovered (%s): %s at %s -> %s" % [reason, name, global_position, destination])
+	_put_back(destination)
+	return true
+
+
+## Moves a lost or stuck enemy to `destination` (a navmesh point) and sets it walking again.
+func _put_back(destination: Vector3) -> void:
 	_off_navmesh_time = 0.0
 	_stationary_time = 0.0
 	velocity = Vector3.ZERO
 	knockback_velocity = Vector3.ZERO
 	global_position = destination + Vector3(0.0, 0.1, 0.0)
 	_watch_position = global_position
+	_storm_watch_position = global_position
 	NetFx.spell("corpse_land", destination, 0.8, 0)
 	update_path(true)
+
+
+## The Last Stand's promise is that the last of a wave COMES to the crystal. One caught on a
+## standing stone or a trunk would not: the navmesh around it is fine, so the stranded watch
+## (which only moves an enemy that cannot reach the crystal from where it is) leaves it there,
+## walking into the stone for the rest of the storm and after it as a straggler.
+##
+## So a stormer gets a stricter watch of its own: standing still for enemy_storm_stuck_seconds,
+## for no reason and away from the crystal, is stuck - and it is put a few metres on along its
+## way. Never killed: a kill nobody made would pay the team for nothing.
+func _check_storm_stuck(map: RID, interval: float) -> bool:
+	if storm_timer <= 0.0 or is_boss() or is_beast():
+		_storm_still_time = 0.0
+		_storm_watch_position = Vector3.INF
+		return false
+	var moved: float = global_position.distance_to(_storm_watch_position) if _storm_watch_position.is_finite() else INF
+	_storm_watch_position = global_position
+	if moved >= GameSettings.enemy_stranded_move_epsilon or _holding_still_on_purpose() or _near_crystal_to_storm():
+		_storm_still_time = 0.0
+		return false
+	_storm_still_time += interval
+	if _storm_still_time < GameSettings.enemy_storm_stuck_seconds:
+		return false
+	_storm_still_time = 0.0
+	var destination: Vector3 = _unstick_point(map)
+	if not destination.is_finite():
+		return false
+	print("Enemy unstuck (storming): %s at %s -> %s" % [name, global_position, destination])
+	_put_back(destination)
 	return true
+
+
+func _near_crystal_to_storm() -> bool:
+	if target_crystal == null or not is_instance_valid(target_crystal):
+		return true
+	var off: Vector3 = target_crystal.global_position - global_position
+	var reach: float = GameSettings.enemy_storm_stuck_crystal_distance
+	return off.x * off.x + off.z * off.z <= reach * reach
+
+
+## enemy_storm_unstick_distance along the way to the crystal from the navmesh nearest this
+## enemy - past whatever it was walking into, since the way goes round it. INF without a way.
+func _unstick_point(map: RID) -> Vector3:
+	var goal: Vector3 = _crystal_goal_point(map)
+	if not goal.is_finite():
+		return Vector3.INF
+	var start: Vector3 = NavigationServer3D.map_get_closest_point(map, global_position)
+	var path: PackedVector3Array = NavigationServer3D.map_get_path(map, start, goal, true)
+	if path.is_empty():
+		return Vector3.INF
+	var left: float = GameSettings.enemy_storm_unstick_distance
+	for i: int in range(1, path.size()):
+		var leg: float = path[i - 1].distance_to(path[i])
+		if leg >= left:
+			return path[i - 1].lerp(path[i], left / leg)
+		left -= leg
+	return path[path.size() - 1]
 
 
 ## A formation member has no route to stand on (see update_path), so _on_planned_path cannot
@@ -4756,6 +4828,9 @@ func begin_storm(duration: float) -> void:
 	if is_dying or is_beast():
 		return
 	storm_timer = duration
+	revealed = true
+	_storm_still_time = 0.0
+	_storm_watch_position = Vector3.INF
 	leave_formation()
 	taunt_timer = 0.0
 	taunt_source = null
@@ -4773,6 +4848,7 @@ func become_straggler() -> void:
 		return
 	straggler = true
 	storm_timer = INF
+	revealed = true
 
 
 ## A body this enemy brings onto the field - a revive, a sapling, a raised corpse - belongs

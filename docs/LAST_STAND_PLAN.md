@@ -32,7 +32,7 @@ map (`is_spawning` false, `_spawn_queue` empty):
 
 | Setting | Default | Why |
 |---|---|---|
-| `wave_last_stand_fraction` | 0.15 | The last 15% of the wave. Wave 1 (~15 enemies) stands at 2 left. |
+| `wave_last_stand_fraction` | 0.15 | The last 15% of the wave. Wave 1 (~15 enemies) stands at 3 left. |
 | `wave_last_stand_max_remaining` | 10 | A late wave of a couple of hundred would otherwise send thirty at the crystal at once. |
 
 A percentage rather than a flat 10, because early waves are barely bigger than ten: a flat

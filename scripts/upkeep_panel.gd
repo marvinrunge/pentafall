@@ -186,6 +186,8 @@ func _local_player() -> Node:
 
 
 func _buy_myr() -> void:
+	SignalBus.objective_progress.emit("build_myr")
+	SignalBus.objective_progress.emit("upkeep_purchase")
 	if Net.is_active() and not Net.is_server():
 		_request_myr.rpc_id(1)
 		return
@@ -207,6 +209,7 @@ func _request_myr() -> void:
 ## Any player, like the myr: in an emergency you want whoever notices to be able to act,
 ## and making the team vote while the crystal is at 10% would be agonising.
 func _buy_repair() -> void:
+	SignalBus.objective_progress.emit("upkeep_purchase")
 	if Net.is_active() and not Net.is_server():
 		_request_repair.rpc_id(1)
 		return
@@ -229,6 +232,7 @@ func _request_repair() -> void:
 
 
 func _buy_skill_point() -> void:
+	SignalBus.objective_progress.emit("upkeep_purchase")
 	if Net.is_active() and not Net.is_server():
 		_request_skill_point.rpc_id(1)
 		return
@@ -261,6 +265,7 @@ func _grant_point_to_all() -> void:
 ## Proposing reserves the mana rather than spending it, so a second proposal cannot be
 ## made with money the first one is already counting on.
 func _propose(color: String) -> void:
+	SignalBus.objective_progress.emit("upkeep_purchase")
 	if Net.is_active() and not Net.is_server():
 		_request_propose.rpc_id(1, color)
 		return

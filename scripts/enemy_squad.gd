@@ -25,10 +25,6 @@ class_name EnemySquad
 ## SPENT  dissolved. Members are on their own and this node is on its way out
 enum State { MARCH, RALLY, CHARGE, SPENT }
 
-## Announced by the squad that actually starts the charge, relayed by WaveManager so the
-## banner reaches clients too. `colors` is every colour charging together.
-signal charge_started(colors: PackedStringArray)
-
 var color: String = ""
 var lane_index: int = 0
 var doctrine: Dictionary = {}
@@ -270,26 +266,9 @@ func _begin_charge() -> void:
 	for member in _members:
 		if is_instance_valid(member):
 			member.apply_squad_charge(seconds, bonus)
-	# Only the squad that TRIPS the charge announces it, and only when there was actually
-	# a warband to wait for - five separate "charge" banners for one battle group is noise,
-	# and a lone squad charging the last twenty metres of its own lane is not news.
-	if warband.size() > 1 and _is_warband_leader():
-		var colors: PackedStringArray = PackedStringArray()
-		for squad in warband:
-			if is_instance_valid(squad) and squad.state != State.SPENT:
-				colors.append(squad.color)
-		charge_started.emit(colors)
 	for squad in warband:
 		if is_instance_valid(squad) and squad != self and squad.state != State.SPENT:
 			squad._begin_charge()
-
-
-## The first still-standing squad in the warband, so exactly one of them speaks.
-func _is_warband_leader() -> bool:
-	for squad in warband:
-		if is_instance_valid(squad) and squad.state != State.SPENT:
-			return squad == self
-	return true
 
 
 ## The formation WHEELS towards a new heading rather than snapping to it. A rendezvous

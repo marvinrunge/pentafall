@@ -130,7 +130,7 @@ func _check_log() -> void:
 	# Every announcement channel, driven through the signals the banners themselves use.
 	var before: int = _hud._message_log.size()
 	SignalBus.mission_announced.emit("Protect the Crystal!")
-	SignalBus.lane_warning_requested.emit("Red", "RED BOSS HAS ARRIVED", Color.RED)
+	SignalBus.lane_warning_requested.emit("", "THE WAVE MAKES ITS LAST STAND", Color.WHITE)
 	SignalBus.wave_started.emit(3)
 	SignalBus.wave_completed.emit(3)
 	SignalBus.upkeep_started.emit(20.0)
@@ -140,7 +140,7 @@ func _check_log() -> void:
 	var texts: Array[String] = []
 	for entry: Dictionary in _hud._message_log:
 		texts.append(String(entry["text"]))
-	_check("the boss arrival is in the log", texts.has("RED BOSS HAS ARRIVED"),
+	_check("the storm is in the log", texts.has("THE WAVE MAKES ITS LAST STAND"),
 		"last=%s" % texts[-1] if not texts.is_empty() else "empty")
 	_check("the mission is in the log", texts.has("Mission: Protect the Crystal!"))
 

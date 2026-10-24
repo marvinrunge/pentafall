@@ -62,7 +62,7 @@ func _shoot() -> void:
 	SignalBus.mission_announced.emit("Protect the Crystal!")
 	SignalBus.wave_started.emit(1)
 	SignalBus.lane_warning_requested.emit("White", "WHITE LANE - MELEE ASSAULT", Color(0.95, 0.95, 0.85))
-	SignalBus.lane_warning_requested.emit("Blue", "BLUE LANE - RANGED ASSAULT - ELITE HASTE", Color(0.25, 0.55, 1.0))
+	SignalBus.lane_warning_requested.emit("", "FIRE GIANT  -  KINDLED", Color(1.0, 0.55, 0.2))
 	SignalBus.wave_completed.emit(1)
 	SignalBus.team_level_changed.emit(2, 1)
 	SignalBus.wave_started.emit(2)
@@ -70,7 +70,7 @@ func _shoot() -> void:
 	# happen while Tab is held (the input handler returns early during Upkeep) and here only
 	# puts a second full-screen panel behind the one being photographed.
 	hud.log_message("Upkeep - 20s", Color(0.85, 0.8, 1.0))
-	SignalBus.lane_warning_requested.emit("Red", "RED BOSS HAS ARRIVED", Color(1.0, 0.25, 0.14))
+	SignalBus.lane_warning_requested.emit("", "THE WAVE MAKES ITS LAST STAND", Color.WHITE)
 
 	hud._set_tab_panel_shown(true)
 	print("scoreboard rows=%d log rows=%d panel=%s" % [

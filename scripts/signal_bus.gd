@@ -71,6 +71,9 @@ signal interact_prompt_changed(text: String, visible: bool)
 ## from somewhere: WHAT the mission is belongs to the game mode that set it up, and what the
 ## announcement looks like belongs to the HUD, the same split every other readout here uses.
 signal mission_announced(objective: String)
+## This machine's own player did something a first-steps objective asks for (ObjectiveDatabase
+## id). Raised only where the local player acted, so a teammate's action never ticks it.
+signal objective_progress(objective_id: String)
 ## `label` overrides the formatted number when it is not empty - "Fogged", "Warded". The
 ## floating number is how this game says "something happened here", and a few effects have
 ## something to say that is not a quantity. One signal rather than a second parallel one, so

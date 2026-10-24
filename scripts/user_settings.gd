@@ -42,6 +42,8 @@ const SECTIONS: Dictionary = {
 	&"attack_indicator_style": "interface",
 	&"camera_shake_enabled": "interface",
 	&"intro_tour": "interface",
+	&"show_objectives": "interface",
+	&"objectives_done": "progress",
 	&"show_minimap": "interface",
 	&"hud_scale": "interface",
 	&"minimap_scale": "interface",
@@ -68,6 +70,11 @@ var attack_indicator_style: String = "themed"
 var camera_shake_enabled: bool = true
 ## Whether a run entered from the menu opens with the camera flight over the map.
 var intro_tour: bool = true
+## Whether the first-steps objectives (ObjectiveTracker) are shown while some are still open.
+var show_objectives: bool = true
+## The first-steps objectives this profile has finished, comma-separated ids
+## (ObjectiveDatabase). Kept across runs, so a finished one never comes back.
+var objectives_done: String = ""
 var show_minimap: bool = true
 ## The gameplay HUD's size - bars, hotbar, minimap, mana symbols - as a multiple of its
 ## authored size. It replaced a minimap-only size; see _load for how an old one carries over.

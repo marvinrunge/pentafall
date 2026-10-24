@@ -58,6 +58,8 @@ var _hotbar_charge_labels: Array[Label] = []
 var _hotbar_armed_labels: Array[Label] = []
 var _player: Node3D = null
 var _team_frames: TeamFrames = null
+## The first-steps checklist above the minimap (docs/ONBOARDING_PLAN.md).
+var _objective_tracker: ObjectiveTracker = null
 var _active_spell_idx: int = 0
 var _wave_panel: PanelContainer
 var _wave_label: Label
@@ -278,8 +280,8 @@ func _ready() -> void:
 	SignalBus.lane_warning_requested.connect(_on_lane_warning_requested)
 	SignalBus.mission_announced.connect(_on_mission_announced)
 	# The log listens to the same signals the banners do, so an announcement cannot reach the
-	# screen and miss the log. lane_warning_requested already carries boss arrivals ("RED LANE
-	# - BOSS ASSAULT"), elite spawns and level-ups as well as ordinary lane warnings.
+	# screen and miss the log. lane_warning_requested carries the wave's storm, boss phases,
+	# equipment found and level-ups.
 	SignalBus.lane_warning_requested.connect(func(_lane: String, message: String, tint: Color) -> void:
 		log_message(message, tint))
 	SignalBus.mission_announced.connect(func(objective: String) -> void:
@@ -350,6 +352,12 @@ func _ready() -> void:
 	_team_frames.name = "TeamFrames"
 	_team_frames.set_hud_scale(hud_scale)
 	$Control/MarginContainer/VBoxContainer.add_child(_team_frames)
+	_objective_tracker = ObjectiveTracker.new()
+	_objective_tracker.name = "ObjectiveTracker"
+	_objective_tracker.anchor = minimap_container
+	_objective_tracker.menus_open = func() -> bool: return not _open_menus.is_empty()
+	$Control.add_child(_objective_tracker)
+	_objective_tracker.set_hud_scale(hud_scale)
 	minimap_scale = UserSettings.minimap_scale
 	_minimap_preferred_side = MINIMAP_BASE_SIDE * hud_scale * minimap_scale
 	SignalBus.active_spell_changed.connect(_on_active_spell_changed)
@@ -1358,6 +1366,8 @@ func set_hud_scale(value: float) -> void:
 	hud_scale = value
 	if _team_frames != null:
 		_team_frames.set_hud_scale(value)
+	if _objective_tracker != null:
+		_objective_tracker.set_hud_scale(value)
 	_minimap_preferred_side = MINIMAP_BASE_SIDE * hud_scale * minimap_scale
 	# Through the strip rather than straight to _apply_minimap_size: a wider minimap takes
 	# room the XP bar and the hotbar were using, and both have to give it up in the same frame.
@@ -1926,11 +1936,9 @@ func _section_heading(text: String) -> Label:
 	return label
 
 
-## The opening objective. Its own panel rather than the lane-warning banner, for two reasons:
-## the banner holds for 1.8s, which is an alert's dwell and not a briefing's, and wave 1's
-## first lane warning fires 2.5s into the run (GameSettings.wave_initial_warning_time) - so
-## sharing one panel would mean the mission was overwritten by "WHITE LANE - MELEE ASSAULT"
-## before it had finished being read.
+## The opening objective. Its own panel rather than the lane-warning banner: the banner holds
+## for 1.8s, which is an alert's dwell and not a briefing's, and anything else it shows early
+## in a run - a level-up - would overwrite the mission before it had finished being read.
 ##
 ## Sits between the warning banner at the top and the crosshair at dead centre, which is the
 ## one part of the middle column nothing else uses.
@@ -1938,9 +1946,9 @@ func _build_mission_panel(root: Control) -> void:
 	_mission_panel = PanelContainer.new()
 	_mission_panel.name = "MissionPanel"
 	_mission_panel.set_anchors_preset(Control.PRESET_CENTER)
-	# Matched to the lane-warning panel's 520 width. The two stack in the same column and are
-	# on screen together for the whole of wave 1's first warning, so a mismatch reads as one of
-	# them being misaligned rather than as two separate readouts.
+	# Matched to the lane-warning panel's 520 width. The two stack in the same column and can
+	# be on screen together, so a mismatch reads as one of them being misaligned rather than as
+	# two separate readouts.
 	_mission_panel.position = Vector2(-260.0, -150.0)
 	_mission_panel.size = Vector2(520.0, 92.0)
 	_mission_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE

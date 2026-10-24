@@ -112,8 +112,8 @@ func _run() -> void:
 		# well inside that - a mission that has already gone by frame 30 is one nobody read.
 		if not bool(hud._mission_panel.visible):
 			_failures.append("the mission banner is already gone")
-		# ...and it must not be sitting on top of the lane-warning banner, which wave 1 raises
-		# 2.5s in while this one is still up.
+		# ...and it must not be sitting on top of the lane-warning banner, which a level-up can
+		# raise while this one is still up.
 		if hud._warning_panel != null:
 			var mission_rect := Rect2(hud._mission_panel.position, hud._mission_panel.size)
 			var warning_rect := Rect2(hud._warning_panel.position, hud._warning_panel.size)

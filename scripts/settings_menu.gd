@@ -165,6 +165,15 @@ func _build_gameplay_tab(column: VBoxContainer) -> void:
 		func(on: bool) -> void: UserSettings.set_value(&"camera_shake_enabled", on))
 	_check(column, "Intro Camera Flight", UserSettings.intro_tour,
 		func(on: bool) -> void: UserSettings.set_value(&"intro_tour", on))
+	_check(column, "Show First Steps", UserSettings.show_objectives,
+		func(on: bool) -> void: UserSettings.set_value(&"show_objectives", on))
+	# To show a friend on the same machine: every first step comes back, shown again.
+	var reset_steps := Button.new()
+	reset_steps.text = "Reset First Steps"
+	reset_steps.pressed.connect(func() -> void:
+		UserSettings.set_value(&"objectives_done", "")
+		UserSettings.set_value(&"show_objectives", true))
+	column.add_child(reset_steps)
 
 
 ## What every input does, as a striped table, under the look settings.

@@ -131,16 +131,19 @@ func _level_up(myr: Node3D, _cost: int) -> void:
 	if myr.level >= GameSettings.myr_max_level:
 		return
 	main_controller.request_myr_level(myr)
+	SignalBus.objective_progress.emit("level_myr")
 	_refresh_soon()
 
 
 func _on_build_pressed() -> void:
 	main_controller.request_build_myr()
+	SignalBus.objective_progress.emit("build_myr")
 	_refresh_soon()
 
 func _assign(myr: Node3D, lane: int) -> void:
 	if main_controller:
 		main_controller.request_myr_lane(myr, lane)
+		SignalBus.objective_progress.emit("assign_myr")
 		_refresh_soon()
 
 

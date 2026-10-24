@@ -122,7 +122,7 @@ func reset() -> void:
 	team_level = 1
 	points_awarded = 0
 	for color: String in COLORS:
-		mana_pool[color] = 0
+		mana_pool[color] = GameSettings.run_starting_mana_per_color
 		enchantments[color] = 0
 	equipment_unlocked.clear()
 	SignalBus.mana_changed.emit(mana_pool)
