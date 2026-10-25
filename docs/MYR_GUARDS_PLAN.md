@@ -20,7 +20,7 @@ and makes them worth building by keeping them alive and making a death recoverab
 | Guard scope | **Bodyguards, not a defensive line.** Leashed to their well, they engage only what threatens a worker. The middle stays contested. |
 | Death | A dead myr goes to the **Graveyard** (Magic's, not a memorial). It can be returned at Upkeep for **a third of everything invested in it**, never less than a new myr. |
 | Names and stats | Every myr tracks what it has earned and how often it died; the base screen shows it, and Upkeep summarises the last wave. |
-| Models | Guards start as scaled, tinted placeholders; the real Enforcer and Lodestone models are delivered later. |
+| Models | Guards start as scaled, tinted placeholders; the real Enforcer and Lodestone models are delivered later (in since 2026-10-25). |
 
 ## What already exists
 
@@ -165,7 +165,28 @@ Each step gets a test under `tools/tests/`, like the other systems.
 - **A wild beast** is only run from when it comes within its own aggro radius plus
   `myr_beast_flee_margin`, or goes for the myr - one living near a well would otherwise keep that
   well's myrs off it for good.
-- **Placeholders:** a guard is its lane's myr model, scaled up (`myr_enforcer_scale`,
-  `myr_lodestone_scale`) and lit in its own colour (`Myr.ROLE_TINTS`); its blow plays the harvest
-  clip, faster. Both go when the real models and an attack clip arrive (step 5).
+- **Models (step 5, 2026-10-25):** each guard has its own model in every lane -
+  `scenes/myrs/myr_enforcer.tscn` (Meshy "Azure Sentinel") and `scenes/myrs/lodestone_myr.tscn`
+  ("Desert Sentinel") - built by `MyrCharacterBuilder.build_guards()`
+  (`--script tools/build_myr_characters.gd -- guards`, which leaves the hand-tuned worker scenes
+  alone). Both were rigged on Mixamo with the mutant creature pack downloaded onto the same rig,
+  so their clips (`assets/animations/<guard>/`: walk, run, idle, death, and the blow) need no
+  retarget. The PBR maps come from Meshy's separate texture export of the same model (same
+  albedo, same UVs). The builder sizes a guard's scene itself and `Myr` keeps that size rather
+  than its flat 100x, so `myr_enforcer_scale` / `myr_lodestone_scale` still say how much bigger
+  than a worker each is: about 1.5x and 1.2x on the skeleton, much broader. A standing guard
+  plays its idle instead of a frozen walk frame. The tint glow is gone; `ROLE_TINTS` stays as
+  the guards' colour on the base screen and on their hits. The meshes are Meshy's full ones (Enforcer
+  13.5k triangles, Lodestone 37.5k, a worker 8-9.5k). Halving them with Godot's own simplifier
+  (its first LOD made the mesh) was tried on 2026-10-25 and dropped: it looked clearly worse on
+  every myr. Godot's LODs already thin them out at a distance.
+- **The blow:** the Enforcer punches, the Lodestone swipes (Mixamo "mutant punch" / "mutant
+  swiping"). As with an enemy, the clip is stretched over the attack interval and the damage
+  lands on its measured impact frame (`hit_ratio`, 27% / 46%), not when the swing starts
+  (`Myr._guard_strike` -> `_land_strike`); the guard stands still until then, and a target that
+  stepped out of reach in between is missed. `tools/tests/myr_guards_shot.tscn` shows both next
+  to a worker, and each blow at its start, impact and follow-through.
+- **Not done:** the base screen still shows the worker's painted portrait for a guard, framed
+  and tinted in its colour. The creature pack's roar is in `assets/animations/<guard>/` but
+  unused - a candidate for the Enforcer's taunt.
 

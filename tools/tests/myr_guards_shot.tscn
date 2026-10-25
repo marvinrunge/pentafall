@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/tests/myr_guards_shot.gd" id="1_mgs"]
+
+[node name="MyrGuardsShot" type="Node3D"]
+script = ExtResource("1_mgs")

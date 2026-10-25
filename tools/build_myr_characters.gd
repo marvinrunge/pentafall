@@ -15,6 +15,11 @@ const RetargetPass = preload("res://tools/retarget_pass.gd")
 
 
 func _init() -> void:
+	# `-- guards` builds only the two guards, and leaves the hand-tuned worker scenes alone.
+	if "guards" in OS.get_cmdline_user_args():
+		MyrCharacterBuilder.build_guards()
+		quit()
+		return
 	MyrCharacterBuilder.build_all()
 	# Every library is written with the clips copied raw; the feet only come right once the
 	# retarget pass has run over them (tools/retarget_pass.gd). Already-done clips are skipped.

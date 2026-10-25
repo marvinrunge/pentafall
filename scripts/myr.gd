@@ -24,8 +24,8 @@ enum State {
 const ROLE_WORKER := "worker"
 const ROLE_ENFORCER := "enforcer"
 const ROLE_LODESTONE := "lodestone"
-## A guard's placeholder look until its own model is delivered: the lane's myr model, bigger,
-## lit in its own colour - bronze for the Enforcer, a magnetic violet for the Lodestone.
+## A guard's own colour, for the base screen and its blows - bronze for the Enforcer, a
+## magnetic violet for the Lodestone.
 const ROLE_TINTS := {
 	ROLE_ENFORCER: Color(1.0, 0.55, 0.15),
 	ROLE_LODESTONE: Color(0.62, 0.4, 1.0),
@@ -46,6 +46,12 @@ const VISUAL_SCENES := {
 	"Black": "res://scenes/myrs/leaden_myr.tscn",
 	"Red": "res://scenes/myrs/iron_myr.tscn",
 	"Green": "res://scenes/myrs/copper_myr.tscn",
+}
+## A guard looks the same in every lane. Built by MyrCharacterBuilder.build_guards; the
+## library has "walk", "run", "idle", "death" and its blow, "attack" (with its `hit_ratio`).
+const GUARD_SCENES := {
+	ROLE_ENFORCER: "res://scenes/myrs/myr_enforcer.tscn",
+	ROLE_LODESTONE: "res://scenes/myrs/lodestone_myr.tscn",
 }
 
 @export var speed: float = GameSettings.myr_speed
@@ -134,6 +140,10 @@ var _running_home: bool = false
 var _guard_target: Node3D = null
 var _guard_think_timer: float = 0.0
 var _attack_cooldown: float = 0.0
+## A blow in flight: what it was aimed at, and the seconds until it connects (_land_strike).
+## The guard stands still until then.
+var _strike_target: Node3D = null
+var _strike_impact_timer: float = 0.0
 var _taunt_timer: float = 0.0
 var _seen_attack_serial: int = 0
 ## On a client: whether the server's copy moved since the last frame, for the walk-or-stand
@@ -334,8 +344,7 @@ func _set_carrying(carrying: bool) -> void:
 	_apply_glow(GameSettings.lane_tint(_lane_color()))
 
 
-## Lights the model with a second render pass in `tint` - the carry glow, and a guard's own
-## colour while its placeholder model stands in for the real one.
+## Lights the model with a second render pass in `tint` - the carry glow.
 func _apply_glow(tint: Color) -> void:
 	var glow_material := ShaderMaterial.new()
 	glow_material.shader = CARRY_GLOW_SHADER
@@ -584,6 +593,10 @@ func _refresh_fervor_state() -> void:
 func _apply_color_visual(color: String) -> void:
 	if not VISUAL_SCENES.has(color) or color == _current_color:
 		return
+	# A guard's model is its own whatever the lane; a new lane only needs remembering.
+	if is_guard() and visual_anim_player != null and is_instance_valid(visual_anim_player):
+		_current_color = color
+		return
 	if visual_anim_player and is_instance_valid(visual_anim_player):
 		visual_anim_player.get_parent().queue_free()
 		visual_anim_player = null
@@ -591,16 +604,16 @@ func _apply_color_visual(color: String) -> void:
 	# The old model's surfaces are about to be freed with it, so anything still pointing
 	# at them has to go first.
 	_carry_glow_surfaces.clear()
-	var visual_scene: PackedScene = load(VISUAL_SCENES[color])
+	var visual_scene: PackedScene = load(GUARD_SCENES[role] if is_guard() else VISUAL_SCENES[color])
 	var visual_instance: Node3D = visual_scene.instantiate()
 	# Scale correction: imported models are tiny (~0.016m). We scale them up 100x to match a 1-unit base.
-	visual_instance.scale = Vector3(100, 100, 100)
+	# A guard's scene is already sized by its builder (MyrCharacterBuilder.GUARD_TARGET_HEIGHT).
+	if not is_guard():
+		visual_instance.scale = Vector3(100, 100, 100)
 	add_child(visual_instance)
 	_ground_visual(visual_instance)
 	visual_anim_player = visual_instance.find_child("AnimationPlayer", true, false)
 	_current_color = color
-	if ROLE_TINTS.has(role):
-		_apply_glow(ROLE_TINTS[role])
 	_rest_visual_animation()
 
 
@@ -632,8 +645,11 @@ func _play_visual_animation(anim_name: String) -> void:
 		visual_anim_player.play(anim_name)
 
 ## No dedicated idle clip for the empty-handed state - hold the first frame of
-## "walk" instead, same reasoning as EnemyBase._rest_visual_animation().
+## "walk" instead, same reasoning as EnemyBase._rest_visual_animation(). A guard has one.
 func _rest_visual_animation() -> void:
+	if visual_anim_player.has_animation("idle"):
+		_play_visual_animation("idle")
+		return
 	if visual_anim_player.current_animation != "walk":
 		visual_anim_player.play("walk")
 	if visual_anim_player.is_playing():
@@ -647,7 +663,7 @@ func _update_visual_animation() -> void:
 	if visual_anim_player.current_animation == "hit" and visual_anim_player.is_playing():
 		return
 	# A guard's blow is played by _play_strike and left to finish, like the hit reaction.
-	if is_guard() and visual_anim_player.current_animation == "harvest" and visual_anim_player.is_playing():
+	if visual_anim_player.current_animation == "attack" and visual_anim_player.is_playing():
 		return
 	match current_state:
 		State.WALKING_TO_MANA:
@@ -963,13 +979,17 @@ func _guard_process(delta: float, move_speed: float) -> void:
 	_attack_cooldown -= delta
 	_taunt_timer -= delta
 	_guard_think_timer -= delta
+	if _strike_impact_timer > 0.0:
+		_strike_impact_timer -= delta
+		if _strike_impact_timer <= 0.0:
+			_land_strike()
 	if _guard_think_timer <= 0.0:
 		_guard_think_timer = GameSettings.myr_danger_check_interval
 		_guard_think()
 	if current_state == State.FIGHTING and is_instance_valid(_guard_target):
 		var off: Vector3 = _guard_target.global_position - global_position
 		off.y = 0.0
-		if off.length() > _strike_reach():
+		if off.length() > _strike_reach() and _strike_impact_timer <= 0.0:
 			_step_along_path(move_speed, delta)
 		else:
 			velocity.x = 0.0
@@ -1056,16 +1076,43 @@ func _strike_reach() -> float:
 	return GameSettings.myr_guard_attack_range * scale.x
 
 
+func _attack_interval() -> float:
+	return GameSettings.myr_enforcer_attack_interval if role == ROLE_ENFORCER else GameSettings.myr_lodestone_attack_interval
+
+
+## Starts a blow. Nothing lands yet: the swing is stretched over one attack interval
+## (_play_strike), so its measured `hit_ratio` converts straight into the seconds until it
+## connects, and _land_strike pays out then - as EnemyBase does for its own swings.
 func _guard_strike() -> void:
 	var target: EnemyBase = _guard_target as EnemyBase
 	if target == null or not is_instance_valid(target) or target.is_dying:
 		return
-	_attack_cooldown = GameSettings.myr_enforcer_attack_interval if role == ROLE_ENFORCER else GameSettings.myr_lodestone_attack_interval
+	_attack_cooldown = _attack_interval()
 	attack_serial += 1
 	_seen_attack_serial = attack_serial
 	_play_strike()
+	_strike_target = target
+	_strike_impact_timer = maxf(_strike_hit_ratio() * _attack_interval(), 0.01)
+
+
+## The blow connects - on whatever it was aimed at, if that is still there and still within
+## reach (an enemy's swing gets the same forgiveness).
+func _land_strike() -> void:
+	_strike_impact_timer = 0.0
+	var target: EnemyBase = _strike_target as EnemyBase
+	_strike_target = null
+	if target == null or not is_instance_valid(target) or target.is_dying:
+		return
+	if _flat_distance(target.global_position, global_position) > _strike_reach() * GameSettings.enemy_attack_impact_range_grace:
+		return
 	target.take_damage(guard_damage(), self, true)
 	NetFx.impact(target.global_position + Vector3(0.0, 1.0, 0.0), ROLE_TINTS.get(role, Color.WHITE), 0.6)
+
+
+func _strike_hit_ratio() -> float:
+	if visual_anim_player == null or not visual_anim_player.has_animation("attack"):
+		return 0.5
+	return float(visual_anim_player.get_animation("attack").get_meta("hit_ratio", 0.5))
 
 
 ## One blow: the kind's own damage, grown by level - and for the Lodestone, by the workers
@@ -1096,13 +1143,14 @@ func on_enemy_killed_by_me(_basic_attack: bool = false) -> void:
 	kills += 1
 
 
-## The swing, on whichever peer: the harvest clip's reach stands in until the guards have their
-## own models and an attack clip.
+## The swing, on whichever peer, stretched to fill exactly one attack interval so it finishes
+## as the next one starts.
 func _play_strike() -> void:
-	if visual_anim_player == null or not visual_anim_player.has_animation("harvest"):
+	if visual_anim_player == null or not visual_anim_player.has_animation("attack"):
 		return
+	var attack_anim: Animation = visual_anim_player.get_animation("attack")
 	visual_anim_player.stop()
-	visual_anim_player.play("harvest", -1, 1.8)
+	visual_anim_player.play("attack", -1, attack_anim.length / _attack_interval())
 
 
 static func _flat_distance(a: Vector3, b: Vector3) -> float:

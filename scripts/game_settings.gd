@@ -2533,7 +2533,7 @@ const ENCHANTMENT_DESCRIPTIONS: Dictionary = {
 ## through the same taunt Roar uses, for this long; re-applied while it fights.
 @export var myr_enforcer_taunt_radius: float = 8.0
 @export var myr_enforcer_taunt_duration: float = 3.0
-## How much bigger than a worker the placeholder model is drawn (the real one comes later).
+## How much bigger than a worker the Enforcer is - its model, its body and its reach.
 @export var myr_enforcer_scale: float = 1.5
 ## Lodestone Myr: the fighter. Draws on the workers harvesting around it - a harvesting myr is
 ## a tapped artifact - for more damage per blow, up to the cap.
@@ -2544,6 +2544,7 @@ const ENCHANTMENT_DESCRIPTIONS: Dictionary = {
 @export var myr_lodestone_bonus_per_worker: float = 0.25
 @export var myr_lodestone_bonus_cap: float = 1.0
 @export var myr_lodestone_bonus_radius: float = 8.0
+## As myr_enforcer_scale, for the Lodestone.
 @export var myr_lodestone_scale: float = 1.25
 
 ## Where a new worker myr goes by itself (MainController.auto_lane), chosen in the base screen:

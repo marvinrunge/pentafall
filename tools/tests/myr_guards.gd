@@ -12,8 +12,9 @@ extends Node
 ##   2. A worker runs home from an enemy with no guard about, picks its harvest up again where it
 ##      left it once the lane is quiet, keeps going home when it is loaded, and ignores a stormer.
 ##   3. The Enforcer's price falls with the workers; one guard per lane; a worker in danger runs
-##      behind its lane's guard; the guard takes on what attacks the worker, taunts it, hits it,
-##      and is credited the kill; the Lodestone hits harder beside harvesting workers.
+##      behind its lane's guard; each guard wears its own model; the guard takes on what attacks
+##      the worker, taunts it, swings its own blow and hits on the blow's impact frame, and is
+##      credited the kill; the Lodestone hits harder beside harvesting workers.
 ##   4. A dead myr goes to the Graveyard with its name, level and stats, and comes back for a
 ##      third of what went into it - level, name, lane and stats intact.
 
@@ -140,6 +141,11 @@ func _run() -> void:
 	_check("one guard per lane", lodestone.lane_index == -1, "%d" % lodestone.lane_index)
 	_main.request_myr_lane(lodestone, 1)
 	_check("...another lane is fine", lodestone.lane_index == 1, "%d" % lodestone.lane_index)
+	for kind: Myr in [guard, lodestone]:
+		var model: Node = kind.visual_anim_player.get_parent() if kind.visual_anim_player else null
+		_check("the %s wears its own model" % kind.role_name(), model != null
+			and model.scene_file_path == Myr.GUARD_SCENES[kind.role] and kind.visual_anim_player.has_animation("attack"),
+			model.scene_file_path if model else "none")
 
 	var post: Vector3 = guard.guard_post()
 	guard.global_position = post
@@ -157,6 +163,12 @@ func _run() -> void:
 	_check("...and taunts it off the worker", enemy.taunt_source == guard, "%s" % enemy.taunt_source)
 	var health_before: float = enemy.health
 	guard._guard_strike()
+	_check("...swings its own blow", guard.visual_anim_player != null and guard.visual_anim_player.current_animation == "attack",
+		"%s" % (guard.visual_anim_player.current_animation if guard.visual_anim_player else "no model"))
+	_check("...which lands on its impact frame, not before", is_equal_approx(enemy.health, health_before)
+		and guard._strike_impact_timer > 0.0 and guard._strike_impact_timer < GameSettings.myr_enforcer_attack_interval,
+		"%.1f hp, impact in %.2f s" % [enemy.health, guard._strike_impact_timer])
+	guard._land_strike()
 	_check("...and hits it", enemy.health < health_before, "%.1f -> %.1f" % [health_before, enemy.health])
 	enemy.take_damage(enemy.health + 10000.0, guard, true)
 	_check("...and is credited the kill", guard.kills == 1, "%d" % guard.kills)

@@ -51,6 +51,9 @@ assets/weapons/player/player_weapon_base_color.jpg*
 # references it, and the extracted fbx/textures next to it are what the project uses.
 # Each class has its own folder under assets/player now, hence the **.
 assets/player/**/*_texture_fbx.zip
+# The same for the two myr guards: Meshy's texture and OBJ exports and Mixamo's creature
+# pack, unpacked into the fbx, maps and assets/animations/<guard>/ clips beside them.
+assets/myrs/**/*.zip
 
 # Blender's automatic backup of the previous save, written next to every .blend.
 *.blend1

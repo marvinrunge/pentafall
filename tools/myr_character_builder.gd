@@ -1,6 +1,6 @@
 class_name MyrCharacterBuilder
 extends RefCounted
-## Builds the five colour-specific Myr scenes and their animation libraries.
+## Builds the five colour-specific Myr scenes, the two guards', and their animation libraries.
 ##
 ## Structurally the same problem as tools/boss_character_builder.gd (Mixamo-
 ## rigged meshes at a tiny raw import scale, clips borrowed across files that
@@ -11,9 +11,12 @@ extends RefCounted
 ## Source layout:
 ##   assets/myrs/<color>_myr/<color>_myr.fbx   mesh + its own embedded "walk" clip
 ##   assets/animations/myr/*.fbx               clips shared by all five colours
+##   assets/myrs/<guard>/<guard>.fbx + maps    a guard's mesh (see GUARDS)
+##   assets/animations/<guard>/*.fbx           that guard's own clips
 ##
 ## Run with:
 ##   "G:\Godot\Godot_v4.7-stable_win64_console.exe" --headless --path . --script tools/build_myr_characters.gd
+##   ... --script tools/build_myr_characters.gd -- guards     (the two guards only)
 ##
 ## Deadlocks if an editor already holds the project lock; while the editor is
 ## open, call MyrCharacterBuilder.build_all() through Godot MCP's
@@ -22,6 +25,8 @@ extends RefCounted
 ## ResourceLoader.load(path, "", CACHE_MODE_REPLACE) to see the latest source;
 ## read it with FileAccess and compile a class_name-stripped throwaway GDScript
 ## instead (see .agents/learnings.md, this bit the boss builder the same day).
+
+const AnimationImpact = preload("res://tools/animation_impact.gd")
 
 const ANIM_ROOT := "res://assets/animations/myr/"
 const SCENE_DIR := "res://scenes/myrs/"
@@ -56,6 +61,24 @@ const MYRS := {
 	"Green": {"mesh": "res://assets/myrs/copper_myr/copper_myr.fbx", "name": "copper_myr"},
 }
 
+## The two guards (docs/MYR_GUARDS_PLAN.md). Unlike the workers, each was rigged on Mixamo
+## and had its whole clip pack downloaded onto that same rig, so nothing is shared between
+## them and nothing needs the retarget pass: assets/animations/<name>/<clip>.fbx is made for
+## assets/myrs/<name>/<name>.fbx. "attack" names which of the pack's blows the guard swings.
+##
+## The scene's root keeps the scale set here (scripts/myr.gd does not overwrite it for a
+## guard, as it does for a worker), so GUARD_TARGET_HEIGHT is the drawn height before the
+## guard's own node scale (myr_enforcer_scale, myr_lodestone_scale). 1.91 is what a worker is
+## actually drawn at - its 1.0 here, rescaled by myr.gd's flat 100x - so a guard stands as
+## much taller than a worker as its node scale says, as the placeholders did.
+const GUARD_TARGET_HEIGHT := 1.91
+const GUARD_CLIPS := ["walk", "run", "idle", "death"]
+const GUARD_LOOPING_CLIPS := ["walk", "run", "idle"]
+const GUARDS := {
+	"enforcer": {"name": "myr_enforcer", "attack": "punch"},
+	"lodestone": {"name": "lodestone_myr", "attack": "swiping"},
+}
+
 
 static func build_all() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(SCENE_DIR))
@@ -77,6 +100,80 @@ static func build_all() -> void:
 			built += 1
 
 	print("Done. Built %d myr scenes." % built)
+
+
+## The guards only. Separate from build_all() because that one would overwrite the five
+## worker scenes, which have been tuned by hand since they were generated (their PBR
+## materials); the guard scenes are built whole, material included, and can be rebuilt.
+static func build_guards() -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(SCENE_DIR))
+	var built := 0
+	for role in GUARDS.keys():
+		if _build_guard(GUARDS[role]["name"], GUARDS[role]["attack"]):
+			built += 1
+	print("Done. Built %d guard scenes." % built)
+
+
+static func _build_guard(output_name: String, attack_clip: String) -> bool:
+	var mesh_fbx_path := "res://assets/myrs/%s/%s.fbx" % [output_name, output_name]
+	var clip_root := "res://assets/animations/%s/" % output_name
+	var base_scene: PackedScene = ResourceLoader.load(mesh_fbx_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+	if base_scene == null:
+		push_error("Could not load guard mesh %s" % mesh_fbx_path)
+		return false
+	var root: Node3D = base_scene.instantiate()
+	root.name = output_name.capitalize().replace(" ", "")
+
+	var anim_player: AnimationPlayer = root.find_child("AnimationPlayer", true, false)
+	var mesh_node: MeshInstance3D = _find_mesh_instance(root)
+	var skeleton: Skeleton3D = root.find_child("Skeleton3D", true, false)
+	if anim_player == null or mesh_node == null or skeleton == null:
+		push_error("%s is missing its AnimationPlayer, mesh or skeleton" % mesh_fbx_path)
+		return false
+	# The mesh's own clip is Mixamo's one-frame bind pose, nothing to keep.
+	for lib_name in anim_player.get_animation_library_list():
+		anim_player.remove_animation_library(lib_name)
+	(mesh_node.mesh as ArrayMesh).surface_set_material(0, _build_pbr_material("res://assets/myrs/%s/%s" % [output_name, output_name]))
+
+	_normalize_to_target_height(root, mesh_node, GUARD_TARGET_HEIGHT)
+
+	var template := AnimationLibrary.new()
+	var sources: Dictionary = {}
+	for clip_name in GUARD_CLIPS:
+		sources[clip_name] = clip_root + clip_name + ".fbx"
+	sources["attack"] = clip_root + attack_clip + ".fbx"
+	for clip_name in sources.keys():
+		var anim := _extract_animation(sources[clip_name])
+		if anim == null:
+			push_error("Could not extract guard clip '%s' from %s" % [clip_name, sources[clip_name]])
+			return false
+		anim.loop_mode = Animation.LOOP_LINEAR if clip_name in GUARD_LOOPING_CLIPS else Animation.LOOP_NONE
+		_strip_horizontal_root_motion(anim, "mixamorig_Hips")
+		template.add_animation(clip_name, anim)
+
+	var library: AnimationLibrary = _ground_correct_library(template, anim_player, root, skeleton)
+	# Where the blow connects, so the guard's damage lands on that frame (Myr._guard_strike),
+	# as an enemy's does.
+	var impact_ratio: float = AnimationImpact.annotate(library, "attack", skeleton, anim_player, root)
+	var library_path: String = clip_root + "lib_%s.tres" % output_name
+	if ResourceSaver.save(library, library_path) != OK:
+		push_error("Failed saving guard animation library %s" % library_path)
+		return false
+	anim_player.add_animation_library("", ResourceLoader.load(library_path, "", ResourceLoader.CACHE_MODE_REPLACE))
+	anim_player.autoplay = "idle"
+
+	_own_recursive(root, root)
+	var packed := PackedScene.new()
+	if packed.pack(root) != OK:
+		push_error("PackedScene.pack failed for %s" % output_name)
+		return false
+	var output_path := SCENE_DIR + "%s.tscn" % output_name
+	if ResourceSaver.save(packed, output_path) != OK:
+		push_error("ResourceSaver.save failed for %s" % output_name)
+		return false
+	print("Saved ", output_path, " (attack '", attack_clip, "' impact at ", "%.0f%%" % (impact_ratio * 100.0), ")")
+	root.queue_free()
+	return true
 
 
 static func _extract_animation(source_fbx_path: String) -> Animation:
@@ -252,13 +349,13 @@ static func _shift_hips_y(anim: Animation, bone_name: String, delta_y: float) ->
 		return
 
 
-static func _normalize_to_target_height(root: Node3D, mesh_node: MeshInstance3D) -> void:
+static func _normalize_to_target_height(root: Node3D, mesh_node: MeshInstance3D, target_height: float = MYR_TARGET_HEIGHT) -> void:
 	var mesh_to_root: Transform3D = _transform_to_ancestor(mesh_node, root)
 	var bounds: AABB = mesh_to_root * mesh_node.mesh.get_aabb()
 	if bounds.size.y <= 0.0:
 		push_error("Degenerate mesh bounds for %s; leaving scale untouched" % root.name)
 		return
-	var factor: float = MYR_TARGET_HEIGHT / bounds.size.y
+	var factor: float = target_height / bounds.size.y
 	var basis: Basis = root.transform.basis.orthonormalized().scaled(Vector3.ONE * factor)
 	root.transform = Transform3D(basis, Vector3(0.0, -bounds.position.y * factor, 0.0))
 
@@ -298,6 +395,22 @@ static func _build_myr_material(mesh_fbx_path: String) -> StandardMaterial3D:
 		mat.albedo_texture = albedo
 	mat.metallic = 0.0
 	mat.roughness = 1.0
+	return mat
+
+
+## The material the worker scenes were later given by hand, from Meshy's own maps for the
+## model: `<base>_albedo/_normal/_metallic/_roughness/_emission.png`.
+static func _build_pbr_material(base: String) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = load(base + "_albedo.png")
+	mat.normal_enabled = true
+	mat.normal_texture = load(base + "_normal.png")
+	mat.metallic_texture = load(base + "_metallic.png")
+	mat.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	mat.roughness_texture = load(base + "_roughness.png")
+	mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	mat.emission_enabled = true
+	mat.emission_texture = load(base + "_emission.png")
 	return mat
 
 
