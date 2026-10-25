@@ -8,8 +8,10 @@ extends SceneTree
 ##   "G:\Godot\Godot_v4.7-stable_win64_console.exe" --headless --path . --script tools/smooth_scene_meshes.gd -- res://scenes/mage/elf_mage.tscn
 ##
 ## Every mesh built into a scene whose normals are split at more than SPLIT_LIMIT of its
-## positions is smoothed (tools/normal_smoother.gd) and marked; a marked mesh is skipped, so
-## runs never stack. The scene FILE is patched rather than re-saved, for the reason
+## positions (or `--limit=<share>`) is smoothed (tools/normal_smoother.gd) and marked; a marked
+## mesh is skipped, so runs never stack. The melee enemies and three bosses came in at 2-6% -
+## under the limit, yet faceted across their faces - and were done with --limit=0.01; a smooth
+## one measures under 0.5%. The scene FILE is patched rather than re-saved, for the reason
 ## tools/fix_player_chins.gd gives: only the mesh's `_surfaces` are swapped, and each surface
 ## keeps the material reference it had. Everything else in the file stays byte for byte.
 ##
@@ -21,11 +23,16 @@ const SPLIT_LIMIT := 0.15
 const MARK := "metadata/normals_smoothed = true"
 const TEMP := "user://smooth_scene_mesh.tres"
 
+var _limit: float = SPLIT_LIMIT
+
 
 func _init() -> void:
 	var scenes: Array[String] = []
 	for arg: String in OS.get_cmdline_user_args():
-		scenes.append(arg)
+		if arg.begins_with("--limit="):
+			_limit = arg.trim_prefix("--limit=").to_float()
+		else:
+			scenes.append(arg)
 	if scenes.is_empty():
 		_collect("res://scenes", scenes)
 	for path in scenes:
@@ -58,7 +65,7 @@ func _patch(path: String) -> void:
 		if text.substr(block_at, block_end - block_at).contains(MARK):
 			continue
 		var share: float = NormalSmoother.split_share(mesh)
-		if share <= SPLIT_LIMIT:
+		if share <= _limit:
 			continue
 		var smoothed: ArrayMesh = NormalSmoother.smooth(mesh)
 		var patched: String = _swap_surfaces(text, block_at, mesh, smoothed)
