@@ -139,11 +139,21 @@ func _rebuild() -> void:
 
 
 func _row(objective: Dictionary, ticked: bool) -> Control:
+	var line := HBoxContainer.new()
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_theme_constant_override("separation", int(round(8.0 * _hud_scale)))
+	var tick := _Tick.new()
+	tick.done = ticked
+	tick.custom_minimum_size = Vector2(16.0, 16.0) * _hud_scale
+	tick.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	line.add_child(tick)
 	var box := VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_theme_constant_override("separation", 0)
+	line.add_child(box)
 	var title := Label.new()
-	title.text = ("✔  " if ticked else "◇  ") + String(objective["text"])
+	title.text = String(objective["text"])
 	title.add_theme_font_size_override("font_size", int(round(17.0 * _hud_scale)))
 	title.add_theme_color_override("font_color", DONE_COLOR if ticked else TITLE_COLOR)
 	title.add_theme_color_override("font_outline_color", Color.BLACK)
@@ -161,7 +171,7 @@ func _row(objective: Dictionary, ticked: bool) -> Control:
 		hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		box.add_child(hint)
 		_hint_labels[String(objective["id"])] = hint
-	return box
+	return line
 
 
 func _objective(objective_id: String) -> Dictionary:
@@ -183,3 +193,27 @@ func _save_done() -> void:
 		if _done.has(String(objective["id"])):
 			ids.append(String(objective["id"]))
 	UserSettings.set_value(&"objectives_done", ",".join(ids))
+
+
+## The box in front of an objective, ticked when it is done. Drawn rather than a glyph: the
+## default font has no check mark, and a missing glyph is an empty square on some machines.
+class _Tick:
+	extends Control
+
+	var done: bool = false
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var side: float = minf(size.x, size.y)
+		var rect := Rect2(Vector2(1.0, 3.0), Vector2(side - 2.0, side - 2.0))
+		var color: Color = ObjectiveTracker.DONE_COLOR if done else ObjectiveTracker.TITLE_COLOR
+		draw_rect(rect, Color(0.0, 0.0, 0.0, 0.5))
+		draw_rect(rect, color, false, 1.5)
+		if done:
+			var a: Vector2 = rect.position + Vector2(rect.size.x * 0.2, rect.size.y * 0.52)
+			var b: Vector2 = rect.position + Vector2(rect.size.x * 0.42, rect.size.y * 0.75)
+			var c: Vector2 = rect.position + Vector2(rect.size.x * 0.82, rect.size.y * 0.25)
+			draw_polyline(PackedVector2Array([a, b, c]), color, 2.0, true)
+

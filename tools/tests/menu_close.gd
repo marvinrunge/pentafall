@@ -72,7 +72,8 @@ func _run() -> void:
 	var settings_button: CloseButton = _close_button_of(hud.settings_panel.get_parent())
 	_check("the settings panel has one", settings_button != null)
 	if base_ui != null:
-		_check("the base panel has one", _close_button_of(base_ui) != null)
+		# In its header row now, beside the title and the pool, rather than pinned to a corner.
+		_check("the base panel has one", not base_ui.find_children("*", "CloseButton", true, false).is_empty())
 
 	# ...and it is not something the arrow keys can land on, because the skill tree
 	# navigates its board with them and ui_accept buys the selected node.

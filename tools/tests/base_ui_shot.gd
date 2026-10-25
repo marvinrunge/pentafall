@@ -82,3 +82,11 @@ func _shoot(main: Node) -> void:
 	var image: Image = get_viewport().get_texture().get_image()
 	image.save_png(out_path)
 	print("saved %s (%dx%d)" % [out_path, image.get_width(), image.get_height()])
+	# ...and scrolled to the bottom, for the guards and the Graveyard.
+	main.base_ui_instance._scroll.scroll_vertical = 100000
+	for _i: int in 10:
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var bottom_path: String = out_path.get_basename() + "_bottom.png"
+	get_viewport().get_texture().get_image().save_png(bottom_path)
+	print("saved %s" % bottom_path)
