@@ -1047,9 +1047,49 @@ static func _build_bolt_telegraph(radius: float, delay: float) -> Node3D:
 func request_build_myr() -> void:
 	if Net.is_server():
 		if myr_count() < GameSettings.myr_max_count and RunState.spend({"Colorless": GameSettings.myr_mana_cost}):
-			spawn_myr({"invested": GameSettings.myr_mana_cost})
+			_auto_assign(spawn_myr({"invested": GameSettings.myr_mana_cost}))
 	else:
 		_rpc_build_myr.rpc_id(1)
+
+
+## Gives a new worker its lane by itself, by the team's choice in the base screen
+## (RunState.myr_auto_assign). An unassigned myr has no model and stands invisible at the
+## crystal, so a new player who built one used to see nothing happen at all.
+func _auto_assign(myr: Node3D) -> void:
+	if myr == null or myr.is_guard() or int(myr.lane_index) >= 0:
+		return
+	var lane: int = auto_lane()
+	if lane >= 0:
+		_apply_myr_lane(myr, lane)
+
+
+## The well a new worker goes to: the one with the fewest workers ("fewest") or the most that
+## still has a free slot ("most"); -1 when the choice is "manual" or every well is full. A tie
+## goes to a lane with a guard - safer - and then to the lane order.
+func auto_lane() -> int:
+	var mode: String = RunState.myr_auto_assign
+	if mode != "fewest" and mode != "most":
+		return -1
+	var best: int = -1
+	var best_key: Vector2 = Vector2.INF
+	for lane: int in mana_sources.size():
+		var count: int = well_slot_count(lane)
+		if count >= RunState.myr_well_slots():
+			continue
+		var guarded: float = 0.0 if lane_guard(lane) != null else 1.0
+		var key := Vector2(float(count) if mode == "fewest" else -float(count), guarded)
+		if best < 0 or key.x < best_key.x or (key.x == best_key.x and key.y < best_key.y):
+			best = lane
+			best_key = key
+	return best
+
+
+## Where new workers go - the base screen's choice. Any player, like building one.
+func request_set_myr_auto_assign(mode: String) -> void:
+	if Net.is_server():
+		RunState.set_myr_auto_assign(mode)
+	else:
+		_rpc_set_myr_auto_assign.rpc_id(1, mode)
 
 
 ## A Myr Enforcer or a Lodestone Myr (docs/MYR_GUARDS_PLAN.md). Built unassigned, like a worker;
@@ -1091,6 +1131,8 @@ func request_return_myr(record_id: int) -> void:
 	var lane: int = int(record.get("lane", -1))
 	if myr != null and lane >= 0:
 		_apply_myr_lane(myr, lane)
+	# Its old well may be full by now; then it goes where a new one would.
+	_auto_assign(myr)
 
 
 ## Whether there is room for `record` to come back: under the workers' cap, or - for a guard -
@@ -1159,6 +1201,12 @@ func _myr_by_name(myr_name: String) -> Node3D:
 func _rpc_build_myr() -> void:
 	if Net.is_server():
 		request_build_myr()
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_set_myr_auto_assign(mode: String) -> void:
+	if Net.is_server():
+		request_set_myr_auto_assign(mode)
 
 
 @rpc("any_peer", "call_remote", "reliable")

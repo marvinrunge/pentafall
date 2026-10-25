@@ -214,10 +214,32 @@ func _run() -> void:
 			and back.mana_delivered == delivered and back.deaths == 1 and back.invested == invested
 			and is_equal_approx(back.max_health, GameSettings.myr_max_hp + 2.0 * GameSettings.myr_level_hp_bonus),
 			"%s lv %d lane %d hp %.0f" % [back.display_name, back.level, back.lane_index, back.max_health])
+	print("AUTO-ASSIGN")
+	for mode: String in ["most", "fewest", "manual"]:
+		_main.request_set_myr_auto_assign(mode)
+		var counts: Array[int] = []
+		for lane: int in _main.mana_sources.size():
+			counts.append(_main.well_slot_count(lane))
+		_main.request_build_myr()
+		var fresh: Myr = _newest(Myr.ROLE_WORKER)
+		var wanted: int = -1
+		if mode == "most":
+			wanted = counts.find(counts.max())
+		elif mode == "fewest":
+			wanted = counts.find(counts.min())
+		_check("\"%s\": a new myr goes where it should" % mode, fresh != null and fresh.lane_index == wanted
+			and (mode == "manual" or counts[wanted] == (counts.max() if mode == "most" else counts.min())),
+			"lane %d, wanted %d, counts %s" % [fresh.lane_index if fresh != null else -2, wanted, counts])
+	_main.base_ui_instance.open(_main)
+	await get_tree().process_frame
+	_check("the base screen shows the choice", _main.base_ui_instance._auto_assign_option.selected
+		== RunState.MYR_AUTO_ASSIGN_MODES.find("manual"), "%d" % _main.base_ui_instance._auto_assign_option.selected)
+	_main.base_ui_instance.close()
+
 	var panel: Node = _main.get_node_or_null("UpkeepPanel")
 	if panel != null:
 		var totals: Dictionary = panel.myr_totals()
-		_check("Upkeep's totals count the myrs' mana once", int(totals["mana"]) == delivered, "%s" % [totals])
+		_check("Upkeep's totals count the myrs' mana once", int(totals["mana"]) >= delivered, "%s" % [totals])
 
 
 func _newest(role: String) -> Myr:

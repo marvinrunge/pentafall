@@ -73,6 +73,10 @@ const EquipmentDatabase := preload("res://scripts/equipment_database.gd")
 var graveyard: Array = []
 ## The next Myr.record_id. Server only.
 var _next_myr_id: int = 1
+## Where a new worker myr goes by itself - "fewest", "most" or "manual" (MainController.auto_lane).
+## The team's choice, made in the base screen, so it lives with the rest of the run's state.
+const MYR_AUTO_ASSIGN_MODES: Array[String] = ["fewest", "most", "manual"]
+var myr_auto_assign: String = "fewest"
 
 
 ## Set whenever the server changes anything, cleared when the change goes out. Kills
@@ -91,14 +95,15 @@ func _process(delta: float) -> void:
 		return
 	_flush_timer = GameSettings.run_state_sync_interval
 	_dirty = false
-	_apply_state.rpc(team_xp, team_level, mana_pool, enchantments, points_awarded, equipment_unlocked, graveyard)
+	_apply_state.rpc(team_xp, team_level, mana_pool, enchantments, points_awarded, equipment_unlocked, graveyard, myr_auto_assign)
 
 
 ## The whole economy in one message. Small enough that sending it entire is cheaper than
 ## working out which field moved, and it cannot drift the way incremental updates can.
 @rpc("authority", "call_remote", "reliable")
 func _apply_state(xp: float, level: int, pool: Dictionary, ench: Dictionary, awarded: int = 0, equipment: Array = [],
-		buried: Array = []) -> void:
+		buried: Array = [], auto_assign: String = "fewest") -> void:
+	myr_auto_assign = auto_assign
 	if buried != graveyard:
 		graveyard = buried
 		SignalBus.graveyard_changed.emit()
@@ -128,7 +133,7 @@ func _apply_state(xp: float, level: int, pool: Dictionary, ench: Dictionary, awa
 func push_state_to(peer_id: int) -> void:
 	if not Net.is_active() or not Net.is_server():
 		return
-	_apply_state.rpc_id(peer_id, team_xp, team_level, mana_pool, enchantments, points_awarded, equipment_unlocked, graveyard)
+	_apply_state.rpc_id(peer_id, team_xp, team_level, mana_pool, enchantments, points_awarded, equipment_unlocked, graveyard, myr_auto_assign)
 
 
 func reset() -> void:
@@ -141,6 +146,7 @@ func reset() -> void:
 	equipment_unlocked.clear()
 	graveyard.clear()
 	_next_myr_id = 1
+	myr_auto_assign = GameSettings.myr_auto_assign_default
 	SignalBus.graveyard_changed.emit()
 	SignalBus.mana_changed.emit(mana_pool)
 	SignalBus.team_level_changed.emit(team_level, 0)
@@ -154,6 +160,14 @@ func next_myr_id() -> int:
 	var id: int = _next_myr_id
 	_next_myr_id += 1
 	return id
+
+
+## Sets where new worker myrs go. Server only - a client asks MainController.
+func set_myr_auto_assign(mode: String) -> void:
+	if not Net.is_server() or not MYR_AUTO_ASSIGN_MODES.has(mode):
+		return
+	myr_auto_assign = mode
+	_dirty = true
 
 
 ## A myr died: into the Graveyard with what it was. Server only, from Myr.die().

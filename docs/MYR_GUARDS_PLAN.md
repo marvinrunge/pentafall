@@ -155,6 +155,11 @@ Each step gets a test under `tools/tests/`, like the other systems.
   Guards are in the `myrs` group as well as `myr_guards`: enemies go for them, heals and shields
   reach them. The worker cap (`myr_count`) and the wells' slots do not count them.
 - **Returning** works from the base screen at any time, like building a myr, not only at Upkeep.
+- **New workers find a lane by themselves** (added 2026-10-25): the base screen's "New myrs go
+  to" picks the well with the fewest workers (the default), the one with the most that still has
+  room, or none. A tie goes to a lane with a guard. `MainController.auto_lane`,
+  `RunState.myr_auto_assign`. Myrs are bought only at the base now - the Upkeep panel no longer
+  sells them.
 - **Guards level** like workers: +`myr_level_hp_bonus` health and +`myr_guard_level_damage_bonus`
   damage per level.
 - **A wild beast** is only run from when it comes within its own aggro radius plus

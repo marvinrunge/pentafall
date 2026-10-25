@@ -2546,6 +2546,11 @@ const ENCHANTMENT_DESCRIPTIONS: Dictionary = {
 @export var myr_lodestone_bonus_radius: float = 8.0
 @export var myr_lodestone_scale: float = 1.25
 
+## Where a new worker myr goes by itself (MainController.auto_lane), chosen in the base screen:
+## "fewest" - the well with the fewest workers, "most" - the one with the most that still has a
+## free slot, "manual" - nowhere until somebody gives it a lane. The run starts on this.
+@export var myr_auto_assign_default: String = "fewest"
+
 # --- The Graveyard -----------------------------------------------------------------------
 ## A dead myr - worker or guard - can be returned from the team's Graveyard for this share of
 ## everything that was put into it (built and levelled), never less than a new myr. A maxed

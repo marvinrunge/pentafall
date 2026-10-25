@@ -11,6 +11,13 @@ var main_controller: Node3D
 var _enforcer_btn: Button
 var _lodestone_btn: Button
 var _graveyard_box: VBoxContainer
+## Where new worker myrs go by themselves (RunState.myr_auto_assign).
+var _auto_assign_option: OptionButton
+const AUTO_ASSIGN_LABELS: Dictionary = {
+	"fewest": "Well with the fewest myrs",
+	"most": "Well with the most myrs",
+	"manual": "Nowhere - I assign them",
+}
 
 
 func _ready() -> void:
@@ -20,6 +27,7 @@ func _ready() -> void:
 	# no way out until it had been opened - and then a fresh button every time after.
 	_build_close_button()
 	_build_guard_buttons()
+	_build_auto_assign_row()
 	_graveyard_box = VBoxContainer.new()
 	_graveyard_box.name = "GraveyardContainer"
 	_graveyard_box.add_theme_constant_override("separation", 6)
@@ -27,6 +35,28 @@ func _ready() -> void:
 	SignalBus.graveyard_changed.connect(func() -> void:
 		if visible:
 			refresh_ui())
+
+
+func _build_auto_assign_row() -> void:
+	var row := HBoxContainer.new()
+	row.name = "AutoAssignRow"
+	row.add_theme_constant_override("separation", 10)
+	var label := Label.new()
+	label.text = "New myrs go to:"
+	row.add_child(label)
+	_auto_assign_option = OptionButton.new()
+	_auto_assign_option.name = "AutoAssignOption"
+	_auto_assign_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for mode: String in RunState.MYR_AUTO_ASSIGN_MODES:
+		_auto_assign_option.add_item(String(AUTO_ASSIGN_LABELS[mode]))
+		_auto_assign_option.set_item_metadata(_auto_assign_option.item_count - 1, mode)
+	_auto_assign_option.tooltip_text = "Where a newly built worker myr goes by itself. Any myr can be sent elsewhere below at any time."
+	_auto_assign_option.item_selected.connect(func(index: int) -> void:
+		main_controller.request_set_myr_auto_assign(String(_auto_assign_option.get_item_metadata(index))))
+	row.add_child(_auto_assign_option)
+	var parent: Node = build_btn.get_parent()
+	parent.add_child(row)
+	parent.move_child(row, parent.get_node("GuardButtons").get_index() + 1)
 
 
 func _build_guard_buttons() -> void:
@@ -94,6 +124,10 @@ func refresh_ui() -> void:
 	if at_cap:
 		build_btn.text = "Myr Limit Reached (%d/%d)" % [workers, GameSettings.myr_max_count]
 	build_btn.disabled = at_cap or RunState.total_mana() < GameSettings.myr_mana_cost
+
+	var mode_index: int = RunState.MYR_AUTO_ASSIGN_MODES.find(RunState.myr_auto_assign)
+	if mode_index >= 0 and _auto_assign_option.selected != mode_index:
+		_auto_assign_option.select(mode_index)
 
 	# One guard per lane, so the guards' cap is the lane count.
 	var guards_full: bool = main_controller.guard_count() >= main_controller.mana_sources.size()
