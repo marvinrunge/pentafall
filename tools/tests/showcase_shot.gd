@@ -1,7 +1,8 @@
 extends "res://tools/tests/key_art_shot.gd"
 ## Showcase screenshots at whatever the player's graphics preset is (Ultra for the store
 ## page): every colour's warband in its own biome, the crystal under attack from all five
-## with the five hero classes holding it, and the biomes' beasts. Staged the way
+## with the five hero classes holding it, the biomes' beasts, and the splash staged in game
+## (splash_heroes*) as a base for repainting the key art. Staged the way
 ## KeyArtShot stages its key art - the real map under the real sky, bare posed models.
 ##
 ## Run with (windowed - a headless run renders nothing):
@@ -151,6 +152,32 @@ func _shots() -> Dictionary:
 		"lane": "White", "time": 15.0, "fov": 46.0,
 		"cam": Vector3(17.0, -2.5, 1.9), "look": Vector3(6.0, 0.0, 1.8), "actors": line,
 	}
+
+	# The splash, staged: the website's painted key art (site/images/splash.jpg) has one knight
+	# walking up the White lane to the crystal in the stone ring. Here all five heroes stand
+	# there, backs to a low camera, and the other four lanes' warbands and bosses charge the
+	# crystal from beyond it. Sky is left over the crystal for the logo. Meant as the base for a
+	# repaint, so three lights to choose from: golden afternoon (the painting's), midday, dusk.
+	var splash: Array = []
+	for actor: Dictionary in _siege(false):
+		if actor.get("lane", "") != "White":
+			splash.append(actor)
+	var heroes: Array[Dictionary] = [
+		{"class": "archer", "anim": "aim", "phase": 0.5, "side": -6.2, "along": 14.6},
+		{"class": "mage", "anim": "bolt_2", "phase": 0.45, "side": -3.2, "along": 13.6},
+		{"class": "knight", "anim": "block_idle", "phase": 0.5, "side": 0.0, "along": 13.0},
+		{"class": "barbarian", "anim": "taunt_battlecry", "phase": 0.45, "side": 3.2, "along": 13.6},
+		{"class": "warrior", "anim": "combo_2", "phase": 0.3, "side": 6.2, "along": 14.6},
+	]
+	for stance: Dictionary in heroes:
+		splash.append({"kind": "class", "color": stance["class"], "lane": "White",
+			"at": Vector2(float(stance["along"]), float(stance["side"])),
+			"anim": stance["anim"], "phase": stance["phase"], "face": Vector2(-14.0, float(stance["side"]) * 0.4)})
+	for light: Array in [["splash_heroes", 17.4], ["splash_heroes_day", 13.5], ["splash_heroes_dusk", 18.3]]:
+		shots[light[0]] = {
+			"lane": "White", "time": light[1], "fov": 62.0,
+			"cam": Vector3(21.5, 0.0, 1.5), "look": Vector3(-4.0, 0.0, 4.2), "actors": splash,
+		}
 
 	# The five towers in an arc across the White lane before the crystal, fronts to the lane,
 	# its front rank on them and the other lanes fighting behind.
