@@ -194,6 +194,9 @@ jobs:
           files: ${{ env.EXPORT_NAME }}-windows.zip
           generate_release_notes: true
           body: |
+            **Easiest: install it from [itch.io](https://marvinrunge.itch.io/pentafall) with the itch app** -
+            it updates itself and downloads only what changed.
+
             **Windows, 64-bit — ${{ steps.verify.outputs.size_mb }} MB.**
             Download `${{ env.EXPORT_NAME }}-windows.zip` from the Assets below, unzip it
             anywhere (keep the .dll files next to the .exe) and run the .exe. No installer.
