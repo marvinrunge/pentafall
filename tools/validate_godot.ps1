@@ -164,6 +164,16 @@ if (-not $SkipRuntime) {
     }
     Write-Output "PASS: enemies and players that fall through the ground or leave the map are put back, alive."
 
+    # Unsummon throws enemies up as well as away, by move_and_collide; until the next
+    # move_and_slide their floor state is stale, and trusting it hung a stunned pack three
+    # metres in the air.
+    $unsummonResult = Invoke-GodotCheck -Name "unsummon-ground" -Arguments @("--headless", "--path", $projectRoot, "res://tools/tests/unsummon_ground.tscn") -TimeoutSeconds 120
+    if ($unsummonResult.Output -notmatch "TEST RESULT: PASS") {
+        [Console]::WriteLine($unsummonResult.Output)
+        throw "Enemies Unsummon throws do not come back down onto the ground."
+    }
+    Write-Output "PASS: enemies Unsummon throws land on the ground, near and far from the player."
+
     # Clips borrowed between the bosses are retargeted, not copied by bone name: a raw copy
     # pitched the borrowing bosses' feet 22-41 degrees.
     $retargetResult = Invoke-GodotCheck -Name "animation-retarget" -Arguments @("--headless", "--path", $projectRoot, "res://tools/tests/animation_retarget.tscn") -TimeoutSeconds 120

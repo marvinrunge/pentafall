@@ -452,15 +452,9 @@ static func cast_black_doom_blade(caster: Player) -> void:
 ## The victims of one cast share one `outbreak` counter, which is what caps a single cast
 ## however dense the wave is.
 static func cast_black_contagion(caster: Player) -> void:
-	var reach: float = GameSettings.spell_black_contagion_range * caster._rank_area()
-	var target: Node3D = caster.aim_target(reach)
+	var target: Node3D = contagion_target(caster)
 	if target == null:
-		# Nothing in the sights: whatever stands nearest the point being aimed at.
-		var near: Array[Node3D] = caster._enemies_in_radius(caster._aim_point(reach), 6.0)
-		if not near.is_empty():
-			target = near[0]
-	if target == null or not target.has_method("apply_contagion"):
-		caster._notify("No enemy to infect")
+		caster.spell_missed("black_2", "No enemy to infect")
 		return
 	# Not rank-scaled: see GameSettings.rank_duration_mult on damage over time.
 	var duration: float = GameSettings.spell_black_contagion_duration * caster._vigilance_mult()
@@ -480,6 +474,23 @@ static func cast_black_contagion(caster: Player) -> void:
 	NetFx.impact(to, EnemyBase.CONTAGION_TINT, 1.2)
 	caster._spawn_spell_fx("black_2", target.global_position, 1.0)
 	caster._play_sound(&"spell_contagion", target.global_position)
+
+
+## Who Contagion would infect: the enemy in the sights, or failing that whatever stands nearest
+## the point being aimed at. Null for nobody - and then it is not cast (Player.spell_miss).
+static func contagion_target(caster: Player) -> Node3D:
+	var reach: float = GameSettings.spell_black_contagion_range * caster._rank_area()
+	var target: Node3D = caster.aim_target(reach)
+	if target == null:
+		var near: Array[Node3D] = caster._enemies_in_radius(caster._aim_point(reach), 6.0)
+		if not near.is_empty():
+			target = near[0]
+	return target if target != null and target.has_method("apply_contagion") else null
+
+
+## The corpses Zombify can raise: any but a boss's.
+static func zombify_corpses() -> Array[EnemyBase]:
+	return EnemyBase.corpses().filter(func(corpse: EnemyBase) -> bool: return not corpse.is_boss())
 
 
 ## black_3, Deathtouch (was Kill). The cast arms the caster's next attack; the execute itself
@@ -525,11 +536,9 @@ static func cast_black_wall_of_souls(caster: Player) -> void:
 ## black_5. Turns the corpse registry - which until now existed only to cap how many dead
 ## bodies stayed in the scene - into a resource.
 static func cast_black_zombify(caster: Player) -> void:
-	var corpses: Array[EnemyBase] = EnemyBase.corpses().filter(
-		func(corpse: EnemyBase) -> bool: return not corpse.is_boss()
-	)
+	var corpses: Array[EnemyBase] = zombify_corpses()
 	if corpses.is_empty():
-		caster._notify("No corpses to raise")
+		caster.spell_missed("black_5", "No corpses to raise")
 		return
 	# Nearest first, so the spell raises what the player is standing over rather than
 	# something that died in another lane five waves ago.

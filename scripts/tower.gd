@@ -249,7 +249,7 @@ func _area() -> float:
 
 func _damage(base: float) -> float:
 	var damage: float = base * GameSettings.rank_damage_mult(rank)
-	if owner_player is Player:
+	if is_instance_valid(owner_player) and owner_player is Player:
 		damage *= (owner_player as Player).get_spell_damage_multiplier()
 	return damage
 

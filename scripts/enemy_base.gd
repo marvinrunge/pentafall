@@ -346,6 +346,12 @@ var max_health: float:
 ## corpse. Set by take_damage, read by die().
 var _exile_on_death: bool = false
 var knockback_velocity: Vector3 = Vector3.ZERO
+## Set when a shove moves the body behind move_and_slide's back - knockback and Suction go
+## through move_and_collide - so is_on_floor() still answers for where the body WAS. Until
+## the next move_and_slide looks again, _grounded() does not take its word: an Unsummon
+## lifted a stunned pack three metres up, and with the stale floor saying "standing" they
+## skipped gravity and hung there until something made them walk.
+var _floor_stale: bool = false
 ## Suction (blue_3). The zone re-applies every frame while the enemy is inside, so the
 ## timer only has to outlive one frame gap. Kept apart from knockback_velocity: the
 ## flinch reaction keys off knockback, and a held pull would read as one long flinch.
@@ -887,7 +893,9 @@ func _near_but_not_engaged() -> bool:
 	if is_boss() or is_miniboss or is_dying or _suction_timer > 0.0 \
 			or knockback_velocity.length_squared() > 0.1 or _miniboss_special_windup >= 0.0:
 		return false
-	if current_target is Player:
+	# A target can be freed under it - a Mirror Image running out, a tower falling - and `is`
+	# on a freed instance is an error; the next think picks a new one.
+	if is_instance_valid(current_target) and current_target is Player:
 		return false
 	var engaged: float = GameSettings.enemy_engaged_distance
 	for at: Vector3 in _players_this_tick():
@@ -982,7 +990,7 @@ func _slide() -> void:
 			return
 		var before: Vector3 = global_position
 		var intended: float = Vector2(velocity.x, velocity.z).length() * _move_delta
-		move_and_slide()
+		_move_and_slide()
 		_note_progress(before, intended)
 		return
 	velocity.y = 0.0
@@ -1009,13 +1017,24 @@ func _slide() -> void:
 ## into the crowd at the crystal, is forever correcting by a few millimetres a tick, and that
 ## was most of the move_and_slide calls left in a siege - 130-160 of them, 7-9 ms a tick. Under
 ## enemy_min_move_speed it stops instead, which is also what it looks like.
+## is_on_floor(), unless a shove has moved the body since move_and_slide last looked.
+func _grounded() -> bool:
+	return is_on_floor() and not _floor_stale
+
+
+## move_and_slide, after which is_on_floor() can be believed again.
+func _move_and_slide() -> void:
+	move_and_slide()
+	_floor_stale = false
+
+
 func _standing_settled() -> bool:
 	var min_speed: float = GameSettings.enemy_min_move_speed
 	if velocity.x * velocity.x + velocity.z * velocity.z >= min_speed * min_speed:
 		return false
 	velocity.x = 0.0
 	velocity.z = 0.0
-	return is_on_floor() and velocity.y <= 0.0
+	return _grounded() and velocity.y <= 0.0
 
 
 ## Crowd queueing. Behind the front line at the crystal, most of a late wave is walking into
@@ -1032,10 +1051,10 @@ func _queue_in_crowd() -> bool:
 	_blocked_wait -= _move_delta
 	velocity.x = 0.0
 	velocity.z = 0.0
-	if is_on_floor() and velocity.y <= 0.0:
+	if _grounded() and velocity.y <= 0.0:
 		velocity.y = 0.0
 	else:
-		move_and_slide()
+		_move_and_slide()
 	return true
 
 
@@ -1121,7 +1140,7 @@ func _physics_tick(delta: float) -> void:
 	if elite_regeneration_per_second > 0.0 and health < enemy_data.health:
 		heal(elite_regeneration_per_second * delta, false)
 		
-	if not is_on_floor():
+	if not _grounded():
 		velocity.y -= gravity * delta
 	else:
 		velocity.y = 0.0
@@ -1185,6 +1204,7 @@ func _physics_tick(delta: float) -> void:
 	# Process Knockback & Wall Collision
 	if knockback_velocity.length_squared() > 0.1:
 		var collision = move_and_collide(knockback_velocity * delta)
+		_floor_stale = true
 		if collision:
 			var collider = collision.get_collider()
 			if collider and not collider.is_in_group("enemies"):
@@ -1212,6 +1232,7 @@ func _physics_tick(delta: float) -> void:
 		inward.y = 0.0
 		if inward.length() > 0.6:
 			move_and_collide(inward.normalized() * _suction_strength * delta)
+			_floor_stale = true
 
 	# Process Timers
 	if freeze_timer > 0: freeze_timer -= delta
@@ -2101,7 +2122,7 @@ func _apply_cast_motion(_delta: float) -> void:
 					rotation.y = atan2(motion.x, motion.z)
 	velocity.x = motion.x
 	velocity.z = motion.z
-	move_and_slide()
+	_move_and_slide()
 
 
 ## The main strike landing - also what pays the cooldown. Public in all but name: the tests
@@ -2833,7 +2854,7 @@ func _process_miniboss_special(delta: float) -> void:
 	# danger zone somewhere the player never actually saw telegraphed.
 	velocity.x = 0.0
 	velocity.z = 0.0
-	move_and_slide()
+	_move_and_slide()
 
 	_miniboss_special_windup -= delta
 	if _miniboss_special_windup <= 0.0:
@@ -3160,7 +3181,7 @@ func _process_beast_special(delta: float) -> void:
 		velocity.y = 0.0
 	else:
 		velocity.y -= gravity * delta
-	move_and_slide()
+	_move_and_slide()
 	if not bool(state["hit"]) and elapsed >= float(state["impact"]):
 		state["hit"] = true
 		_beast_special_hit(state)
@@ -4013,7 +4034,7 @@ func _unstick_point(map: RID) -> Vector3:
 func _in_formation_on_ground() -> bool:
 	if not is_in_formation():
 		return false
-	if not (_far or is_on_floor()):
+	if not (_far or _grounded()):
 		return false
 	return global_position.distance_to(squad.formation_target(self)) <= _formation_leash
 
@@ -4226,7 +4247,7 @@ func _fly_corpse(delta: float) -> void:
 		return
 	var falling_speed: float = -velocity.y
 	velocity.y -= gravity * delta
-	move_and_slide()
+	_move_and_slide()
 	if is_on_floor() and velocity.y <= 0.0:
 		if not _launch_landed:
 			_launch_landed = true
@@ -4302,13 +4323,13 @@ func _lean_corpse(delta: float) -> void:
 ## it, so any speed it died carrying would slide it across the map for the length of the
 ## clip. It falls straight down and stays where it lands.
 func _settle_corpse(delta: float) -> void:
-	if is_on_floor():
+	if _grounded():
 		velocity = Vector3.ZERO
 		return
 	velocity.x = 0.0
 	velocity.z = 0.0
 	velocity.y -= gravity * delta
-	move_and_slide()
+	_move_and_slide()
 
 
 func _death_animation_debug_state() -> Dictionary:

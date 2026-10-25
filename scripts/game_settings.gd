@@ -876,8 +876,9 @@ func get_tier_cost(tier_index: int) -> int:
 # they have to agree with.
 
 # --- WHITE: protection and restoration ---
-## Exalted Strike (white_1). Charges are consumed by melee hits, not by time, so the
-## buff cannot be wasted by walking around with it. Raised on 2026-10-11 (x2.4 and one charge
+## Exalted Strike (white_1). Charges are consumed by attacks of either weight - a swing, an
+## arrow, a bolt - not by time, so the buff cannot be wasted by walking around with it. The
+## reach bonus is a swing's; arrows and bolts take the damage and the exile. Raised on 2026-10-11 (x2.4 and one charge
 ## -> x4 and two): one harder swing every 8 seconds was worth +28 damage, the weakest
 ## tier-1 spell by a factor of four.
 @export var spell_white_exalted_damage_mult: float = 4.0

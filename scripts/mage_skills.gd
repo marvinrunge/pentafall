@@ -44,6 +44,17 @@ static func surge(caster: Player) -> void:
 	var spell_id: String = caster.last_color_spell_id
 	var recharged: bool = spell_id != "" and caster.recharge_spell(spell_id)
 	if not recharged:
-		caster._notify("Nothing to recharge" if spell_id == "" else "%s is already ready" % SpellDatabase.get_display_name(spell_id))
+		caster._notify(surge_miss(caster))
+
+
+## What Mana Surge would find nothing to do with - "" when the last colour spell is waiting.
+## Asked before the cast (Player.spell_miss), so a surge with nothing to recharge is not cast.
+static func surge_miss(caster: Player) -> String:
+	var spell_id: String = caster.last_color_spell_id
+	if spell_id == "":
+		return "Nothing to recharge"
+	if not caster.spell_cooldown_timers.has(spell_id) and not caster._mastery_spent.has(spell_id):
+		return "%s is already ready" % SpellDatabase.get_display_name(spell_id)
+	return ""
 	NetFx.spell("mage_surge/" + caster.path_color(), caster.global_position, 1.0, caster._fx_peer())
 	NetFx.sound(&"spell_rally_fallen", caster.global_position)

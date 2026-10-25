@@ -195,8 +195,8 @@ const SPELLS: Dictionary = {
 	# the only one whose power goes UP with more allies alive.
 	"white_1": {
 		"name": "Exalted Strike",
-		"desc": "Your next melee hit lands harder and reaches further. Anything it kills is exiled, leaving no corpse.",
-		"cooldown": 8.0, "chargeable": false,
+		"desc": "Your next two attacks (three at rank 5) land far harder, and a swing reaches further. Anything they kill is exiled, leaving no corpse.",
+		"cooldown": 8.0, "chargeable": false, "next_attack": "any",
 		"cast_clip": "cast_white", "cast_duration": 0.5, "roots": false,
 	},
 	"white_2": {

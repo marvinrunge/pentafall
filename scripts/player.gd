@@ -1554,6 +1554,74 @@ func recharge_spell(spell_id: String) -> bool:
 var last_color_spell_id: String = ""
 
 
+## What `spell_id` would find nothing to act on with, cast now - the line the player is shown,
+## or "" when it has its target (and for every spell that needs none). Asked on the caster's
+## own machine when the key goes down and again on the release frame: a spell with nothing to
+## act on is not cast at all. No cooldown, no cast animation, and no credit as a cast to
+## Prowess, Rhystic Study or Grapeshot - which a free whiff could otherwise bank. Ranges grow
+## with rank, so the rank the cast would have is set first.
+func spell_miss(spell_id: String) -> String:
+	_casting_rank = maxi(get_spell_rank(spell_id), 1)
+	match spell_id:
+		"black_2": return "" if SpellEffects.contagion_target(self) != null else "No enemy to infect"
+		"black_5": return "" if not SpellEffects.zombify_corpses().is_empty() else "No corpses to raise"
+		"mage_mana_surge": return MageSkills.surge_miss(self)
+	return RoundTwoSpells.miss(self, spell_id)
+
+
+## True while a Fork copy's effect runs (_run_spell_effect): its miss is not a cast of its own.
+var _forked_cast: bool = false
+## Each spell's cooldown state from just before its last cast started the clock - what a miss
+## gives back (_refund_spell_cooldown), Spell Mastery's charges included.
+var _cooldown_before: Dictionary = {}
+
+
+## A cast that found nothing after all, where it ran: its target died during the cast, or the
+## server saw the scene otherwise than the caster's machine. The cooldown it started is given
+## back on the machine that keeps it, and the line is shown there. A Fork copy that finds
+## nothing gives nothing back - the cast it copied did land.
+func spell_missed(spell_id: String, text: String) -> void:
+	if _forked_cast:
+		return
+	if is_local or not Net.is_active():
+		_refund_spell_cooldown(spell_id)
+		_notify(text)
+	elif Net.is_server():
+		_net_spell_missed.rpc_id(get_multiplayer_authority(), spell_id, text)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _net_spell_missed(spell_id: String, text: String) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	_refund_spell_cooldown(spell_id)
+	_notify(text)
+
+
+func _cooldown_state(spell_id: String) -> Dictionary:
+	var state: Dictionary = {}
+	for pair: Array in [["timer", spell_cooldown_timers], ["spent", _mastery_spent],
+			["recharge", _mastery_recharge], ["period", _mastery_period]]:
+		var table: Dictionary = pair[1]
+		if table.has(spell_id):
+			state[pair[0]] = table[spell_id]
+	return state
+
+
+func _refund_spell_cooldown(spell_id: String) -> void:
+	if not _cooldown_before.has(spell_id):
+		return
+	var before: Dictionary = _cooldown_before[spell_id]
+	_cooldown_before.erase(spell_id)
+	for pair: Array in [["timer", spell_cooldown_timers], ["spent", _mastery_spent],
+			["recharge", _mastery_recharge], ["period", _mastery_period]]:
+		var table: Dictionary = pair[1]
+		if before.has(pair[0]):
+			table[spell_id] = before[pair[0]]
+		else:
+			table.erase(spell_id)
+
+
 ## A colour spell of this player's just went off, on their own machine: remembered for Mana
 ## Surge, and told to the kit (the mage's Prowess). Class skills are not colour spells.
 func _note_spell_cast(spell_id: String) -> void:
@@ -1580,6 +1648,11 @@ func cast_active_spell() -> void:
 	var cd: float = float(spell_cooldown_timers.get(spell_id, 0.0))
 	# Phyrexian Arena lets a spell on cooldown be cast anyway, for life - see blood_cast_cost.
 	if cd > 0.0 and not can_blood_cast(spell_id):
+		return
+	# Nothing to act on: not cast at all, and the swing in flight is left alone.
+	var miss: String = spell_miss(spell_id)
+	if miss != "":
+		_notify(miss)
 		return
 
 	if not is_downed and _stagger_timer <= 0.0:
@@ -1910,8 +1983,15 @@ func execute_spell(spell_id: String, charge_pct: float = 1.0) -> void:
 			_notify("Not enough life to pay for it")
 			return
 		blood_cost = blood_cast_cost(spell_id)
+	# Asked again on the release frame: what was there when the key went down can have died
+	# or walked away during the cast.
+	var miss: String = spell_miss(spell_id)
+	if miss != "":
+		_notify(miss)
+		return
 	var cooldown: float = _get_spell_cooldown(spell_id)
 	if cooldown > 0.0:
+		_cooldown_before[spell_id] = _cooldown_state(spell_id)
 		_start_spell_cooldown(spell_id, cooldown / _spell_cooldown_recovery_rate())
 	_note_spell_cast(spell_id)
 	# Mana Surge acts on the cooldowns, which live on this machine and nowhere else - so it
@@ -2001,6 +2081,7 @@ func _run_spell_effect(spell_id: String, charge_pct: float, held: bool = false, 
 	# A spell cast by a CLIENT arrives here on the server, where _begin_cast never ran -
 	# so the rank is resolved again rather than assumed to be left over from the cast.
 	_casting_rank = maxi(get_spell_rank(spell_id), 1)
+	_forked_cast = forked
 	if not forked and SpellDatabase.has_spell(spell_id):
 		var now: float = Time.get_ticks_msec() / 1000.0
 		_cast_log.append(now)
@@ -2072,6 +2153,7 @@ func _run_spell_effect(spell_id: String, charge_pct: float, held: bool = false, 
 			elif SpellDatabase.has_spell(spell_id):
 				RoundTwoSpells.cast(self, spell_id)
 
+	_forked_cast = false
 	last_spell_cast_time = Time.get_ticks_msec() / 1000.0
 	if not forked and spell_id != "red_10":
 		RoundTwoSpells.fork_copy(self, spell_id, charge_pct)

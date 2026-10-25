@@ -16,6 +16,28 @@ const FORKABLE: Array[String] = [
 ]
 
 
+## What a round-two spell with something to act on is missing right now, as the line the player
+## is shown - "" when it has it, and for every spell that needs nothing. Each cast below finds
+## its target with the same function this asks, so the two cannot disagree on one machine.
+## Counterspell can only check that something it could break is in reach: whether that thing
+## is mid-special is the server's alone to know, and the server's miss refunds the cooldown.
+static func miss(caster: Player, spell_id: String) -> String:
+	match spell_id:
+		"blue_10":
+			for foe: EnemyBase in _counter_foes(caster):
+				if not Net.is_server() or foe.is_special_interruptible():
+					return ""
+			return "Nothing to counter"
+		"black_9": return "" if animate_dead_target(caster) != null else "No elite corpse there"
+		"black_10": return "" if gravewalk_target(caster) != null else "No corpse in reach"
+		"red_6": return "" if fling_target(caster) != null else "Nothing to seize"
+		"red_9": return "" if not _grapeshot_targets(caster).is_empty() else "No enemy in range"
+		"green_8": return _harpoon_miss(caster)
+		"green_9": return "" if not _awaken_hit(caster).is_empty() else "Aim at a tree or a standing stone"
+		"green_11": return "" if not caster.beast_trophies.is_empty() else "Hunt a beast and take its trophy first"
+	return ""
+
+
 ## The server half of every round-two spell this file holds.
 static func cast(caster: Player, spell_id: String) -> void:
 	match spell_id:
@@ -143,18 +165,26 @@ static func mirror_image(caster: Player) -> void:
 
 ## Counterspell: the special a boss or a miniboss near the caster is winding up fizzles.
 static func counterspell(caster: Player) -> void:
-	var range_units: float = GameSettings.spell_blue_counterspell_range * caster._rank_area()
 	var countered: bool = false
-	for enemy: Node3D in caster._enemies_in_radius(caster.global_position, range_units):
-		var foe := enemy as EnemyBase
-		if foe == null or not (foe.is_boss() or foe.is_miniboss or foe.is_beast()):
-			continue
+	for foe: EnemyBase in _counter_foes(caster):
 		if foe.is_special_interruptible() and foe.interrupt_special(caster):
 			countered = true
 			caster._spawn_spell_fx("blue_10", foe.global_position, 1.0)
 	if not countered:
-		caster._notify("Nothing to counter")
+		caster.spell_missed("blue_10", "Nothing to counter")
+		return
 	caster._spawn_spell_fx("blue_10", caster.global_position, 1.0)
+
+
+## The bosses, minibosses and beasts in Counterspell's reach - what it can break.
+static func _counter_foes(caster: Player) -> Array[EnemyBase]:
+	var range_units: float = GameSettings.spell_blue_counterspell_range * caster._rank_area()
+	var out: Array[EnemyBase] = []
+	for enemy: Node3D in caster._enemies_in_radius(caster.global_position, range_units):
+		var foe := enemy as EnemyBase
+		if foe != null and (foe.is_boss() or foe.is_miniboss or foe.is_beast()):
+			out.append(foe)
+	return out
 
 
 static func curse_of_the_swine(caster: Player) -> void:
@@ -188,20 +218,9 @@ static func _self_buff(caster: Player, spell_id: String) -> void:
 ## Animate Dead: the corpse of an elite, a miniboss or a boss near the aim rises as the caster's
 ## own, bigger and harder than a ghoul, until the wave ends.
 static func animate_dead(caster: Player) -> void:
-	var aim: Vector3 = caster._aim_point(GameSettings.spell_black_animate_range * caster._rank_area())
-	var best: EnemyBase = null
-	var best_distance: float = GameSettings.spell_black_animate_search * caster._rank_area()
-	for corpse: EnemyBase in EnemyBase.corpses():
-		if corpse.enemy_data == null:
-			continue
-		if corpse.elite_modifier == "" and not corpse.is_miniboss and not corpse.is_boss():
-			continue
-		var distance: float = corpse.global_position.distance_to(aim)
-		if distance < best_distance:
-			best_distance = distance
-			best = corpse
+	var best: EnemyBase = animate_dead_target(caster)
 	if best == null:
-		caster._notify("No elite corpse there")
+		caster.spell_missed("black_9", "No elite corpse there")
 		return
 	var data: EnemyData = best.enemy_data
 	var at: Vector3 = caster._ground_snap(best.global_position)
@@ -218,8 +237,42 @@ static func animate_dead(caster: Player) -> void:
 	caster._spawn_spell_fx("black_9", at, 1.0)
 
 
+## The elite's, miniboss's or boss's corpse nearest the aim that Animate Dead would raise.
+static func animate_dead_target(caster: Player) -> EnemyBase:
+	var aim: Vector3 = caster._aim_point(GameSettings.spell_black_animate_range * caster._rank_area())
+	var best: EnemyBase = null
+	var best_distance: float = GameSettings.spell_black_animate_search * caster._rank_area()
+	for corpse: EnemyBase in EnemyBase.corpses():
+		if corpse.enemy_data == null:
+			continue
+		if corpse.elite_modifier == "" and not corpse.is_miniboss and not corpse.is_boss():
+			continue
+		var distance: float = corpse.global_position.distance_to(aim)
+		if distance < best_distance:
+			best_distance = distance
+			best = corpse
+	return best
+
+
 ## Gravewalk: into the corpse nearest the aim; it bursts as the caster arrives.
 static func gravewalk(caster: Player) -> void:
+	var best: EnemyBase = gravewalk_target(caster)
+	if best == null:
+		caster.spell_missed("black_10", "No corpse in reach")
+		return
+	var at: Vector3 = caster._ground_snap(best.global_position)
+	caster._spawn_spell_fx("black_10_from", caster.global_position, 1.0)
+	EnemyBase.consume_corpse(best)
+	caster.teleport_to(at + Vector3(0.0, 0.2, 0.0))
+	var radius: float = GameSettings.spell_black_gravewalk_radius * caster._rank_area()
+	var damage: float = GameSettings.spell_black_gravewalk_damage * caster._rank_damage() * caster.get_spell_damage_multiplier()
+	for enemy: Node3D in caster._enemies_in_radius(at, radius):
+		caster._deal_damage(enemy, damage, false)
+	caster._spawn_spell_fx("black_10", at, radius)
+
+
+## The corpse in Gravewalk's reach nearest the aim.
+static func gravewalk_target(caster: Player) -> EnemyBase:
 	var range_units: float = GameSettings.spell_black_gravewalk_range * caster._rank_area()
 	var aim: Vector3 = caster._aim_point(range_units)
 	var best: EnemyBase = null
@@ -231,18 +284,7 @@ static func gravewalk(caster: Player) -> void:
 		if distance < best_distance:
 			best_distance = distance
 			best = corpse
-	if best == null:
-		caster._notify("No corpse in reach")
-		return
-	var at: Vector3 = caster._ground_snap(best.global_position)
-	caster._spawn_spell_fx("black_10_from", caster.global_position, 1.0)
-	EnemyBase.consume_corpse(best)
-	caster.teleport_to(at + Vector3(0.0, 0.2, 0.0))
-	var radius: float = GameSettings.spell_black_gravewalk_radius * caster._rank_area()
-	var damage: float = GameSettings.spell_black_gravewalk_damage * caster._rank_damage() * caster.get_spell_damage_multiplier()
-	for enemy: Node3D in caster._enemies_in_radius(at, radius):
-		caster._deal_damage(enemy, damage, false)
-	caster._spawn_spell_fx("black_10", at, radius)
+	return best
 
 
 ## Demonic Pact, the server half: the debt. The cooldowns it clears live on the caster's own
@@ -306,10 +348,9 @@ static func try_undying(caster: Player) -> bool:
 # --- RED ------------------------------------------------------------------------------------
 
 static func fling(caster: Player) -> void:
-	var target: Node3D = caster.aim_target(GameSettings.spell_red_fling_range * caster._rank_area())
-	var foe := target as EnemyBase
-	if foe == null or foe.is_boss():
-		caster._notify("Nothing to seize")
+	var foe: EnemyBase = fling_target(caster)
+	if foe == null:
+		caster.spell_missed("red_6", "Nothing to seize")
 		return
 	var to: Vector3 = caster._ground_snap(caster._aim_point(GameSettings.spell_red_fling_throw_range * caster._rank_area(), ENVIRONMENT_MASK))
 	if to.distance_to(foe.global_position) < 2.0:
@@ -317,6 +358,12 @@ static func fling(caster: Player) -> void:
 	foe.fling(to, GameSettings.spell_red_fling_damage * caster._rank_damage() * caster.get_spell_damage_multiplier(),
 		GameSettings.spell_red_fling_radius * caster._rank_area(), caster)
 	caster._spawn_spell_fx("red_6", foe.global_position, 1.0)
+
+
+## The enemy in the sights Fling would seize - never a boss.
+static func fling_target(caster: Player) -> EnemyBase:
+	var foe := caster.aim_target(GameSettings.spell_red_fling_range * caster._rank_area()) as EnemyBase
+	return foe if foe != null and not foe.is_boss() else null
 
 
 ## Grapeshot: one bolt, and one more for every spell this caster cast in the last few seconds.
@@ -328,8 +375,9 @@ static func grapeshot(caster: Player) -> void:
 			recent += 1
 	# The log already holds this cast: every OTHER spell in the window adds one.
 	var bolts: int = clampi(recent, 1, GameSettings.spell_red_grapeshot_max)
-	var targets: Array[Node3D] = caster._enemies_in_radius(caster.global_position, GameSettings.spell_red_grapeshot_range * caster._rank_area())
+	var targets: Array[Node3D] = _grapeshot_targets(caster)
 	if targets.is_empty():
+		caster.spell_missed("red_9", "No enemy in range")
 		return
 	targets.sort_custom(func(a: Node3D, b: Node3D) -> bool:
 		return a.global_position.distance_squared_to(caster.global_position) < b.global_position.distance_squared_to(caster.global_position))
@@ -343,6 +391,10 @@ static func grapeshot(caster: Player) -> void:
 		caster._spawn_spell_fx("red_9_shot", from, from.distance_to(to), to - from)
 		caster._deal_damage(victim, damage, false)
 	caster._spawn_spell_fx("red_9", caster.global_position, 1.0)
+
+
+static func _grapeshot_targets(caster: Player) -> Array[Node3D]:
+	return caster._enemies_in_radius(caster.global_position, GameSettings.spell_red_grapeshot_range * caster._rank_area())
 
 
 ## Fork: the next aimed spell is cast a second time, at the nearest other enemy.
@@ -393,7 +445,7 @@ static func kraul_harpooner(caster: Player) -> void:
 		var reach: Vector3 = enemy.global_position + Vector3(0.0, 1.0, 0.0)
 		caster._spawn_spell_fx("green_8_chain", from, from.distance_to(reach), reach - from)
 		if (enemy as EnemyBase).is_boss():
-			caster._notify("Too big to drag")
+			caster.spell_missed("green_8", "Too big to drag")
 			return
 		var toward: Vector3 = caster.global_position - enemy.global_position
 		toward.y = 0.0
@@ -401,25 +453,38 @@ static func kraul_harpooner(caster: Player) -> void:
 		return
 	var hit: Dictionary = _aim_ray(caster, range_units, ENVIRONMENT_MASK)
 	if hit.is_empty():
-		caster._notify("Nothing to hook")
+		caster.spell_missed("green_8", "Nothing to hook")
 		return
 	var at: Vector3 = hit["position"]
 	caster._spawn_spell_fx("green_8_chain", from, from.distance_to(at), at - from)
 	if _scenery_kind(hit["collider"] as Node) == "":
-		caster._notify("Hook a tree or a standing stone")
+		caster.spell_missed("green_8", "Hook a tree or a standing stone")
 		return
 	caster.pull_to(at - (at - caster.global_position).normalized() * 1.2, GameSettings.spell_green_harpoon_self_speed)
 	caster._spawn_spell_fx("green_8", caster.global_position, 1.0)
 
 
+## What Kraul Harpooner would miss with, as the line it shows - "" when it hooks something: an
+## enemy in the sights that is not a boss, or else a tree or a standing stone the crosshair is on.
+static func _harpoon_miss(caster: Player) -> String:
+	var range_units: float = GameSettings.spell_green_harpoon_range * caster._rank_area()
+	var enemy: Node3D = caster.aim_target(range_units)
+	if enemy is EnemyBase:
+		return "Too big to drag" if (enemy as EnemyBase).is_boss() else ""
+	var hit: Dictionary = _aim_ray(caster, range_units, ENVIRONMENT_MASK)
+	if hit.is_empty():
+		return "Nothing to hook"
+	return "Hook a tree or a standing stone" if _scenery_kind(hit["collider"] as Node) == "" else ""
+
+
 ## Awaken: a tree the crosshair is on rises as a treant of its biome; a standing stone of the
 ## ring as a golem. It fights for a time.
 static func awaken(caster: Player) -> void:
-	var hit: Dictionary = _aim_ray(caster, GameSettings.spell_green_awaken_range * caster._rank_area(), ENVIRONMENT_MASK)
-	var kind: String = _scenery_kind(hit.get("collider") as Node) if not hit.is_empty() else ""
-	if kind == "":
-		caster._notify("Aim at a tree or a standing stone")
+	var hit: Dictionary = _awaken_hit(caster)
+	if hit.is_empty():
+		caster.spell_missed("green_9", "Aim at a tree or a standing stone")
 		return
+	var kind: String = _scenery_kind(hit["collider"] as Node)
 	var at: Vector3 = caster._ground_snap(hit["position"] + (caster.global_position - hit["position"]).normalized() * 1.5)
 	caster._place_networked({
 		"kind": kind, "position": at,
@@ -429,6 +494,14 @@ static func awaken(caster: Player) -> void:
 		"color": lane_color_at(caster, at),
 	})
 	caster._spawn_spell_fx("green_9", at, 2.0)
+
+
+## The tree or standing stone under the crosshair Awaken would raise; empty for none.
+static func _awaken_hit(caster: Player) -> Dictionary:
+	var hit: Dictionary = _aim_ray(caster, GameSettings.spell_green_awaken_range * caster._rank_area(), ENVIRONMENT_MASK)
+	if hit.is_empty() or _scenery_kind(hit.get("collider") as Node) == "":
+		return {}
+	return hit
 
 
 ## Overrun, the release half: everything in the charge's path is thrown aside.
@@ -450,7 +523,7 @@ static func _overrun_sweep(caster: Player) -> void:
 ## hunted at, until it falls or the wave ends.
 static func call_of_the_herd(caster: Player) -> void:
 	if caster.beast_trophies.is_empty():
-		caster._notify("Hunt a beast and take its trophy first")
+		caster.spell_missed("green_11", "Hunt a beast and take its trophy first")
 		return
 	var trophy: Dictionary = caster.beast_trophies.pop_back()
 	caster._publish_trophies()

@@ -80,7 +80,7 @@ and every rank after closes the same share of the remaining gap to the ceiling.
 
 | Tier | Spell | Cost | Cooldown | Charge | Damage / Healing | Range / Radius | Details |
 |---:|---|---:|---:|:---:|---:|---:|---|
-| 1 | Exalted Strike | 1 | 8s | No | Melee buff | Self | The next 2 melee hits (3 at rank 5) deal x4 and reach further; kills are exiled. |
+| 1 | Exalted Strike | 1 | 8s | No | Attack buff | Self | The next 2 attacks of either weight (3 at rank 5) deal x4; a swing also reaches further; kills are exiled. |
 | 2 | Circle of Protection | 1 | 18s | No | Temporary shield | Ally area | Shields every nearby ally for 8s, a little more per ally present. Recasting refreshes rather than stacks. |
 | 3 | Reprisal Ward | 1 | 16s | No | Reflect / block | Self | Reflects damage and grants a chance to block attacks. |
 | 4 | Wrath of God | 1 | 20s | No | Area damage | Area | Deals heavy damage to nearby enemies. |

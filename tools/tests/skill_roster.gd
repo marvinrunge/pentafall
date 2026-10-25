@@ -202,6 +202,13 @@ func _check_white() -> void:
 	_player.attack_charges.clear()
 	_cast("white_1")
 	_check("white_1 Exalted Strike", _player.attack_charges.uses_left("white_1") > 0, "no charge granted")
+	# Armed is half of it: an attack has to spend it, a swing, an arrow or a bolt, of either
+	# weight. Without a trigger it was armed and rode on nothing, for every class.
+	var light: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.LIGHT)
+	var heavy: RefCounted = _player.attack_charges.take(AttackChargesT.Weight.HEAVY)
+	_check("white_1 rides a light and a heavy attack",
+		light != null and light.damage_mult > 1.0 and light.exile and heavy != null and heavy.damage_mult > 1.0,
+		"light=%s heavy=%s" % [light.damage_mult if light else "nothing", heavy.damage_mult if heavy else "nothing"])
 	_player.attack_charges.clear()
 
 	_player.protection_shield = 0.0
@@ -323,6 +330,26 @@ func _check_black() -> void:
 	_check("black_2 Contagion burns", patient_zero.health < sick_before,
 		"%.0f -> %.0f" % [sick_before, patient_zero.health])
 	_check("black_2 Contagion spreads", neighbour.contagion_timer > 0.0, "neighbour never caught it")
+	_clear_enemies()
+
+	# A spell with nothing to act on is not cast: no cooldown. Through execute_spell, the
+	# caster's own path, where the cooldown starts - not _cast, which is the server's half.
+	_player.spell_cooldown_timers.erase("black_2")
+	_player.execute_spell("black_2")
+	_check("black_2 with no one in sight is not cast", _player.spell_miss("black_2") != "" \
+		and not _player.spell_cooldown_timers.has("black_2"), "cooldown=%s" % _player.spell_cooldown_timers.get("black_2"))
+	var sick: EnemyBase = _spawn_enemy(_under_crosshair(9.0))
+	_player.execute_spell("black_2")
+	_check("black_2 with one in sight is cast", sick.contagion_timer > 0.0 and _player.spell_cooldown_timers.has("black_2"))
+	# A miss the server still meets (the target died during the cast) gives the cooldown back -
+	# unless it is a Fork copy's, which is not a cast of its own.
+	_player._forked_cast = true
+	_player.spell_missed("black_2", "test")
+	var kept: bool = _player.spell_cooldown_timers.has("black_2")
+	_player._forked_cast = false
+	_player.spell_missed("black_2", "test")
+	_check("black_2 a miss refunds the cooldown, a Fork copy's does not",
+		kept and not _player.spell_cooldown_timers.has("black_2"))
 	_clear_enemies()
 
 	# Deathtouch (black_3, was Kill) charges the next attack; the charged hit kills. An ordinary
