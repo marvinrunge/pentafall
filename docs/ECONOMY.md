@@ -50,7 +50,7 @@ personal builds no longer depend on it.
 
 | Source | Colour | Amount |
 |---|---|---|
-| Basic enemy | its own | 1 |
+| Basic enemy | its own | 0 (`mana_per_basic`: trash paid the whole economy and the myrs were a rounding error) |
 | Elite | its own | 4 |
 | Boss | its own | 25 |
 | Wild beast | its biome's | 6 at 1x, times its size |
@@ -100,9 +100,12 @@ Guild camps are only active during Upkeep, so clearing one costs shopping time.
 | **Build a myr** | 2 colourless | A worker: harvests a lane, sweeps drops. Compounds, so worth most early | **Any player** |
 | **Build a guard myr** | Enforcer 7 (-1 per worker, at least 2) · Lodestone 4 | Holds a lane's well; the workers there run behind it (`docs/MYR_GUARDS_PLAN.md`) | **Any player** |
 | **Return a myr** | a third of what went into it, at least 2 | Back from the Graveyard at its level | **Any player** |
-| **Skill point for everyone** | 10 colourless | +1 point to *every* player | **Any player** |
+| **Skill point for everyone** | 25 colourless | +1 point to *every* player | **Any player** |
 | **Repair the crystal** | 8 colourless | Restores 200 integrity. Only offered when something is missing | **Any player** |
 | **Enchantment** | its colour, rising per stack | A permanent global buff | **Majority vote** |
+
+The three myr purchases are made at the base by the crystal, at any time, not in the Upkeep
+panel - a myr bought there could be neither given a lane nor seen. The panel sells the rest.
 
 Colourless costs are paid from any colour, so myrs, points and repairs are affordable if
 the team has fought anywhere at all. Enchantments demand their own colour, which is what

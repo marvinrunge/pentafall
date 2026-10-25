@@ -138,10 +138,9 @@ const ICON_FILES: Dictionary = {
 	"defence_roll": ["defence-roll.png", "haste.png"],
 	"defence_blink": ["defence-blink.png", "flying.png"],
 	"defence_unstoppable": ["defence-unstoppable.png", "trample.png"],
-	# The Upkeep shop's tiles (UpkeepPanel): a myr, a skill point, the crystal's repair and the
-	# five enchantments. Until they are drawn, the nearest existing icon - for an enchantment its
+	# The Upkeep shop's tiles (UpkeepPanel): a skill point, the crystal's repair and the five
+	# enchantments. Until they are drawn, the nearest existing icon - for an enchantment its
 	# colour's mana symbol.
-	"upkeep_myr": ["upkeep-myr.png", "kodamas-reach.png"],
 	"upkeep_skill_point": ["upkeep-skill-point.png", "sylvan-library.png"],
 	"upkeep_repair": ["upkeep-repair.png", "healing-orb.png"],
 	"enchantment_white": ["enchantment-sphere-of-safety.png", "white.png"],

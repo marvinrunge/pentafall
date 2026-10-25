@@ -236,28 +236,7 @@ func _local_player() -> Node:
 	return PlayerRegistry.get_local()
 
 
-func _buy_myr() -> void:
-	SignalBus.objective_progress.emit("build_myr")
-	SignalBus.objective_progress.emit("upkeep_purchase")
-	if Net.is_active() and not Net.is_server():
-		_request_myr.rpc_id(1)
-		return
-	_request_myr()
-
-
-@rpc("any_peer", "call_local", "reliable")
-func _request_myr() -> void:
-	if not Net.is_server():
-		return
-	if not RunState.spend({"Colorless": GameSettings.myr_mana_cost}):
-		return
-	var main_controller: Node = get_tree().current_scene
-	if main_controller != null and main_controller.has_method("spawn_myr"):
-		main_controller.spawn_myr({"invested": GameSettings.myr_mana_cost})
-	_announce("Built a myr for %d" % GameSettings.myr_mana_cost)
-
-
-## Any player, like the myr: in an emergency you want whoever notices to be able to act,
+## Any player: in an emergency you want whoever notices to be able to act,
 ## and making the team vote while the crystal is at 10% would be agonising.
 func _buy_repair() -> void:
 	SignalBus.objective_progress.emit("upkeep_purchase")
@@ -706,9 +685,9 @@ func _rebuild_shop() -> void:
 	_clear(_shop_rows)
 	_items.clear()
 
-	_shop_rows.add_child(_purchase_tile("myr", "upkeep_myr",
-		"Build a myr", "Harvests a lane and sweeps drops. Compounds, so worth most early.",
-		{"Colorless": GameSettings.myr_mana_cost}, _buy_myr, Color(0.8, 0.82, 0.86)))
+	# No myrs here: they are built, levelled, assigned and returned at the base, by the crystal.
+	# A myr bought here could be neither given a lane nor seen - an unassigned myr has no model -
+	# and it went past the myr cap, spending the mana on nothing.
 	_shop_rows.add_child(_purchase_tile("point", "upkeep_skill_point",
 		"Skill point for everyone", "+1 point to every player, not just the buyer.",
 		{"Colorless": GameSettings.upkeep_skill_point_cost}, _buy_skill_point, Color(0.9, 0.85, 0.5)))
