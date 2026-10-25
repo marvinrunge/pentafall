@@ -30,6 +30,21 @@ the previous tag.
 Pushing to `master` also builds — that is what catches a break early — but it does **not**
 create a Release and does **not** mail anyone. Only a tag does.
 
+## itch.io: updates without the whole download
+
+The same tag also pushes the build to **https://marvinrunge.itch.io/pentafall** (channel
+`windows`) with butler, itch's uploader. butler sends only what changed, and the itch app
+installs the game once and from then on downloads only the difference - a new version is a
+few MB rather than the whole game. Testers who prefer that install the itch app, open the
+page (it is restricted, so they need access from you) and click Install; the app updates it
+by itself.
+
+One-time setup: on itch.io, `Settings → API keys → Generate new API key`, and store it in
+this repo under `Settings → Secrets and variables → Actions` as `BUTLER_API_KEY`. Without
+it the workflow skips the itch step with a warning and the GitHub Release is unaffected.
+
+The web uploader on itch is limited to about 1 GB; butler is not held to that.
+
 ## What the tester receives
 
 An email titled `[marvinrunge/pentafall] Release v0.3.0`, linking to a
