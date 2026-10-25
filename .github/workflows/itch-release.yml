@@ -1,0 +1,58 @@
+name: Push a release to itch.io
+# Uploads a build that is ALREADY on a GitHub Release to itch.io
+# (https://marvinrunge.itch.io/pentafall), without building it again. For a release made
+# before the itch step existed in build-windows.yml, or to push one again by hand.
+#
+# Actions -> "Push a release to itch.io" -> Run workflow. Leave the tag empty for the latest
+# release. Needs the BUTLER_API_KEY secret, as build-windows.yml does.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to push (empty = the latest release)"
+        required: false
+        default: ""
+
+env:
+  EXPORT_NAME: "Pentafall"
+  ITCH_TARGET: "marvinrunge/pentafall:windows"
+
+jobs:
+  push:
+    name: Push to itch.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download the release's build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAG}" ]; then
+            TAG="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq .tagName)"
+          fi
+          echo "Release: ${TAG}"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "${EXPORT_NAME}-windows.zip"
+          mkdir -p build/windows
+          unzip -q "${EXPORT_NAME}-windows.zip" -d build/windows
+          ls -l build/windows
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUTLER_API_KEY}" ]; then
+            echo "::error::BUTLER_API_KEY is not set - add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          curl -fsSL -o butler.zip "https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default" \
+            || curl -fsSL -o butler.zip "https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default"
+          mkdir -p "$HOME/butler"
+          unzip -q -o butler.zip -d "$HOME/butler"
+          chmod +x "$HOME/butler/butler"
+          "$HOME/butler/butler" -V
+          "$HOME/butler/butler" push build/windows "${ITCH_TARGET}" --userversion "${TAG}"

@@ -45,6 +45,10 @@ it the workflow skips the itch step with a warning and the GitHub Release is una
 
 The web uploader on itch is limited to about 1 GB; butler is not held to that.
 
+A release that is already on GitHub - one from before this step, or one to push again - goes
+up without a rebuild through `Actions → Push a release to itch.io → Run workflow`
+(`.github/workflows/itch-release.yml`); leave the tag empty for the latest.
+
 ## What the tester receives
 
 An email titled `[marvinrunge/pentafall] Release v0.3.0`, linking to a
