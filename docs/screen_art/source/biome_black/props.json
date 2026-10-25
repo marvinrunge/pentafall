@@ -1,0 +1,21 @@
+{
+  "_doc": "The black biome's graveyard set, cut from graveyard_sheet.jpg by tools/cut_sheet_references.py (cuts.json) and meshed by tools/mesh_biome_props.py. `approved` is the SHA-256 of the reference the user approved; null means not yet, and nothing unapproved goes to Meshy. `height_m` is the size the prop stands at in game.",
+  "prefix": "biome-black",
+  "props": {
+    "mausoleum":        {"tris": 10000, "height_m": 6.5, "approved": null},
+    "gothic_arch":      {"tris": 3000,  "height_m": 4.5, "approved": null},
+    "window_wall":      {"tris": 3500,  "height_m": 3.5, "approved": null},
+    "stair_ruin":       {"tris": 4000,  "height_m": 2.4, "approved": null},
+    "crypt_gate":       {"tris": 5000,  "height_m": 3.2, "approved": null},
+    "headstone_gothic": {"tris": 900,   "height_m": 1.3, "approved": null},
+    "headstone_round":  {"tris": 700,   "height_m": 1.1, "approved": null},
+    "headstone_tall":   {"tris": 700,   "height_m": 1.4, "approved": null},
+    "cross_celtic":     {"tris": 1000,  "height_m": 1.7, "approved": null},
+    "cross_plain":      {"tris": 700,   "height_m": 1.4, "approved": null},
+    "tomb_lidded":      {"tris": 1500,  "height_m": 1.0, "approved": null},
+    "tomb_great":       {"tris": 1800,  "height_m": 1.2, "approved": null},
+    "lantern":          {"tris": 1200,  "height_m": 0.6, "approved": null},
+    "brazier":          {"tris": 1000,  "height_m": 0.7, "approved": null},
+    "rubble":           {"tris": 1500,  "height_m": 0.9, "approved": null}
+  }
+}
