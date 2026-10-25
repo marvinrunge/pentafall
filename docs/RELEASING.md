@@ -35,9 +35,8 @@ create a Release and does **not** mail anyone. Only a tag does.
 The same tag also pushes the build to **https://marvinrunge.itch.io/pentafall** (channel
 `windows`) with butler, itch's uploader. butler sends only what changed, and the itch app
 installs the game once and from then on downloads only the difference - a new version is a
-few MB rather than the whole game. Testers who prefer that install the itch app, open the
-page (it is restricted, so they need access from you) and click Install; the app updates it
-by itself.
+few MB rather than the whole game. Players install the itch app, open the page (public
+since 2026-10-25) and click Install; the app updates it by itself.
 
 One-time setup: on itch.io, `Settings → API keys → Generate new API key`, and store it in
 this repo under `Settings → Secrets and variables → Actions` as `BUTLER_API_KEY`. Without

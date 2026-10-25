@@ -20,7 +20,7 @@ when it changes. The builds themselves go up by butler (docs/RELEASING.md).
 | Made with | Godot |
 | Inputs | Keyboard, Mouse, Xbox controller, Playstation controller |
 | Multiplayer | Local network, Online (up to 5) |
-| Visibility | Restricted - testers get access from the owner |
+| Visibility | Public |
 
 ## Cover and screenshots
 
