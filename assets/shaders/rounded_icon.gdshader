@@ -9,9 +9,14 @@ shader_type canvas_item;
 // that size ever changes.
 uniform float radius_ratio : hint_range(0.0, 0.5) = 0.25;
 uniform bool ignore_tint = false;
+// Drawn in grey - something no longer there, like a fallen myr on the base screen.
+uniform bool greyscale = false;
 
 void fragment() {
 	vec4 tex = texture(TEXTURE, UV);
+	if (greyscale) {
+		tex.rgb = vec3(dot(tex.rgb, vec3(0.299, 0.587, 0.114)));
+	}
 	// Signed distance to a rounded box in UV space, folded into one quadrant by abs().
 	vec2 corner = abs(UV - vec2(0.5)) - (vec2(0.5) - vec2(radius_ratio));
 	float dist = length(max(corner, vec2(0.0))) - radius_ratio;

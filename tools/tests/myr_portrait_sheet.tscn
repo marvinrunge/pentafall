@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://tools/tests/myr_portrait_sheet.gd" id="1_mps"]
+
+[node name="MyrPortraitSheet" type="Node"]
+script = ExtResource("1_mps")

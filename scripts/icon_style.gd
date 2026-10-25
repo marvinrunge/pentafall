@@ -29,7 +29,7 @@ const CIRCLE_RATIO: float = 0.5
 
 ## Shared rather than one per icon: every icon rounds by the same ratio, so per-icon copies
 ## would buy nothing and cost a material switch each. Four in all: rounded or round, each
-## tinted or bright.
+## tinted or bright - and the greyed rounded one.
 static var _materials: Dictionary = {}
 
 
@@ -45,13 +45,19 @@ static func circle_material(bright: bool = false) -> ShaderMaterial:
 	return _cached(CIRCLE_RATIO, bright)
 
 
-static func _cached(ratio: float, bright: bool) -> ShaderMaterial:
-	var key: String = "%.2f|%s" % [ratio, bright]
+## The rounded square in grey: an icon of something that is gone, still recognisable.
+static func greyed_material() -> ShaderMaterial:
+	return _cached(CORNER_RATIO, false, true)
+
+
+static func _cached(ratio: float, bright: bool, grey: bool = false) -> ShaderMaterial:
+	var key: String = "%.2f|%s|%s" % [ratio, bright, grey]
 	var material: ShaderMaterial = _materials.get(key, null)
 	if material == null:
 		material = ShaderMaterial.new()
 		material.shader = load(SHADER_PATH) as Shader
 		material.set_shader_parameter("radius_ratio", ratio)
 		material.set_shader_parameter("ignore_tint", bright)
+		material.set_shader_parameter("greyscale", grey)
 		_materials[key] = material
 	return material

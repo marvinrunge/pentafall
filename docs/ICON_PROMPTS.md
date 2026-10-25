@@ -203,3 +203,47 @@ The thirteen pieces of EquipmentDatabase.ORDER (in the order of SETS["equipment"
 and Ice. Generated 2026-10-20 without a reference image, the style spelled out in the prompt
 (painterly, semi-realistic ARPG inventory icon, one object, soft dark vignette, 4 x 4 grid with
 near-black gutters). Cut with `python tools/slice_icon_sheet.py <sheet> --set equipment`.
+
+## The myrs - nine in one image
+
+Every myr the game has, as it looks in the game: the five workers in lane order (White, Blue,
+Black, Red, Green), the two guards (docs/MYR_GUARDS_PLAN.md), a fallen worker for the Graveyard
+and three workers together for the base screen's "Myr" button. They replace the one
+`upkeep-myr.png` every myr card shows now.
+
+Attach **two** images: first `docs/icon_refs/myrs_reference.png` - renders of the real models in
+the same 3 x 3 layout, made by `tools/tests/myr_portrait_sheet.tscn` (re-run it when a model
+changes) - then `upkeep-myr.png` as the style reference. Cut with
+`python tools/slice_icon_sheet.py <sheet.png> --set myrs`.
+
+```
+Create ONE square image (1:1, as large as possible) that is a sprite sheet of 9 character portrait icons for a fantasy action game inspired by Magic: The Gathering, laid out as an exact 3 x 3 grid of equal square cells, separated by straight, plain, near-black gutters about 2% of the image wide. Each cell holds exactly one complete icon, centred, filling the cell.
+
+The FIRST attached image shows the nine creatures as 3D renders, in exactly this grid. Paint each cell's creature exactly as it is there - the same body, head shape, proportions, armour plates, colours, materials and glowing details - only painted. Do not redesign them, do not add weapons, clothes or extra parts, and keep the pose readable.
+
+Style - match the SECOND attached image (an icon from the same set) exactly, the same for all 9:
+painterly digital illustration, polished like a high-end ARPG / mobile portrait icon; the creature large in the cell with a strong silhouette, readable at 48 px; dramatic lighting, warm key light and a coloured rim light, rich colours; soft dark vignette background tinted in the cell's colour, slightly rounded square. No text, letters, numbers, labels, borders, frames, UI elements or watermark anywhere in the image.
+
+Cells, row by row, left to right:
+
+Row 1:
+1. Gold Myr: a slender humanoid artifact robot in mustard gold metal with a huge smooth elongated head swept back like a teardrop, a glowing cyan ring as its eye. Background tint warm gold and ivory light.
+2. Silver Myr: the same kind of robot in blue-grey silver metal, a glowing cyan ring eye and cyan rings on its shoulder and joints. Background tint icy cyan and deep ocean blue.
+3. Leaden Myr: the same kind of robot in glossy near-black gunmetal, thin glowing violet lines tracing its limbs and joints. Background tint violet and shadow.
+
+Row 2:
+4. Iron Myr: the same kind of robot in dark weathered iron, glowing orange-amber rings on its eye, shoulder and knee. Background tint fire orange and ember.
+5. Copper Myr: the same kind of robot in pale ivory-white metal with faint green-glowing joints. Background tint emerald and moss.
+6. Myr Enforcer: a hulking, squat guardian robot in pale teal-blue armour - a huge rounded barrel body with a small glowing slot in its belly, no separate head, enormous plated forearms ending in oversized fists, short legs on big round feet - braced and immovable, like a living wall. Background tint teal and steel.
+
+Row 3:
+7. Lodestone Myr: a massive hunched brute robot in hammered copper-bronze armour with green verdigris patina, a glowing cyan core in its chest, heavy plated fists ready to strike, faint violet magnetic arcs crackling between its hands. Background tint copper and magnetic violet.
+8. The Graveyard: a Silver Myr lying broken face-down on dark ground, its cyan eye dim and flickering, one arm reaching out, a few shards and cold blue sparks around it, a faint violet glow of a grave behind. Background tint grey and pale violet.
+9. Myr colony: three of the slender teardrop-headed myrs walking together - a gold one, a dark gunmetal one and a pale ivory one, the middle one a step ahead - each with its glowing ring eye. Background tint neutral warm grey with a hint of each colour.
+```
+
+Done 2026-10-25 (`docs/icon_refs/myrs_painted_sheet.jpg`). `BaseUI._portrait` shows the lane's
+worker (`myr-<metal>`, silver while it has no lane) or the guard's own; a fallen myr keeps its own
+portrait, greyed (`IconStyle.greyed_material`), so the Graveyard still says which one it was. The
+"Myr" build button wears `myr-colony`, the guard buttons their own. `myr-graveyard` is cut but
+not used yet.

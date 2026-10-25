@@ -14,7 +14,23 @@ class_name BaseUI
 ## away by a delivery arriving.
 
 const IconStyle := preload("res://scripts/icon_style.gd")
-const MYR_PORTRAIT: Texture2D = preload("res://assets/icons/upkeep-myr.png")
+## Every myr's own portrait, painted from its model (docs/ICON_PROMPTS.md, "The myrs"): a
+## worker's by the lane it works - its model is that lane's - a guard's by its kind.
+const WORKER_PORTRAITS: Dictionary = {
+	"White": preload("res://assets/icons/myr-gold.png"),
+	"Blue": preload("res://assets/icons/myr-silver.png"),
+	"Black": preload("res://assets/icons/myr-leaden.png"),
+	"Red": preload("res://assets/icons/myr-iron.png"),
+	"Green": preload("res://assets/icons/myr-copper.png"),
+}
+const GUARD_PORTRAITS: Dictionary = {
+	Myr.ROLE_ENFORCER: preload("res://assets/icons/myr-enforcer.png"),
+	Myr.ROLE_LODESTONE: preload("res://assets/icons/myr-lodestone.png"),
+}
+## A worker with no lane yet has no model in the field; it is shown as the silver one.
+const UNASSIGNED_PORTRAIT: Texture2D = preload("res://assets/icons/myr-silver.png")
+## The "Myr" build button: workers, not one in particular.
+const BUILD_PORTRAIT: Texture2D = preload("res://assets/icons/myr-colony.png")
 
 ## Lane order, as the icon ids of their mana symbols and as the colour names; the indices are
 ## MainController.mana_sources' own order, so this cannot drift from the lanes.
@@ -188,14 +204,14 @@ func _build_ui() -> void:
 	var builds := HBoxContainer.new()
 	builds.add_theme_constant_override("separation", 10)
 	rows.add_child(builds)
-	build_btn = _build_button("Myr", Color.WHITE, "A worker: harvests the well it is sent to and carries the mana home.")
+	build_btn = _build_button("Myr", BUILD_PORTRAIT, "A worker: harvests the well it is sent to and carries the mana home.")
 	build_btn.pressed.connect(_on_build_pressed)
 	builds.add_child(build_btn)
-	_enforcer_btn = _build_button(Myr.ROLE_NAMES[Myr.ROLE_ENFORCER], Myr.ROLE_TINTS[Myr.ROLE_ENFORCER],
+	_enforcer_btn = _build_button(Myr.ROLE_NAMES[Myr.ROLE_ENFORCER], GUARD_PORTRAITS[Myr.ROLE_ENFORCER],
 		"A guard that holds a lane's well and draws attacks off the workers there. Costs 1 less for every worker myr.")
 	_enforcer_btn.pressed.connect(_on_build_guard_pressed.bind(Myr.ROLE_ENFORCER))
 	builds.add_child(_enforcer_btn)
-	_lodestone_btn = _build_button(Myr.ROLE_NAMES[Myr.ROLE_LODESTONE], Myr.ROLE_TINTS[Myr.ROLE_LODESTONE],
+	_lodestone_btn = _build_button(Myr.ROLE_NAMES[Myr.ROLE_LODESTONE], GUARD_PORTRAITS[Myr.ROLE_LODESTONE],
 		"A guard that fights for a lane's well, harder for every worker harvesting beside it.")
 	_lodestone_btn.pressed.connect(_on_build_guard_pressed.bind(Myr.ROLE_LODESTONE))
 	builds.add_child(_lodestone_btn)
@@ -244,16 +260,14 @@ func _build_ui() -> void:
 	lists.add_child(_graveyard_box)
 
 
-func _build_button(label: String, tint: Color, tooltip: String) -> Button:
+func _build_button(label: String, portrait: Texture2D, tooltip: String) -> Button:
 	var button := Button.new()
 	button.text = label
-	button.icon = MYR_PORTRAIT
+	button.icon = portrait
 	button.expand_icon = false
 	button.add_theme_constant_override("icon_max_width", 30)
 	button.add_theme_constant_override("h_separation", 10)
-	for state: String in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
-		button.add_theme_color_override(state, tint)
-	button.add_theme_color_override("icon_disabled_color", Color(tint, 0.35))
+	button.add_theme_color_override("icon_disabled_color", Color(1.0, 1.0, 1.0, 0.35))
 	button.custom_minimum_size = Vector2(0.0, 44.0)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.tooltip_text = tooltip
@@ -388,7 +402,7 @@ func _myr_card(myr: Myr, index: int) -> Control:
 	var card := _card_frame(lane_tint, 1.0)
 	var row: HBoxContainer = card.get_child(0)
 
-	row.add_child(_portrait(myr.role, lane_tint, false))
+	row.add_child(_portrait(myr.role, myr.lane_index, lane_tint, false))
 
 	var info := VBoxContainer.new()
 	info.custom_minimum_size = Vector2(220.0, 0.0)
@@ -466,7 +480,7 @@ func _grave_card(record: Dictionary) -> Control:
 	# to read as the live button it is.
 	var card := _card_frame(lane_tint.darkened(0.5), 1.0)
 	var row: HBoxContainer = card.get_child(0)
-	row.add_child(_portrait(role, lane_tint, true))
+	row.add_child(_portrait(role, lane, lane_tint, true))
 
 	var info := VBoxContainer.new()
 	info.custom_minimum_size = Vector2(220.0, 0.0)
@@ -525,18 +539,20 @@ func _card_frame(stripe: Color, alpha: float) -> PanelContainer:
 	return card
 
 
-## The myr's portrait, in a frame of its lane's colour; a guard's lit in its own, a fallen one
-## grey.
-func _portrait(role: String, lane_tint: Color, fallen: bool) -> Control:
+## The myr's own portrait, in a frame of its lane's colour - a guard's in its own colour, the
+## lane already having the card's stripe. A fallen one keeps its portrait, in grey, so the
+## Graveyard still shows which myr it was.
+func _portrait(role: String, lane: int, lane_tint: Color, fallen: bool) -> Control:
 	var frame := PanelContainer.new()
 	frame.add_theme_stylebox_override("panel", _box(Color(0, 0, 0, 0.5), lane_tint, 2, 8, 2))
-	var picture := _icon(MYR_PORTRAIT, PORTRAIT_SIZE)
+	var texture: Texture2D = GUARD_PORTRAITS.get(role, null)
+	if texture == null:
+		texture = WORKER_PORTRAITS[LANE_NAMES[lane]] if lane >= 0 and lane < LANE_NAMES.size() else UNASSIGNED_PORTRAIT
+	var picture := _icon(texture, PORTRAIT_SIZE)
 	if fallen:
-		picture.modulate = Color(0.45, 0.45, 0.5)
+		picture.material = IconStyle.greyed_material()
+		picture.modulate = Color(0.7, 0.7, 0.72)
 	elif Myr.ROLE_TINTS.has(role):
-		# A guard is framed in its own colour as well as lit in it: the lane already has the
-		# card's stripe, and a portrait tinted alone read as muddy rather than as a kind.
-		picture.modulate = Color.WHITE.lerp(Myr.ROLE_TINTS[role], 0.35)
 		frame.add_theme_stylebox_override("panel", _box(Color(0, 0, 0, 0.5), Myr.ROLE_TINTS[role], 2, 8, 2))
 	frame.add_child(picture)
 	return frame
@@ -616,6 +632,9 @@ func _icon(texture: Texture2D, side: float) -> TextureRect:
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	rect.custom_minimum_size = Vector2(side, side)
+	# Square, centred in its row. Left to fill, a row taller than the icon stretched it into a
+	# tall rectangle, and "covered" then cut the mana symbols off at the sides.
+	rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	rect.material = IconStyle.rounded_material()
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return rect

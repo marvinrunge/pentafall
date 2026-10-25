@@ -64,6 +64,13 @@ SETS = {
         "fling", "blood-frenzy", "powder-keg", "grapeshot",
         "fork", "goblin-sharpshooter", "chain-lightning", "goblin-bombardment",
     ],
+    # Every myr as it looks in the game (docs/ICON_PROMPTS.md, "The myrs"): the five workers in
+    # lane order, the two guards, a fallen worker for the Graveyard and three workers together.
+    "myrs": [
+        "myr-gold", "myr-silver", "myr-leaden",
+        "myr-iron", "myr-copper", "myr-enforcer",
+        "myr-lodestone", "myr-graveyard", "myr-colony",
+    ],
     "skills_green": [
         "become-immense", "entangling-vines", "kraul-harpooner",
         "awaken", "overrun", "call-of-the-herd",
